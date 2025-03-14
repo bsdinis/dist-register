@@ -1,0 +1,29 @@
+[package]
+name = "modelled"
+
+edition = "2024"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/bsdinis/dist-register"
+rust-version = "1.85"
+version = "0.0.1"
+
+[dependencies]
+clap = { version = "4.4.12", features = ["derive"] }
+crossbeam-channel = "0.5.15"
+rand = "0.9.1"
+rand_distr = "0.5.1"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = [ "std", "env-filter" ] }
+
+[lints.clippy]
+explicit_iter_loop = "warn"
+flat_map_option = "warn"
+implicit_clone = "warn"
+needless_for_each = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+useless_conversion = "warn"
+
+[profile.release]
+strip = "debuginfo"

@@ -5,8 +5,8 @@ use crate::abd::error;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::proto::Timestamp;
-use crate::network::Channel;
 use crate::network::connection_pool::ConnectionPool;
+use crate::network::Channel;
 use crate::proto::Tagged;
 
 pub trait AbdRegisterClient<C> {
@@ -71,7 +71,7 @@ where
             });
         }
 
-        tracing::info!(client_id = self.id(), quorum = ?replies, "reading: round one quorum obtained");
+        tracing::info!(client_id = self.id(), quorum = ?replies, quorum_size = self.quorum_size(), "reading: round one quorum obtained");
 
         if replies.iter().filter(|(_, ts)| **ts == max_ts).count() >= self.quorum_size() {
             tracing::info!(client_id = self.id(), "reading: unanimous decision");
@@ -89,6 +89,7 @@ where
 
         tracing::info!(
             client_id = self.id(),
+            quorum_size = self.quorum_size(),
             "reading: writing back, got {}/{} aggreement",
             max_ts_reads,
             old_n_ok
@@ -139,6 +140,7 @@ where
             tracing::info!(
                 client_id = self.id(),
                 ?quorum,
+                quorum_size = self.quorum_size(),
                 "reading: round two quorum obtained"
             );
             Ok((max_val, max_ts))
@@ -204,6 +206,7 @@ where
             .collect::<HashSet<usize>>();
         tracing::info!(
             client_id = self.id(),
+            quorum_size = self.quorum_size(),
             ?quorum,
             ?max_ts,
             "writing: received quorum for read phase"
@@ -258,6 +261,7 @@ where
                 .collect::<HashSet<usize>>();
             tracing::info!(
                 client_id = self.id(),
+                quorum_size = self.quorum_size(),
                 ?quorum,
                 "writing: received quorum for write phase"
             );

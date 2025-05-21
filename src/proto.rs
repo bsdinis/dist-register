@@ -14,6 +14,10 @@ impl<R> Tagged<R> {
 
         Tagged { tag, inner }
     }
+
+    pub fn into_inner(self) -> R {
+        self.inner
+    }
 }
 
 impl<R> std::ops::Deref for Tagged<R> {

@@ -1,5 +1,5 @@
-use rand::Rng;
 use rand::seq::SliceRandom;
+use rand::Rng;
 
 use crate::network::BufChannel;
 use crate::network::Channel;
@@ -7,15 +7,9 @@ use crate::network::Channel;
 use super::ChannelExt;
 use super::TaggedMessage;
 
-pub trait ConnectionPool<C>
-where
-    C: Channel,
-{
-    fn broadcast_filter<F: Fn(usize) -> bool>(&self, request: C::S, filter: F);
-
-    fn broadcast(&self, request: C::S) {
-        self.broadcast_filter(request, |_| true);
-    }
+type Resp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
+pub trait ConnectionPool {
+    type C: Channel;
 
     fn n_nodes(&self) -> usize;
 
@@ -29,13 +23,15 @@ where
     ) -> impl Iterator<
         Item = (
             usize,
-            Result<Option<C::R>, crate::network::error::TryRecvError>,
+            Result<Option<Resp<Self>>, crate::network::error::TryRecvError>,
         ),
     >;
 
     fn shuffle_faults(&self) {}
 
     fn id(&self) -> u64;
+
+    fn iter(&self) -> impl Iterator<Item = &Self::C>;
 }
 
 pub struct FlawlessPool<C> {
@@ -77,25 +73,15 @@ where
     }
 }
 
-impl<C> ConnectionPool<BufChannel<C>> for FlawlessPool<BufChannel<C>>
+impl<C> ConnectionPool for FlawlessPool<BufChannel<C>>
 where
     C: Channel,
-    C::R: TaggedMessage + std::fmt::Debug,
-    C::S: TaggedMessage + std::fmt::Debug + Clone,
+    C::R: TaggedMessage,
 {
-    fn broadcast_filter<F: Fn(usize) -> bool>(&self, request: C::S, filter_fn: F) {
-        tracing::info!(?request, "broadcast");
-        self.pool
-            .iter()
-            .enumerate()
-            .filter(|(idx, _channel)| filter_fn(*idx))
-            .map(|(idx, channel)| (idx, channel.send(request.clone())))
-            .for_each(|(idx, result)| {
-                if let Err(e) = result {
-                    tracing::error!("failed to send request to a replica {idx}: {e:?}");
-                }
-            });
-        tracing::debug!(?request, client_id = self.id(), "broadcast complete");
+    type C = BufChannel<C>;
+
+    fn iter(&self) -> impl Iterator<Item = &Self::C> {
+        self.pool.iter()
     }
 
     fn n_nodes(&self) -> usize {
@@ -104,7 +90,7 @@ where
 
     fn poll(
         &self,
-        request_id: u64,
+        request_tag: u64,
     ) -> impl Iterator<
         Item = (
             usize,
@@ -113,7 +99,7 @@ where
     > {
         self.pool
             .iter()
-            .map(move |channel| channel.try_recv_tag(request_id))
+            .map(move |channel| channel.try_recv_tag(request_tag))
             .enumerate()
     }
 
@@ -122,26 +108,16 @@ where
     }
 }
 
-impl<C> ConnectionPool<BufChannel<C>> for LossyPool<BufChannel<C>>
+impl<C> ConnectionPool for LossyPool<BufChannel<C>>
 where
-    C: ChannelExt,
     C: Channel,
-    C::R: TaggedMessage + std::fmt::Debug,
-    C::S: TaggedMessage + std::fmt::Debug + Clone,
+    C: ChannelExt,
+    C::R: TaggedMessage,
 {
-    fn broadcast_filter<F: Fn(usize) -> bool>(&self, request: C::S, filter_fn: F) {
-        tracing::info!(?request, "broadcast");
-        self.pool
-            .iter()
-            .enumerate()
-            .filter(|(idx, _channel)| filter_fn(*idx))
-            .map(|(idx, channel)| (idx, channel.send(request.clone())))
-            .for_each(|(idx, result)| {
-                if let Err(e) = result {
-                    tracing::error!("failed to send request to a replica {idx}: {e:?}");
-                }
-            });
-        tracing::debug!(?request, client_id = self.id(), "broadcast complete");
+    type C = BufChannel<C>;
+
+    fn iter(&self) -> impl Iterator<Item = &Self::C> {
+        self.pool.iter()
     }
 
     fn n_nodes(&self) -> usize {

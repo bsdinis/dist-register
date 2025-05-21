@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ops::Deref;
 
 use crate::abd::error;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::proto::Timestamp;
+use crate::network::broadcast_pool::BroadcastPool;
 use crate::network::connection_pool::ConnectionPool;
 use crate::network::Channel;
 use crate::proto::Tagged;
@@ -16,261 +18,189 @@ pub trait AbdRegisterClient<C> {
 
 impl<Pool, C> AbdRegisterClient<C> for Pool
 where
-    Pool: ConnectionPool<C>,
+    Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
 {
     fn read(&self) -> Result<(Option<u64>, Timestamp), error::Error> {
         self.shuffle_faults();
         tracing::info!(client_id = self.id(), "reading: first round");
-        let request = Tagged::tag(Request::Get);
-        let request_tag = request.tag;
-        self.broadcast(request);
 
-        let mut still_available = self.n_nodes();
-        let mut replies = HashMap::new();
-        let mut failed = HashSet::new();
-
-        let mut max_ts = Default::default();
-        let mut max_val = None;
-        while replies.len() < self.quorum_size() && still_available - failed.len() > 0 {
-            for (idx, response) in self.poll(request_tag) {
-                match response {
-                    Ok(r) => match r.as_deref() {
-                        Some(Response::Get { val, timestamp }) => {
-                            still_available -= 1;
-                            replies.insert(idx, *timestamp);
-                            if *timestamp > max_ts {
-                                max_ts = *timestamp;
-                                max_val = *val;
-                            }
-                        }
-                        Some(r) => {
-                            still_available -= 1;
-                            tracing::error!(
-                                "got weird response to get request {request_tag} from node #{idx}: {r:?}"
-                            );
-                        }
-                        None => {}
-                    },
-                    Err(e) => {
-                        if !failed.contains(&idx) {
-                            failed.insert(idx);
-                            tracing::error!(
-                                "failed to get response from node #{idx} for request {request_tag}: {e:?}"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        if replies.len() < self.quorum_size() {
-            return Err(error::Error::FailedFirstQuorum {
-                obtained: replies.len(),
+        let bpool = BroadcastPool::new(self);
+        let quorum = bpool
+            .broadcast(Request::Get)
+            // bellow is error handling and type agreement
+            .wait_for(
+                |s| s.replies().len() >= s.quorum_size(),
+                |r| match r.into_inner() {
+                    Response::Get { timestamp, val } => Ok((timestamp, val)),
+                    _ => Err(r),
+                },
+            )
+            .map_err(|e| error::Error::FailedFirstQuorum {
+                obtained: e.replies().len(),
                 required: self.quorum_size(),
-            });
-        }
+            })?;
 
-        tracing::info!(client_id = self.id(), quorum = ?replies, quorum_size = self.quorum_size(), "reading: round one quorum obtained");
+        // logging
+        let received: HashMap<_, _> = quorum
+            .replies()
+            .iter()
+            .map(|(idx, (ts, _val))| (idx, ts))
+            .collect();
 
-        if replies.iter().filter(|(_, ts)| **ts == max_ts).count() >= self.quorum_size() {
-            tracing::info!(client_id = self.id(), "reading: unanimous decision");
+        tracing::info!(
+            client_id = self.id(),
+            quorum = ?received,
+            quorum_size = self.quorum_size(),
+            "reading: received quorum for round one"
+        );
+
+        // check early return
+        let (max_ts, max_val) = quorum
+            .replies()
+            .iter()
+            .map(|(_idx, (ts, val))| (*ts, *val))
+            .max()
+            .expect("there should be at least one reply");
+        let n_max_ts = quorum
+            .replies()
+            .iter()
+            .filter(|(_idx, (ts, _val))| *ts == max_ts)
+            .count();
+
+        if n_max_ts >= self.quorum_size() {
+            tracing::info!(client_id = self.id(), "reading: early return");
             return Ok((max_val, max_ts));
         }
 
         // non-unanimous read: write-back
 
-        let old_n_ok = replies.len();
-        let mut n_ok = 0;
-        let mut received_response_from: Vec<_> = (0..self.n_nodes())
-            .map(|idx| replies.get(&idx) == Some(&max_ts))
-            .collect();
-        let max_ts_reads = received_response_from.iter().filter(|x| **x).count();
-
         tracing::info!(
             client_id = self.id(),
             quorum_size = self.quorum_size(),
-            "reading: writing back, got {}/{} aggreement",
-            max_ts_reads,
-            old_n_ok
+            n_max_ts,
+            received_replies = received.len(),
+            "reading: writing back"
         );
-        let request = Tagged::tag(Request::Write {
-            val: max_val,
-            timestamp: max_ts,
-        });
-        let request_tag = request.tag;
-        self.broadcast_filter(request, |idx| replies.get(&idx) != Some(&max_ts));
 
-        while n_ok < self.quorum_size() - max_ts_reads
-            && received_response_from.iter().any(|received| !received)
-        {
-            for (idx, response) in self.poll(request_tag) {
-                match response {
-                    Ok(r) => match r.as_deref() {
-                        Some(Response::Write) => {
-                            received_response_from[idx] = true;
-                            n_ok += 1;
-                        }
-                        Some(r) => {
-                            received_response_from[idx] = true;
-                            tracing::error!(
-                                "got weird response to get request from node #{idx}: {r:?}"
-                            );
-                        }
-                        None => {}
-                    },
-                    Err(e) => {
-                        if !received_response_from[idx] {
-                            received_response_from[idx] = true;
-                            tracing::error!(
-                                "failed to get response from node #{idx} for request {request_tag}: {e:?}"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        if n_ok + max_ts_reads >= self.quorum_size() {
-            let quorum = received_response_from
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, recv)| recv.then_some(idx))
-                .collect::<HashSet<usize>>();
-            tracing::info!(
-                client_id = self.id(),
-                ?quorum,
-                quorum_size = self.quorum_size(),
-                "reading: round two quorum obtained"
-            );
-            Ok((max_val, max_ts))
-        } else {
-            Err(error::Error::FailedSecondQuorum {
-                obtained: n_ok + max_ts_reads,
+        let bpool = BroadcastPool::new(self);
+        let new_quorum: HashSet<_> = bpool
+            .broadcast_filter(
+                Request::Write {
+                    val: max_val,
+                    timestamp: max_ts,
+                },
+                // writeback to replicas that did not have the maximum timestamp
+                |idx| {
+                    quorum
+                        .replies()
+                        .iter()
+                        .filter(|(_idx, (ts, _val))| *ts != max_ts)
+                        .any(|(nidx, _)| *nidx == idx)
+                },
+            )
+            // bellow is error handling + type handling + logging stuff
+            .wait_for(
+                |s| s.replies().len() + n_max_ts >= s.quorum_size(),
+                |r| match r.deref() {
+                    Response::Write => Ok(()),
+                    _ => Err(r),
+                },
+            )
+            .map_err(|e| error::Error::FailedSecondQuorum {
+                obtained: e.replies().len() + n_max_ts,
                 required: self.quorum_size(),
-            })
-        }
+            })?
+            .into_replies()
+            .map(|(idx, _)| idx)
+            .collect();
+
+        tracing::info!(
+            client_id = self.id(),
+            min_quorum_size = self.quorum_size(),
+            quorum = ?new_quorum,
+            "writing: received replies for write phase"
+        );
+
+        Ok((max_val, max_ts))
     }
 
     fn write(&self, val: Option<u64>) -> Result<(), error::Error> {
         self.shuffle_faults();
         tracing::info!(client_id = self.id(), ?val, "writing: read timestamp phase");
-        let request = Tagged::tag(Request::GetTimestamp);
-        let request_tag = request.tag;
-        self.broadcast(request);
 
-        let mut n_ok = 0;
-        let mut received_response_from: Vec<_> = (0..self.n_nodes()).map(|_| false).collect();
-        let mut max_ts = Default::default();
-        while n_ok < self.quorum_size() && received_response_from.iter().any(|received| !received) {
-            for (idx, response) in self.poll(request_tag) {
-                match response {
-                    Ok(r) => match r.as_deref() {
-                        Some(Response::GetTimestamp { timestamp }) => {
-                            n_ok += 1;
-                            received_response_from[idx] = true;
-                            if *timestamp > max_ts {
-                                max_ts = *timestamp;
-                            }
-                        }
-                        Some(r) => {
-                            received_response_from[idx] = true;
-                            tracing::error!(
-                                "got weird response to get request from node #{idx}: {r:?}"
-                            );
-                        }
-                        None => {}
+        let max_ts = {
+            let bpool = BroadcastPool::new(self);
+
+            let quorum = bpool
+                .broadcast(Request::GetTimestamp)
+                // bellow is error handling and type agreement
+                .wait_for(
+                    |s| s.replies().len() >= s.quorum_size(),
+                    |r| match r.deref() {
+                        Response::GetTimestamp { timestamp } => Ok(*timestamp),
+                        _ => Err(r),
                     },
-                    Err(e) => {
-                        if !received_response_from[idx] {
-                            received_response_from[idx] = true;
-                            tracing::error!(
-                                "failed to get response from node #{idx} for request {request_tag}: {e:?}"
-                            );
-                        }
-                    }
-                }
-            }
-        }
+                )
+                .map_err(|e| error::Error::FailedFirstQuorum {
+                    obtained: e.replies().len(),
+                    required: self.quorum_size(),
+                })?;
 
-        if n_ok < self.quorum_size() {
-            return Err(error::Error::FailedFirstQuorum {
-                obtained: n_ok,
-                required: self.quorum_size(),
-            });
-        }
-        let quorum = received_response_from
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, recv)| recv.then_some(idx))
-            .collect::<HashSet<usize>>();
-        tracing::info!(
-            client_id = self.id(),
-            quorum_size = self.quorum_size(),
-            ?quorum,
-            ?max_ts,
-            "writing: received quorum for read phase"
-        );
-
-        tracing::info!(client_id = self.id(), "writing: write phase");
-        let request = Tagged::tag(Request::Write {
-            val,
-            timestamp: Timestamp {
-                seqno: max_ts.seqno + 1,
-                client_id: self.id(),
-            },
-        });
-        let request_tag = request.tag;
-        self.broadcast(request);
-
-        let mut n_ok = 0;
-        let mut received_response_from: Vec<_> = (0..self.n_nodes()).map(|_| false).collect();
-        while n_ok < self.quorum_size() && received_response_from.iter().any(|received| !received) {
-            for (idx, response) in self.poll(request_tag) {
-                match response {
-                    Ok(r) => match r.as_deref() {
-                        Some(Response::Write) => {
-                            received_response_from[idx] = true;
-                            n_ok += 1;
-                        }
-                        Some(r) => {
-                            received_response_from[idx] = true;
-                            tracing::error!(
-                                "got weird response to get request from node #{idx}: {r:?}"
-                            );
-                        }
-                        None => {}
-                    },
-                    Err(e) => {
-                        if !received_response_from[idx] {
-                            received_response_from[idx] = true;
-                            tracing::error!(
-                                "failed to get response from node #{idx} for request {request_tag}: {e:?}"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        if n_ok >= self.quorum_size() {
-            let quorum = received_response_from
+            let max_ts = quorum
+                .replies()
                 .iter()
-                .enumerate()
-                .filter_map(|(idx, recv)| recv.then_some(idx))
-                .collect::<HashSet<usize>>();
+                .map(|(_idx, ts)| *ts)
+                .max()
+                .expect("the quorum should never be empty");
+
+            // logging
+            let quorum: HashMap<_, _> = quorum.into_replies().collect();
+
             tracing::info!(
                 client_id = self.id(),
                 quorum_size = self.quorum_size(),
                 ?quorum,
+                ?max_ts,
+                "writing: received quorum for read phase, going into writing"
+            );
+
+            Ok(max_ts)
+        }?;
+
+        {
+            let bpool = BroadcastPool::new(self);
+            let quorum: HashSet<_> = bpool
+                .broadcast(Request::Write {
+                    val,
+                    timestamp: Timestamp {
+                        seqno: max_ts.seqno + 1,
+                        client_id: self.id(),
+                    },
+                })
+                // bellow is error handling + type handling + logging stuff
+                .wait_for(
+                    |s| s.replies().len() >= s.quorum_size(),
+                    |r| match r.deref() {
+                        Response::Write => Ok(()),
+                        _ => Err(r),
+                    },
+                )
+                .map_err(|e| error::Error::FailedSecondQuorum {
+                    obtained: e.replies().len(),
+                    required: self.quorum_size(),
+                })?
+                .into_replies()
+                .map(|(idx, _)| idx)
+                .collect();
+
+            tracing::info!(
+                client_id = self.id(),
+                min_quorum_size = self.quorum_size(),
+                ?quorum,
                 "writing: received quorum for write phase"
             );
             Ok(())
-        } else {
-            Err(error::Error::FailedSecondQuorum {
-                obtained: n_ok,
-                required: self.quorum_size(),
-            })
         }
     }
 }

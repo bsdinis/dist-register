@@ -1,6 +1,9 @@
+pub mod broadcast_pool;
 pub mod connection_pool;
 pub mod error;
 pub mod modelled;
+pub mod replies;
+pub mod request_context;
 
 use std::collections::HashMap;
 use std::sync::Mutex;

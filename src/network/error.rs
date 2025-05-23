@@ -2,6 +2,10 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::Display;
 
+use vstd::prelude::*;
+
+verus! {
+
 #[derive(Debug)]
 pub enum TryListenError {
     Empty,
@@ -21,6 +25,15 @@ pub struct SendError<S>(pub S);
 pub struct ConnectError;
 
 impl Error for TryListenError {}
+
+impl Error for TryRecvError {}
+
+impl<S: Display + Debug> Error for SendError<S> {}
+
+impl Error for ConnectError {}
+
+}
+
 impl Display for TryListenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -30,7 +43,6 @@ impl Display for TryListenError {
     }
 }
 
-impl Error for TryRecvError {}
 impl Display for TryRecvError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -40,7 +52,6 @@ impl Display for TryRecvError {
     }
 }
 
-impl<S: Display + Debug> Error for SendError<S> {}
 impl<S: Display + Debug> Display for SendError<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("SendError: ")?;
@@ -48,7 +59,6 @@ impl<S: Display + Debug> Display for SendError<S> {
     }
 }
 
-impl Error for ConnectError {}
 impl Display for ConnectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Error connecting")

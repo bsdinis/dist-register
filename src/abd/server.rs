@@ -1,21 +1,33 @@
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
+use crate::network::modelled::ModelledConnector;
 use crate::network::Channel;
 use crate::network::Listener;
-use crate::network::modelled::ModelledConnector;
 use crate::proto::Tagged;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::RwLock;
 
 use super::proto::Timestamp;
 
+use vstd::prelude::*;
+use vstd::rwlock::RwLock;
+
+verus! {
+
+struct EmptyCond;
+
+impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
+    open spec fn inv(self, v: V) -> bool {
+        true
+    }
+}
+
+#[verifier::reject_recursive_types(C)]
 struct RegisterServer<L, C> {
     id: u64,
-    register: RwLock<(Option<u64>, Timestamp)>,
-    connected: Mutex<HashMap<u64, C>>,
+    register: RwLock<(Option<u64>, Timestamp), EmptyCond>,
+    connected: RwLock<HashMap<u64, C>, EmptyCond>,
     listener: L,
 }
 
@@ -27,45 +39,57 @@ where
     pub fn new(listener: L, id: u64) -> Self {
         RegisterServer {
             id,
-            register: RwLock::new((None, Timestamp::default())),
-            connected: Mutex::new(HashMap::new()),
+            register: RwLock::new((None, Timestamp::default()), Ghost(EmptyCond)),
+            connected: RwLock::new(HashMap::new(), Ghost(EmptyCond)),
             listener,
         }
     }
 
     fn accept(&self, channel: C) {
-        tracing::debug!(client_id = channel.id(), "accepting new client");
-        self.connected.lock().unwrap().insert(channel.id(), channel);
+        // tracing::debug!(client_id = channel.id(), "accepting new client");
+        let (mut guard, handle) = self.connected.acquire_write();
+        guard.insert(channel.id(), channel);
+        handle.release_write(guard);
     }
 
-    fn handle(&self, request: Tagged<Request>, client_id: u64) -> Tagged<Response> {
-        tracing::info!(?request, client_id, "handle@{}", self.id);
-        match *request {
+    fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response> {
+        // tracing::info!(?request, client_id, "handle@{}", self.id);
+        match request.into_inner() {
             Request::Get => {
-                let guard = self.register.read().unwrap();
+                let handle = self.register.acquire_read();
+                let (val, timestamp) = handle.borrow();
+                let val = val.clone();
+                let timestamp = timestamp.clone();
+                handle.release_read();
 
                 Tagged {
                     tag: request.tag,
                     inner: Response::Get {
-                        val: guard.0,
-                        timestamp: guard.1,
+                        val,
+                        timestamp
                     },
                 }
             }
             Request::GetTimestamp => {
-                let guard = self.register.read().unwrap();
+                let handle = self.register.acquire_read();
+                let (_val, timestamp) = handle.borrow();
+                let timestamp = timestamp.clone();
+                handle.release_read();
 
                 Tagged {
                     tag: request.tag,
-                    inner: Response::GetTimestamp { timestamp: guard.1 },
+                    inner: Response::GetTimestamp { timestamp },
                 }
             }
             Request::Write { val, timestamp } => {
-                let mut guard = self.register.write().unwrap();
+                let (mut guard, handle) = self.register.acquire_write();
 
-                if guard.1 < timestamp {
-                    *guard = (val, timestamp);
+                if guard.1.seqno < timestamp.seqno ||
+                    (guard.1.seqno == timestamp.seqno && guard.1.client_id < timestamp.client_id) {
+                    guard = (val, timestamp);
                 }
+
+                handle.release_write(guard);
 
                 Tagged {
                     tag: request.tag,
@@ -76,7 +100,13 @@ where
     }
 
     fn poll(&self) -> bool {
-        loop {
+        // verus does not support unbounded loops + streams probably don't/can't have specs
+        // so we do this up to 10 times every time
+
+        let mut i = 10;
+        while i > 0
+            decreases i
+        {
             match self.listener.try_accept() {
                 Ok(channel) => self.accept(channel),
                 Err(crate::network::error::TryListenError::Empty) => {
@@ -86,41 +116,47 @@ where
                     return false;
                 }
             }
+
+            i = i - 1;
         }
 
         let mut drop = Vec::new();
-        let mut connected = self.connected.lock().unwrap();
-        for (id, channel) in connected.iter() {
+        let (mut connected, handle) = self.connected.acquire_write();
+
+        let it = connected.iter();
+        for (id, channel) in it {
             match channel.try_recv() {
-                Ok(req) => {
-                    tracing::debug!(
-                        client_id = channel.id(),
-                        request_tag = req.tag,
-                        "received request"
-                    );
-                    let response = self.handle(req, *id);
-                    if channel.send(response).is_err() {
-                        tracing::debug!("client {id} disconnected on send");
+                    Ok(req) => {
+                        // tracing::debug!(
+                            // client_id = channel.id(),
+                            // request_tag = req.tag,
+                            // "received request"
+                        // );
+                        let response = self.handle(req, *id);
+                        if channel.send(response).is_err() {
+                            // tracing::debug!("client {id} disconnected on send");
+                            drop.push(*id);
+                        }
+                    }
+                    Err(crate::network::error::TryRecvError::Empty) => {}
+                    Err(crate::network::error::TryRecvError::Disconnected) => {
+                        // tracing::debug!("client {id} disconnected on receive");
                         drop.push(*id);
                     }
-                    break;
                 }
-                Err(crate::network::error::TryRecvError::Empty) => {}
-                Err(crate::network::error::TryRecvError::Disconnected) => {
-                    tracing::debug!("client {id} disconnected on receive");
-                    drop.push(*id);
-                    break;
-                }
-            }
         }
 
         for id in drop {
-            tracing::debug!(client_id = id, "dropping client");
+            // tracing::debug!(client_id = id, "dropping client");
             connected.remove(&id);
         }
 
+        handle.release_write(connected);
+
         true
     }
+}
+
 }
 
 pub fn run_modelled_server(id: u64) -> ModelledConnector<Tagged<Response>, Tagged<Request>> {

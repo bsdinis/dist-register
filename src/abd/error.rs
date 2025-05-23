@@ -1,7 +1,13 @@
+use vstd::prelude::*;
+
+verus! {
 #[derive(Debug)]
 pub enum Error {
     FailedFirstQuorum { obtained: usize, required: usize },
     FailedSecondQuorum { obtained: usize, required: usize },
+}
+
+impl std::error::Error for Error {}
 }
 
 impl std::fmt::Display for Error {
@@ -14,5 +20,3 @@ impl std::fmt::Display for Error {
         }
     }
 }
-
-impl std::error::Error for Error {}

@@ -7,12 +7,16 @@ use super::error::TryRecvError;
 
 type Resp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
 
+use vstd::prelude::*;
+
+verus! {
+
 pub struct RequestContext<'a, Pool: ConnectionPool, T> {
-    pool: &'a Pool,
-    request_tag: u64,
-    replies: Vec<(usize, T)>,
-    invalid_replies: Vec<(usize, <Pool::C as Channel>::R)>,
-    errors: Vec<(usize, TryRecvError)>,
+    pub pool: &'a Pool,
+    pub request_tag: u64,
+    pub replies: Vec<(usize, T)>,
+    pub invalid_replies: Vec<(usize, <Pool::C as Channel>::R)>,
+    pub errors: Vec<(usize, TryRecvError)>,
 }
 
 impl<'a, Pool: ConnectionPool, T> RequestContext<'a, Pool, T> {
@@ -27,15 +31,15 @@ impl<'a, Pool: ConnectionPool, T> RequestContext<'a, Pool, T> {
     }
 
     pub fn replies(&self) -> &[(usize, T)] {
-        &self.replies
+        self.replies.as_slice()
     }
 
     pub fn invalid_replies(&self) -> &[(usize, <Pool::C as Channel>::R)] {
-        &self.invalid_replies
+        self.invalid_replies.as_slice()
     }
 
     pub fn errors(&self) -> &[(usize, TryRecvError)] {
-        &self.errors
+        self.errors.as_slice()
     }
 
     pub fn tag(&self) -> u64 {
@@ -49,8 +53,9 @@ impl<'a, Pool: ConnectionPool, T> RequestContext<'a, Pool, T> {
         self.pool.quorum_size()
     }
 
+    #[verifier::exec_allows_no_decreases_clause]
     pub fn wait_for<F, V>(
-        mut self,
+        self,
         termination_cond: F,
         extractor_fn: V,
     ) -> Result<Replies<T, Resp<Pool>>, Replies<T, Resp<Pool>>>
@@ -58,51 +63,64 @@ impl<'a, Pool: ConnectionPool, T> RequestContext<'a, Pool, T> {
         F: Fn(&Self) -> bool,
         V: Fn(<Pool::C as Channel>::R) -> Result<T, <Pool::C as Channel>::R>,
     {
-        loop {
-            if termination_cond(&self) {
-                break Ok(Replies::new(
-                    self.replies,
-                    self.invalid_replies,
-                    self.errors,
+        let mut self_mut = self;
+        assume(self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len() < usize::MAX);
+        loop
+            invariant self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len() < usize::MAX
+        {
+            assume(termination_cond.requires((&self_mut,)));
+            if termination_cond(&self_mut) {
+                return Ok(Replies::new(
+                    self_mut.replies,
+                    self_mut.invalid_replies,
+                    self_mut.errors,
                 ));
             }
 
-            if self.replies().len() >= self.pool.quorum_size()
-                || self.replies.len() + self.errors.len() + self.invalid_replies.len()
-                    >= self.pool.n_nodes()
+            if self_mut.replies().len() >= self_mut.pool.quorum_size()
+                || self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len()
+                    >= self_mut.pool.n_nodes()
             {
-                break Err(Replies::new(
-                    self.replies,
-                    self.invalid_replies,
-                    self.errors,
+                return Err(Replies::new(
+                    self_mut.replies,
+                    self_mut.invalid_replies,
+                    self_mut.errors,
                 ));
             }
 
             let mut replies = vec![];
             let mut invalid_replies = vec![];
             let mut errors = vec![];
-            for (idx, response) in self.pool.poll(self.request_tag) {
+            let it = self_mut.pool.poll(self_mut.request_tag);
+            for (idx, response) in it {
                 match response {
-                    Ok(Some(r)) => match extractor_fn(r) {
+                    Ok(Some(r)) => {
+                        assume(extractor_fn.requires((r,)));
+                        match extractor_fn(r) {
                         Ok(v) => replies.push((idx, v)),
                         Err(resp) => invalid_replies.push((idx, resp)),
-                    },
+                    }},
                     Ok(None) => {}
                     Err(e) => {
+                        /*
                         tracing::error!(
                             failing_node = idx,
-                            request_tag = self.request_tag,
+                            request_tag = self_mut.request_tag,
                             error = ?e,
                             "failed to get response"
                         );
+                        */
                         errors.push((idx, e));
                     }
                 }
             }
 
-            self.replies.append(&mut replies);
-            self.invalid_replies.append(&mut invalid_replies);
-            self.errors.append(&mut errors);
+            self_mut.replies.append(&mut replies);
+            self_mut.invalid_replies.append(&mut invalid_replies);
+            self_mut.errors.append(&mut errors);
+            assume(self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len() < usize::MAX);
         }
     }
+}
+
 }

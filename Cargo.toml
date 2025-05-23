@@ -16,6 +16,11 @@ rand_distr = "0.5.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = [ "std", "env-filter" ] }
 
+# verus
+vstd = { path = "../verus/source/vstd" }
+builtin = { path = "../verus/source/builtin" }
+builtin_macros = { path = "../verus/source/builtin_macros" }
+
 [lints.clippy]
 explicit_iter_loop = "warn"
 flat_map_option = "warn"
@@ -25,5 +30,11 @@ semicolon_if_nothing_returned = "warn"
 uninlined_format_args = "warn"
 useless_conversion = "warn"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_keep_ghost)'] }
+
 [profile.release]
 strip = "debuginfo"
+
+[package.metadata.verus]
+verify = true

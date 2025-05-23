@@ -6,7 +6,7 @@ pub mod replies;
 pub mod request_context;
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::time::Duration;
 
 use crate::network::error::ConnectError;
 use crate::network::error::SendError;
@@ -14,6 +14,35 @@ use crate::network::error::TryListenError;
 use crate::network::error::TryRecvError;
 
 use rand_distr::{Distribution, Normal};
+
+use vstd::prelude::*;
+use vstd::rwlock::RwLock;
+
+fn park_thread(mean: Duration, std_dev: Duration) {
+    let normal = Normal::new(mean.as_secs_f64(), std_dev.as_secs_f64())
+        .expect("should be able to construct normal distribution");
+    let wait = normal.sample(&mut rand::rng());
+    if wait.is_sign_positive() {
+        std::thread::sleep(Duration::from_secs_f64(wait));
+    }
+}
+
+fn default_delay() -> (Duration, Duration) {
+    Default::default()
+}
+
+verus! {
+
+struct EmptyCond;
+
+impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
+    open spec fn inv(self, v: V) -> bool {
+        true
+    }
+}
+
+pub assume_specification[park_thread](mean: Duration, std_dev: Duration);
+pub assume_specification[default_delay]() -> (a: (Duration, Duration));
 
 pub trait Channel {
     type R;
@@ -23,18 +52,14 @@ pub trait Channel {
     fn send(&self, v: Self::S) -> Result<(), SendError<Self::S>>;
     fn id(&self) -> u64;
 
-    fn add_latency(&mut self, _avg: std::time::Duration, _stddev: std::time::Duration) {}
-    fn delay(&self) -> (std::time::Duration, std::time::Duration) {
-        Default::default()
+    fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {}
+    fn delay(&self) -> (Duration, Duration) {
+        default_delay()
     }
+
     fn wait(&self) {
         let (mean, std_dev) = self.delay();
-        let normal = Normal::new(mean.as_secs_f64(), std_dev.as_secs_f64())
-            .expect("should be able to construct normal distribution");
-        let wait = normal.sample(&mut rand::rng());
-        if wait.is_sign_positive() {
-            std::thread::sleep(std::time::Duration::from_secs_f64(wait));
-        }
+        park_thread(mean, std_dev);
     }
 }
 
@@ -65,14 +90,14 @@ where
 
 pub struct BufChannel<C: Channel> {
     channel: C,
-    buffered: Mutex<HashMap<u64, C::R>>,
+    buffered: RwLock<HashMap<u64, C::R>, EmptyCond>,
 }
 
 impl<C: Channel> BufChannel<C> {
     pub fn new(channel: C) -> Self {
         BufChannel {
             channel,
-            buffered: Default::default(),
+            buffered: RwLock::new(HashMap::new(), Ghost(EmptyCond)),
         }
     }
 }
@@ -83,14 +108,19 @@ where
     C::R: TaggedMessage,
 {
     pub fn try_recv_tag(&self, tag: u64) -> Result<Option<C::R>, TryRecvError> {
-        if let Some(r) = self.buffered.lock().unwrap().remove(&tag) {
+        let (mut guard, handle) = self.buffered.acquire_write();
+        if let Some(r) = guard.remove(&tag) {
+            handle.release_write(guard);
             return Ok(Some(r));
         }
+        handle.release_write(guard);
 
         match self.channel.try_recv() {
             Ok(r) if r.tag() == tag => Ok(Some(r)),
             Ok(r) => {
-                self.buffered.lock().unwrap().insert(r.tag(), r);
+                let (mut guard, handle) = self.buffered.acquire_write();
+                guard.insert(r.tag(), r);
+                handle.release_write(guard);
                 Ok(None)
             }
             Err(crate::network::TryRecvError::Disconnected) => Err(TryRecvError::Disconnected),
@@ -115,10 +145,10 @@ impl<C: Channel> Channel for BufChannel<C> {
     fn wait(&self) {
         self.channel.wait();
     }
-    fn delay(&self) -> (std::time::Duration, std::time::Duration) {
+    fn delay(&self) -> (Duration, Duration) {
         self.channel.delay()
     }
-    fn add_latency(&mut self, avg: std::time::Duration, stddev: std::time::Duration) {
+    fn add_latency(&mut self, avg: Duration, stddev: Duration) {
         self.channel.add_latency(avg, stddev);
     }
 }
@@ -130,4 +160,6 @@ impl<C: ChannelExt + Channel> ChannelExt for BufChannel<C> {
     fn induce_fault(&self) -> bool {
         self.channel.induce_fault()
     }
+}
+
 }

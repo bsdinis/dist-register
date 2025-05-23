@@ -1,10 +1,14 @@
 #![allow(dead_code)]
 use super::error::TryRecvError;
 
+use vstd::prelude::verus;
+
+verus! {
+
 pub struct Replies<T, R> {
-    replies: Vec<(usize, T)>,
-    invalid_replies: Vec<(usize, R)>,
-    errors: Vec<(usize, TryRecvError)>,
+    pub replies: Vec<(usize, T)>,
+    pub invalid_replies: Vec<(usize, R)>,
+    pub errors: Vec<(usize, TryRecvError)>,
 }
 
 impl<T, R> Replies<T, R> {
@@ -21,26 +25,28 @@ impl<T, R> Replies<T, R> {
     }
 
     pub fn replies(&self) -> &[(usize, T)] {
-        &self.replies
+        self.replies.as_slice()
     }
 
-    pub fn into_replies(self) -> impl Iterator<Item = (usize, T)> {
-        self.replies.into_iter()
+    pub fn into_replies(self) -> Vec<(usize, T)> {
+        self.replies
     }
 
     pub fn invalid_replies(&self) -> &[(usize, R)] {
-        &self.invalid_replies
+        self.invalid_replies.as_slice()
     }
 
-    pub fn into_invalid_replies(self) -> impl Iterator<Item = (usize, R)> {
-        self.invalid_replies.into_iter()
+    pub fn into_invalid_replies(self) -> Vec<(usize, R)> {
+        self.invalid_replies
     }
 
     pub fn errors(&self) -> &[(usize, TryRecvError)] {
-        &self.errors
+        self.errors.as_slice()
     }
 
-    pub fn into_errors(self) -> impl Iterator<Item = (usize, TryRecvError)> {
-        self.errors.into_iter()
+    pub fn into_errors(self) -> Vec<(usize, TryRecvError)> {
+        self.errors
     }
+}
+
 }

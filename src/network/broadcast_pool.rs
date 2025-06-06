@@ -30,7 +30,6 @@ where
         filter_fn: F,
     ) -> RequestContext<'a, Pool, T>
     {
-        // tracing::info!(?request, "broadcast");
         let tagged = Tagged::tag(request);
         let conns = self.pool.conns();
         for idx in 0..conns.len() {
@@ -38,10 +37,8 @@ where
             if filter_fn(idx) {
                 let channel = &conns[idx];
                 let _res = channel.send(tagged.clone());
-                // if res.is_err() { tracing::error!("failed to send request to a replica {idx}: {e:?}") };
             }
         }
-        // tracing::debug!(?tagged, client_id = self.pool.id(), "broadcast complete");
         RequestContext::new(self.pool, tagged.tag())
     }
 

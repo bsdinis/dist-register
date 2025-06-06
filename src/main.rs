@@ -12,8 +12,8 @@ mod proto;
 
 use abd::client::AbdRegisterClient;
 use abd::server::run_modelled_server;
+use network::connection_pool::ConnectionPool;
 use network::connection_pool::FlawlessPool;
-use network::connection_pool::LossyPool;
 use network::error::ConnectError;
 use network::BufChannel;
 use network::Channel;
@@ -24,28 +24,9 @@ use proto::Tagged;
 const REQUEST_LATENCY_DEFAULT: std::time::Duration = std::time::Duration::from_millis(1000);
 const REQUEST_STDDEV_DEFAULT: std::time::Duration = std::time::Duration::from_millis(2000);
 
-#[derive(clap::ValueEnum, Clone, Default, Debug)]
-enum Mode {
-    #[default]
-    Flawless,
-    Lossy,
-}
-
-impl std::fmt::Display for Mode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&self, f)
-    }
-}
-
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
 struct Args {
-    #[arg(short, long, default_value = "flawless")]
-    mode: Mode,
-
-    #[arg(short, long)]
-    faults: Option<u64>,
-
     #[arg(short, long, default_value_t = 5)]
     n_servers: u64,
 
@@ -161,13 +142,8 @@ where
 
     let client_fn = |id: u64, cv: Arc<(Mutex<u64>, Condvar)>| {
         let pool = connect_all(&args, connectors, id)?;
-        let client: Arc<dyn AbdRegisterClient<BufChannel<C>> + Sync + Send> = match args.mode {
-            Mode::Flawless => Arc::new(FlawlessPool::new(pool, id)),
-            Mode::Lossy => {
-                let faults = args.faults.unwrap_or((pool.len() as u64 - 1) / 2) as usize;
-                Arc::new(LossyPool::new(pool, faults, id))
-            }
-        };
+        let client = FlawlessPool::new(pool, id);
+        println!("quorum size: {}", client.quorum_size());
 
         let (lock, var) = &*cv;
         let mut unconnected = lock.lock().unwrap();

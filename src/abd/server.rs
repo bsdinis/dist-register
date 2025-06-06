@@ -46,20 +46,18 @@ where
     }
 
     fn accept(&self, channel: C) {
-        // tracing::debug!(client_id = channel.id(), "accepting new client");
         let (mut guard, handle) = self.connected.acquire_write();
         guard.insert(channel.id(), channel);
         handle.release_write(guard);
     }
 
     fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response> {
-        // tracing::info!(?request, client_id, "handle@{}", self.id);
         match request.into_inner() {
             Request::Get => {
                 let handle = self.register.acquire_read();
                 let (val, timestamp) = handle.borrow();
-                let val = val.clone();
-                let timestamp = timestamp.clone();
+                let val = *val;
+                let timestamp = *timestamp;
                 handle.release_read();
 
                 Tagged {
@@ -73,7 +71,7 @@ where
             Request::GetTimestamp => {
                 let handle = self.register.acquire_read();
                 let (_val, timestamp) = handle.borrow();
-                let timestamp = timestamp.clone();
+                let timestamp = *timestamp;
                 handle.release_read();
 
                 Tagged {
@@ -117,7 +115,7 @@ where
                 }
             }
 
-            i = i - 1;
+            i -= 1;
         }
 
         let mut drop = Vec::new();
@@ -127,27 +125,19 @@ where
         for (id, channel) in it {
             match channel.try_recv() {
                     Ok(req) => {
-                        // tracing::debug!(
-                            // client_id = channel.id(),
-                            // request_tag = req.tag,
-                            // "received request"
-                        // );
                         let response = self.handle(req, *id);
                         if channel.send(response).is_err() {
-                            // tracing::debug!("client {id} disconnected on send");
                             drop.push(*id);
                         }
                     }
                     Err(crate::network::error::TryRecvError::Empty) => {}
                     Err(crate::network::error::TryRecvError::Disconnected) => {
-                        // tracing::debug!("client {id} disconnected on receive");
                         drop.push(*id);
                     }
                 }
         }
 
         for id in drop {
-            // tracing::debug!(client_id = id, "dropping client");
             connected.remove(&id);
         }
 

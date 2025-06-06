@@ -1,8 +1,8 @@
 use std::sync::atomic::AtomicBool;
 
+use crossbeam_channel::unbounded;
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
-use crossbeam_channel::unbounded;
 
 use crate::network::Channel;
 use crate::network::ConnectError;
@@ -164,7 +164,10 @@ impl<R, S> ServerChannel<R, S> {
 impl<R, S> Listener<ClientChannel<R, S>> for ModelledListener<R, S> {
     fn try_accept(&self) -> Result<ClientChannel<R, S>, crate::network::TryListenError> {
         let client_id = self.registering_rx.try_recv()?;
-        tracing::debug!(client_id, server_id = self.id, "accepting a connection");
+        eprintln!(
+            "[server|{:>3}]: accepting a connection from client {client_id}",
+            self.id
+        );
 
         let (resp_tx, resp_rx) = unbounded();
         let (req_tx, req_rx) = unbounded();
@@ -179,7 +182,7 @@ impl<R, S> Listener<ClientChannel<R, S>> for ModelledListener<R, S> {
 
 impl<R, S> Connector<ServerChannel<R, S>> for ModelledConnector<R, S> {
     fn connect(&self, id: u64) -> Result<ServerChannel<R, S>, ConnectError> {
-        tracing::debug!(?id, "connecting from client");
+        eprintln!("[client|{id:>3}]: connecting from client");
         self.registering_tx.send(id).map_err(|_| ConnectError)?;
         let (server_id, tx, rx) = self.connection_rx.recv().map_err(|_| ConnectError)?;
         Ok(ServerChannel::new(server_id, tx, rx))

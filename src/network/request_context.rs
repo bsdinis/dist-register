@@ -102,14 +102,6 @@ impl<'a, Pool: ConnectionPool, T> RequestContext<'a, Pool, T> {
                     }},
                     Ok(None) => {}
                     Err(e) => {
-                        /*
-                        tracing::error!(
-                            failing_node = idx,
-                            request_tag = self_mut.request_tag,
-                            error = ?e,
-                            "failed to get response"
-                        );
-                        */
                         errors.push((idx, e));
                     }
                 }

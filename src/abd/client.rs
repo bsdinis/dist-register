@@ -14,7 +14,9 @@ use vstd::prelude::*;
 
 verus! {
 
-fn max_from_replies(vals: &[(usize, (Timestamp, Option<u64>))]) -> Option<(Timestamp, Option<u64>)> {
+fn max_from_get_replies(vals: &[(usize, (Timestamp, Option<u64>))]) -> (r: Option<(Timestamp, Option<u64>)>)
+    ensures vals.len() > 0 ==> r is Some
+{
     if vals.len() == 0 {
         return None;
     }
@@ -38,6 +40,31 @@ fn max_from_replies(vals: &[(usize, (Timestamp, Option<u64>))]) -> Option<(Times
     }
 
     Some(vals[max_idx].1)
+}
+
+fn max_from_get_ts_replies(vals: &[(usize, Timestamp)]) -> (r: Option<Timestamp>)
+    ensures vals.len() > 0 ==> r is Some
+{
+    if vals.len() == 0 {
+        return None;
+    }
+
+    assert(vals.len() > 0);
+
+    let mut max_ts = vals[0].1;
+    for idx in 1..(vals.len())
+    {
+        if vals[idx].1.seqno > max_ts.seqno ||
+            (
+        vals[idx].1.seqno == max_ts.seqno &&
+        vals[idx].1.client_id > max_ts.client_id
+            )
+        {
+            max_ts = vals[idx].1;
+        }
+    }
+
+    Some(max_ts)
 }
 
 pub trait AbdRegisterClient<C> {
@@ -67,8 +94,10 @@ where
             })?;
 
         // check early return
-        let opt = max_from_replies(quorum.replies());
-        assume(opt.is_Some());
+        let replies = quorum.replies();
+        assume(replies.len() > 0);
+        let opt = max_from_get_replies(replies);
+        assert(opt is Some);
         let (max_ts, max_val) = opt.expect("there should be at least one reply");
         let mut n_max_ts = 0usize;
         let q_iter = quorum.replies().iter();
@@ -126,7 +155,7 @@ where
                 required: self.quorum_size(),
             }
         };
-        assume(result.is_err() ==> err_mapper.requires((result.get_Err_0(),)));
+        assume(result.is_err() ==> err_mapper.requires((result->Err_0,)));
         result.map_err(err_mapper)?;
 
         Ok((max_val, max_ts))
@@ -150,21 +179,10 @@ where
                     required: self.quorum_size(),
                 })?;
 
-            let mut max_ts = None;
-            let q_iter = quorum.replies().iter();
-            for (_idx, ts) in q_iter {
-                max_ts = match max_ts {
-                    Some(Timestamp { seqno, client_id }) => {
-                        if seqno < ts.seqno || (seqno == ts.seqno && client_id < ts.client_id) {
-                            Some(*ts)
-                        } else {
-                            max_ts
-                        }
-                    },
-                    None => Some(*ts)
-                }
-            }
-            assume(max_ts.is_Some());
+            let replies = quorum.replies();
+            assume(replies.len() > 0);
+            let max_ts = max_from_get_ts_replies(replies);
+            assert(max_ts is Some);
             let max_ts = max_ts.expect("the quorum should never be empty");
 
             Ok(max_ts)

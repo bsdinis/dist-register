@@ -51,47 +51,63 @@ where
         handle.release_write(guard);
     }
 
+    fn handle_get(&self) -> Response {
+        let handle = self.register.acquire_read();
+        let (val, timestamp) = handle.borrow();
+        let val = *val;
+        let timestamp = *timestamp;
+        handle.release_read();
+        Response::Get {
+            val,
+            timestamp
+        }
+    }
+
+    fn handle_get_timestamp(&self) -> Response {
+        let handle = self.register.acquire_read();
+        let (_val, timestamp) = handle.borrow();
+        let timestamp = *timestamp;
+        handle.release_read();
+        Response::GetTimestamp {
+            timestamp
+        }
+    }
+
+    fn handle_write(&self, val: Option<u64>, timestamp: Timestamp) -> Response
+    {
+        let (mut guard, handle) = self.register.acquire_write();
+
+        if guard.1.seqno < timestamp.seqno ||
+            (guard.1.seqno == timestamp.seqno && guard.1.client_id < timestamp.client_id) {
+            guard = (val, timestamp);
+        }
+
+        handle.release_write(guard);
+        Response::Write
+    }
+
     fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response> {
         match request.into_inner() {
             Request::Get => {
-                let handle = self.register.acquire_read();
-                let (val, timestamp) = handle.borrow();
-                let val = *val;
-                let timestamp = *timestamp;
-                handle.release_read();
+                let inner = self.handle_get();
 
                 Tagged {
                     tag: request.tag,
-                    inner: Response::Get {
-                        val,
-                        timestamp
-                    },
+                    inner
                 }
             }
             Request::GetTimestamp => {
-                let handle = self.register.acquire_read();
-                let (_val, timestamp) = handle.borrow();
-                let timestamp = *timestamp;
-                handle.release_read();
-
+                let inner = self.handle_get_timestamp();
                 Tagged {
                     tag: request.tag,
-                    inner: Response::GetTimestamp { timestamp },
+                    inner
                 }
             }
             Request::Write { val, timestamp } => {
-                let (mut guard, handle) = self.register.acquire_write();
-
-                if guard.1.seqno < timestamp.seqno ||
-                    (guard.1.seqno == timestamp.seqno && guard.1.client_id < timestamp.client_id) {
-                    guard = (val, timestamp);
-                }
-
-                handle.release_write(guard);
-
+                let inner = self.handle_write(val, timestamp);
                 Tagged {
                     tag: request.tag,
-                    inner: Response::Write,
+                    inner
                 }
             }
         }

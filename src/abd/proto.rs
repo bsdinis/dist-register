@@ -8,9 +8,17 @@ pub struct Timestamp {
     pub client_id: u64,
 }
 
-impl Default for Timestamp {
-    fn default() -> Self {
+impl Timestamp {
+    pub fn default() -> (r: Self)
+        ensures
+            r.seqno == 0,
+            r.client_id == 0
+    {
         Timestamp { seqno: 0, client_id: 0 }
+    }
+
+    pub open spec fn to_nat(&self) -> (nat, nat) {
+        (self.seqno as nat, self.client_id as nat)
     }
 }
 

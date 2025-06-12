@@ -1,6 +1,8 @@
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::proto::Timestamp;
+use crate::abd::server::register::MonotonicRegister;
+use crate::abd::server::register::MonotonicRegisterResource;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::modelled::ModelledConnector;
@@ -12,6 +14,8 @@ use std::sync::Arc;
 use vstd::prelude::*;
 use vstd::rwlock::RwLock;
 
+mod register;
+
 verus! {
 
 struct EmptyCond;
@@ -22,12 +26,23 @@ impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
     }
 }
 
+struct LowerBoundPredicate {
+    loc: Ghost<int>
+}
+
+impl vstd::rwlock::RwLockPredicate<Tracked<MonotonicRegisterResource>> for LowerBoundPredicate {
+    closed spec fn inv(self, lb: Tracked<MonotonicRegisterResource>) -> bool {
+           lb@@ is LowerBound && lb@.loc() == self.loc
+    }
+}
+
 #[verifier::reject_recursive_types(C)]
-struct RegisterServer<L, C> {
+pub struct RegisterServer<L, C> {
     id: u64,
-    register: RwLock<(Option<u64>, Timestamp), EmptyCond>,
+    register: MonotonicRegister,
     connected: RwLock<HashMap<u64, C>, EmptyCond>,
     listener: L,
+    register_lower_bound: RwLock<Tracked<MonotonicRegisterResource>, LowerBoundPredicate>,
 }
 
 impl<L, C> RegisterServer<L, C>
@@ -35,57 +50,75 @@ where
     L: Listener<C>,
     C: Channel<R = Tagged<Request>, S = Tagged<Response>>,
 {
-    pub fn new(listener: L, id: u64) -> Self {
+    pub fn new(listener: L, id: u64) -> (r: Self)
+        ensures r.inv()
+    {
+        let (register, register_lower_bound)= MonotonicRegister::default();
+        let register_lower_bound = RwLock::new(
+            register_lower_bound,
+            Ghost(LowerBoundPredicate { loc: register.loc() })
+        );
         RegisterServer {
             id,
-            register: RwLock::new((None, Timestamp::default()), Ghost(EmptyCond)),
+            register,
             connected: RwLock::new(HashMap::new(), Ghost(EmptyCond)),
             listener,
+            register_lower_bound,
         }
     }
 
-    fn accept(&self, channel: C) {
+    pub closed spec fn inv(&self) -> bool {
+        &&& self.register.inv()
+        &&& self.register_lower_bound.pred() == LowerBoundPredicate { loc: self.register.loc() }
+    }
+
+    fn accept(&self, channel: C)
+        requires self.inv()
+    {
         let (mut guard, handle) = self.connected.acquire_write();
         guard.insert(channel.id(), channel);
         handle.release_write(guard);
     }
 
-    fn handle_get(&self) -> Response {
-        let handle = self.register.acquire_read();
-        let (val, timestamp) = handle.borrow();
-        let val = *val;
-        let timestamp = *timestamp;
-        handle.release_read();
-        Response::Get {
-            val,
-            timestamp
-        }
+    fn handle_get(&self) -> Response
+        requires self.inv()
+    {
+        let (lower_bound, handle) = self.register_lower_bound.acquire_write();
+        let inner_register = self.register.read(lower_bound);
+        let response = Response::Get {
+            val: inner_register.val(),
+            timestamp: inner_register.timestamp(),
+        };
+        let resource = inner_register.get_resource();
+        handle.release_write(resource);
+        response
     }
 
-    fn handle_get_timestamp(&self) -> Response {
-        let handle = self.register.acquire_read();
-        let (_val, timestamp) = handle.borrow();
-        let timestamp = *timestamp;
-        handle.release_read();
-        Response::GetTimestamp {
-            timestamp
-        }
+    fn handle_get_timestamp(&self) -> Response
+        requires self.inv()
+    {
+        let (lower_bound, handle) = self.register_lower_bound.acquire_write();
+        let inner_register = self.register.read(lower_bound);
+        let response = Response::GetTimestamp {
+            timestamp: inner_register.timestamp(),
+        };
+        let resource = inner_register.get_resource();
+        handle.release_write(resource);
+        response
     }
 
     fn handle_write(&self, val: Option<u64>, timestamp: Timestamp) -> Response
+        requires self.inv()
     {
-        let (mut guard, handle) = self.register.acquire_write();
-
-        if guard.1.seqno < timestamp.seqno ||
-            (guard.1.seqno == timestamp.seqno && guard.1.client_id < timestamp.client_id) {
-            guard = (val, timestamp);
-        }
-
-        handle.release_write(guard);
+        let (_lower_bound, handle) = self.register_lower_bound.acquire_write();
+        let lower_bound = self.register.write(val, timestamp);
+        handle.release_write(lower_bound);
         Response::Write
     }
 
-    fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response> {
+    fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response>
+        requires self.inv()
+    {
         match request.into_inner() {
             Request::Get => {
                 let inner = self.handle_get();
@@ -112,12 +145,15 @@ where
         }
     }
 
-    fn poll(&self) -> bool {
+    fn poll(&self) -> bool
+        requires self.inv()
+    {
         // verus does not support unbounded loops + streams probably don't/can't have specs
         // so we do this up to 10 times every time
 
         let mut i = 10;
         while i > 0
+            invariant self.inv(),
             decreases i
         {
             match self.listener.try_accept() {
@@ -137,7 +173,9 @@ where
         let (mut connected, handle) = self.connected.acquire_write();
 
         let it = connected.iter();
-        for (id, channel) in it {
+        for (id, channel) in it
+            invariant self.inv()
+        {
             match channel.try_recv() {
                     Ok(req) => {
                         let response = self.handle(req, *id);

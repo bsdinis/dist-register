@@ -1,17 +1,11 @@
-pub mod broadcast_pool;
-pub mod connection_pool;
-pub mod error;
-pub mod modelled;
-pub mod replies;
-pub mod request_context;
-
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::network::error::ConnectError;
-use crate::network::error::SendError;
-use crate::network::error::TryListenError;
-use crate::network::error::TryRecvError;
+use crate::verdist::network::error::ConnectError;
+use crate::verdist::network::error::SendError;
+use crate::verdist::network::error::TryListenError;
+use crate::verdist::network::error::TryRecvError;
+use crate::verdist::proto::TaggedMessage;
 
 use rand_distr::{Distribution, Normal};
 
@@ -63,17 +57,6 @@ pub trait Channel {
     }
 }
 
-pub trait ChannelExt {
-    fn induce_fault(&self) -> bool;
-    fn clear_fault(&self) -> bool;
-}
-
-pub trait TaggedMessage {
-    type Inner;
-
-    fn tag(&self) -> u64;
-}
-
 pub trait Listener<C>
 where
     C: Channel,
@@ -123,8 +106,8 @@ where
                 handle.release_write(guard);
                 Ok(None)
             }
-            Err(crate::network::TryRecvError::Disconnected) => Err(TryRecvError::Disconnected),
-            Err(crate::network::TryRecvError::Empty) => Ok(None),
+            Err(crate::verdist::network::error::TryRecvError::Disconnected) => Err(TryRecvError::Disconnected),
+            Err(crate::verdist::network::error::TryRecvError::Empty) => Ok(None),
         }
     }
 }
@@ -150,15 +133,6 @@ impl<C: Channel> Channel for BufChannel<C> {
     }
     fn add_latency(&mut self, avg: Duration, stddev: Duration) {
         self.channel.add_latency(avg, stddev);
-    }
-}
-
-impl<C: ChannelExt + Channel> ChannelExt for BufChannel<C> {
-    fn clear_fault(&self) -> bool {
-        self.channel.clear_fault()
-    }
-    fn induce_fault(&self) -> bool {
-        self.channel.induce_fault()
     }
 }
 

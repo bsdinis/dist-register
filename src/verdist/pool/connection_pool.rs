@@ -1,7 +1,6 @@
-use crate::network::BufChannel;
-use crate::network::Channel;
-
-use super::TaggedMessage;
+use crate::verdist::network::channel::BufChannel;
+use crate::verdist::network::channel::Channel;
+use crate::verdist::proto::TaggedMessage;
 
 use vstd::prelude::*;
 
@@ -22,7 +21,7 @@ pub trait ConnectionPool {
         request_id: u64,
     ) -> Vec<(
             usize,
-            Result<Option<Resp<Self>>, crate::network::error::TryRecvError>,
+            Result<Option<Resp<Self>>, crate::verdist::network::error::TryRecvError>,
         )>;
 
     fn id(&self) -> u64;
@@ -65,7 +64,7 @@ where
         request_tag: u64,
     ) -> Vec<(
             usize,
-            Result<Option<C::R>, crate::network::error::TryRecvError>,
+            Result<Option<C::R>, crate::verdist::network::error::TryRecvError>,
         )>
     {
         let conns = self.conns();

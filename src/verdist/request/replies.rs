@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use super::error::TryRecvError;
+use crate::verdist::network::error::TryRecvError;
 
 use vstd::prelude::verus;
 

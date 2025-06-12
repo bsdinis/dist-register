@@ -1,12 +1,14 @@
-use crate::abd::error;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::proto::Timestamp;
-use crate::network::broadcast_pool::BroadcastPool;
-use crate::network::connection_pool::ConnectionPool;
-use crate::network::replies::Replies;
-use crate::network::Channel;
-use crate::proto::Tagged;
+
+use crate::verdist::network::channel::Channel;
+use crate::verdist::pool::BroadcastPool;
+use crate::verdist::pool::ConnectionPool;
+use crate::verdist::proto::Tagged;
+use crate::verdist::request::Replies;
+
+pub mod error;
 
 #[allow(unused_imports)]
 use builtin::*;

@@ -1,14 +1,13 @@
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
-use crate::network::modelled::ModelledConnector;
-use crate::network::Channel;
-use crate::network::Listener;
-use crate::proto::Tagged;
+use crate::abd::proto::Timestamp;
+use crate::verdist::network::channel::Channel;
+use crate::verdist::network::channel::Listener;
+use crate::verdist::network::modelled::ModelledConnector;
+use crate::verdist::proto::Tagged;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use super::proto::Timestamp;
 
 use vstd::prelude::*;
 use vstd::rwlock::RwLock;
@@ -123,10 +122,10 @@ where
         {
             match self.listener.try_accept() {
                 Ok(channel) => self.accept(channel),
-                Err(crate::network::error::TryListenError::Empty) => {
+                Err(crate::verdist::network::error::TryListenError::Empty) => {
                     break;
                 }
-                Err(crate::network::error::TryListenError::Disconnected) => {
+                Err(crate::verdist::network::error::TryListenError::Disconnected) => {
                     return false;
                 }
             }
@@ -146,8 +145,8 @@ where
                             drop.push(*id);
                         }
                     }
-                    Err(crate::network::error::TryRecvError::Empty) => {}
-                    Err(crate::network::error::TryRecvError::Disconnected) => {
+                    Err(crate::verdist::network::error::TryRecvError::Empty) => {}
+                    Err(crate::verdist::network::error::TryRecvError::Disconnected) => {
                         drop.push(*id);
                     }
                 }
@@ -166,7 +165,7 @@ where
 }
 
 pub fn run_modelled_server(id: u64) -> ModelledConnector<Tagged<Response>, Tagged<Request>> {
-    let (listener, connector) = crate::network::modelled::listen_channel(id);
+    let (listener, connector) = crate::verdist::network::modelled::listen_channel(id);
     std::thread::spawn(move || {
         let server = RegisterServer::new(listener, id);
         let server = Arc::new(server);

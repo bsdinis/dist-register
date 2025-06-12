@@ -1,9 +1,8 @@
 #![allow(dead_code)]
-use crate::network::connection_pool::ConnectionPool;
-use crate::network::replies::Replies;
-use crate::network::Channel;
-
-use super::error::TryRecvError;
+use crate::verdist::network::channel::Channel;
+use crate::verdist::network::error::TryRecvError;
+use crate::verdist::pool::ConnectionPool;
+use crate::verdist::request::Replies;
 
 type Resp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
 

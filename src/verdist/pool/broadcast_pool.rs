@@ -1,9 +1,8 @@
-use crate::network::connection_pool::ConnectionPool;
-use crate::network::request_context::RequestContext;
-use crate::network::Channel;
-use crate::proto::Tagged;
-
-use super::TaggedMessage;
+use crate::verdist::network::channel::Channel;
+use crate::verdist::pool::ConnectionPool;
+use crate::verdist::proto::Tagged;
+use crate::verdist::proto::TaggedMessage;
+use crate::verdist::request::RequestContext;
 
 use vstd::prelude::*;
 

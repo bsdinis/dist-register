@@ -1,10 +1,15 @@
-use crate::network::TaggedMessage;
 use std::sync::atomic::AtomicU64;
 
 use vstd::prelude::*;
 
 verus! {
 exec static REQUEST_TAG: AtomicU64 = AtomicU64::new(0);
+
+pub trait TaggedMessage {
+    type Inner;
+
+    fn tag(&self) -> u64;
+}
 
 #[derive(Debug, Copy)]
 pub struct Tagged<R> {

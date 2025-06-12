@@ -4,15 +4,13 @@ use crossbeam_channel::unbounded;
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 
-use crate::network::Channel;
-use crate::network::ConnectError;
-use crate::network::Connector;
-use crate::network::Listener;
-use crate::network::SendError;
-use crate::network::TryListenError;
-use crate::network::TryRecvError;
-
-use super::ChannelExt;
+use crate::verdist::network::channel::Channel;
+use crate::verdist::network::channel::Connector;
+use crate::verdist::network::channel::Listener;
+use crate::verdist::network::error::ConnectError;
+use crate::verdist::network::error::SendError;
+use crate::verdist::network::error::TryListenError;
+use crate::verdist::network::error::TryRecvError;
 
 pub struct ModelledListener<R, S> {
     id: u64,
@@ -47,16 +45,16 @@ impl<R, S> Channel for ClientChannel<R, S> {
     type R = R;
     type S = S;
 
-    fn try_recv(&self) -> Result<R, crate::network::TryRecvError> {
+    fn try_recv(&self) -> Result<R, crate::verdist::network::error::TryRecvError> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
             self.rx.try_recv().map_err(|e| e.into())
         } else {
-            Err(crate::network::TryRecvError::Empty)
+            Err(crate::verdist::network::error::TryRecvError::Empty)
         }
     }
 
-    fn send(&self, v: S) -> Result<(), crate::network::SendError<S>> {
+    fn send(&self, v: S) -> Result<(), crate::verdist::network::error::SendError<S>> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
             self.tx.send(v)?;
@@ -79,30 +77,20 @@ impl<R, S> Channel for ClientChannel<R, S> {
     }
 }
 
-impl<R, S> ChannelExt for ClientChannel<R, S> {
-    fn induce_fault(&self) -> bool {
-        self.faulty.swap(true, std::sync::atomic::Ordering::SeqCst)
-    }
-
-    fn clear_fault(&self) -> bool {
-        self.faulty.swap(false, std::sync::atomic::Ordering::SeqCst)
-    }
-}
-
 impl<R, S> Channel for ServerChannel<R, S> {
     type R = R;
     type S = S;
 
-    fn try_recv(&self) -> Result<R, crate::network::TryRecvError> {
+    fn try_recv(&self) -> Result<R, crate::verdist::network::error::TryRecvError> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
             self.rx.try_recv().map_err(|e| e.into())
         } else {
-            Err(crate::network::TryRecvError::Empty)
+            Err(crate::verdist::network::error::TryRecvError::Empty)
         }
     }
 
-    fn send(&self, v: S) -> Result<(), crate::network::SendError<S>> {
+    fn send(&self, v: S) -> Result<(), crate::verdist::network::error::SendError<S>> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
             self.tx.send(v)?;
@@ -122,16 +110,6 @@ impl<R, S> Channel for ServerChannel<R, S> {
 
     fn delay(&self) -> (std::time::Duration, std::time::Duration) {
         (self.avg_latency, self.stddev_latency)
-    }
-}
-
-impl<R, S> ChannelExt for ServerChannel<R, S> {
-    fn induce_fault(&self) -> bool {
-        self.faulty.swap(true, std::sync::atomic::Ordering::SeqCst)
-    }
-
-    fn clear_fault(&self) -> bool {
-        self.faulty.swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -162,7 +140,9 @@ impl<R, S> ServerChannel<R, S> {
 }
 
 impl<R, S> Listener<ClientChannel<R, S>> for ModelledListener<R, S> {
-    fn try_accept(&self) -> Result<ClientChannel<R, S>, crate::network::TryListenError> {
+    fn try_accept(
+        &self,
+    ) -> Result<ClientChannel<R, S>, crate::verdist::network::error::TryListenError> {
         let client_id = self.registering_rx.try_recv()?;
         eprintln!(
             "[server|{:>3}]: accepting a connection from client {client_id}",

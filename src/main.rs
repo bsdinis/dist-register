@@ -7,19 +7,17 @@ use std::sync::Condvar;
 use std::sync::Mutex;
 
 mod abd;
-mod network;
-mod proto;
+mod verdist;
 
 use abd::client::AbdRegisterClient;
 use abd::server::run_modelled_server;
-use network::connection_pool::ConnectionPool;
-use network::connection_pool::FlawlessPool;
-use network::error::ConnectError;
-use network::BufChannel;
-use network::Channel;
-use network::ChannelExt;
-use network::Connector;
-use proto::Tagged;
+use verdist::network::channel::BufChannel;
+use verdist::network::channel::Channel;
+use verdist::network::channel::Connector;
+use verdist::network::error::ConnectError;
+use verdist::pool::ConnectionPool;
+use verdist::pool::FlawlessPool;
+use verdist::proto::Tagged;
 
 const REQUEST_LATENCY_DEFAULT: std::time::Duration = std::time::Duration::from_millis(1000);
 const REQUEST_STDDEV_DEFAULT: std::time::Duration = std::time::Duration::from_millis(2000);
@@ -46,7 +44,7 @@ struct Args {
 #[derive(Debug)]
 enum Error {
     Connection(ConnectError),
-    Abd(abd::error::Error),
+    Abd(abd::client::error::Error),
 }
 
 impl From<ConnectError> for Error {
@@ -55,8 +53,8 @@ impl From<ConnectError> for Error {
     }
 }
 
-impl From<abd::error::Error> for Error {
-    fn from(value: abd::error::Error) -> Self {
+impl From<abd::client::error::Error> for Error {
+    fn from(value: abd::client::error::Error) -> Self {
         Error::Abd(value)
     }
 }
@@ -87,7 +85,6 @@ fn connect<C, Conn>(
 where
     Conn: Connector<C>,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
-    C: ChannelExt,
 {
     let mut channel = connector.connect(client_id)?;
     if !args.no_delay {
@@ -104,7 +101,6 @@ fn connect_all<C, Conn>(
 where
     Conn: Connector<C>,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
-    C: ChannelExt,
 {
     connectors
         .iter()
@@ -131,7 +127,6 @@ fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error>
 where
     Conn: Connector<C> + Send + Sync,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
-    C: ChannelExt,
     C: Sync + Send,
 {
     let mut n_reads = args.n_reads.saturating_sub(1);

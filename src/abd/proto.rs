@@ -20,6 +20,22 @@ impl Timestamp {
     pub open spec fn to_nat(&self) -> (nat, nat) {
         (self.seqno as nat, self.client_id as nat)
     }
+
+    pub open spec fn lt(&self, other: &Self) -> bool  {
+        self.seqno < other.seqno || (self.seqno == other.seqno && self.client_id < other.client_id)
+    }
+
+    pub open spec fn le(&self, other: &Self) -> bool  {
+        self.lt(other) || self == other
+    }
+
+    pub open spec fn gt(&self, other: &Self) -> bool  {
+        !self.le(other)
+    }
+
+    pub open spec fn ge(&self, other: &Self) -> bool  {
+        !self.lt(other)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

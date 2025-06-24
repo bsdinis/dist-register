@@ -9,65 +9,15 @@ use crate::verdist::proto::Tagged;
 use crate::verdist::request::Replies;
 
 pub mod error;
+mod utils;
+
+use utils::*;
 
 #[allow(unused_imports)]
 use builtin::*;
 use vstd::prelude::*;
 
 verus! {
-
-fn max_from_get_replies(vals: &[(usize, (Timestamp, Option<u64>))]) -> (r: Option<(Timestamp, Option<u64>)>)
-    ensures vals.len() > 0 ==> r is Some
-{
-    if vals.len() == 0 {
-        return None;
-    }
-
-    assert(vals.len() > 0);
-
-    let mut max_idx = 0;
-    let mut max_ts = vals[0].1.0;
-    for idx in 1..(vals.len())
-        invariant 0 <= max_idx < vals.len()
-    {
-        if vals[idx].1.0.seqno > max_ts.seqno ||
-            (
-        vals[idx].1.0.seqno == max_ts.seqno &&
-        vals[idx].1.0.client_id > max_ts.client_id
-            )
-        {
-            max_ts = vals[idx].1.0;
-            max_idx = idx;
-        }
-    }
-
-    Some(vals[max_idx].1)
-}
-
-fn max_from_get_ts_replies(vals: &[(usize, Timestamp)]) -> (r: Option<Timestamp>)
-    ensures vals.len() > 0 ==> r is Some
-{
-    if vals.len() == 0 {
-        return None;
-    }
-
-    assert(vals.len() > 0);
-
-    let mut max_ts = vals[0].1;
-    for idx in 1..(vals.len())
-    {
-        if vals[idx].1.seqno > max_ts.seqno ||
-            (
-        vals[idx].1.seqno == max_ts.seqno &&
-        vals[idx].1.client_id > max_ts.client_id
-            )
-        {
-            max_ts = vals[idx].1;
-        }
-    }
-
-    Some(max_ts)
-}
 
 pub trait AbdRegisterClient<C> {
     fn read(&self) -> Result<(Option<u64>, Timestamp), error::Error>;

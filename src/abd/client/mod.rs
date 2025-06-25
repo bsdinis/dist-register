@@ -9,6 +9,7 @@ use crate::verdist::proto::Tagged;
 use crate::verdist::request::Replies;
 
 pub mod error;
+mod history;
 mod utils;
 
 use utils::*;
@@ -24,13 +25,31 @@ pub trait AbdRegisterClient<C> {
     fn write(&self, val: Option<u64>) -> Result<(), error::Error>;
 }
 
-impl<Pool, C> AbdRegisterClient<C> for Pool
+pub struct AbdPool<Pool> {
+    pool: Pool
+}
+
+impl<Pool, C> AbdPool<Pool>
+where
+    Pool: ConnectionPool<C = C>,
+{
+    pub fn new(pool: Pool) -> Self {
+        AbdPool { pool }
+    }
+
+    pub fn quorum_size(&self) -> usize {
+        self.pool.quorum_size()
+    }
+}
+
+
+impl<Pool, C> AbdRegisterClient<C> for AbdPool<Pool>
 where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
 {
     fn read(&self) -> Result<(Option<u64>, Timestamp), error::Error> {
-        let bpool = BroadcastPool::new(self);
+        let bpool = BroadcastPool::new(&self.pool);
         let quorum = bpool
             .broadcast(Request::Get)
             .wait_for(
@@ -42,7 +61,7 @@ where
             )
             .map_err(|e| error::Error::FailedFirstQuorum {
                 obtained: e.replies().len(),
-                required: self.quorum_size(),
+                required: self.pool.quorum_size(),
             })?;
 
         // check early return
@@ -60,12 +79,12 @@ where
             }
         }
 
-        if n_max_ts >= self.quorum_size() {
+        if n_max_ts >= self.pool.quorum_size() {
             return Ok((max_val, max_ts));
         }
 
         // non-unanimous read: write-back
-        let bpool = BroadcastPool::new(self);
+        let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
         let result = bpool
             .broadcast_filter(
@@ -104,7 +123,7 @@ where
                     {
                 error::Error::FailedSecondQuorum {
                 obtained: e.replies.len() + n_max_ts,
-                required: self.quorum_size(),
+                required: self.pool.quorum_size(),
             }
         };
         assume(result.is_err() ==> err_mapper.requires((result->Err_0,)));
@@ -115,7 +134,7 @@ where
 
     fn write(&self, val: Option<u64>) -> Result<(), error::Error> {
         let max_ts = {
-            let bpool = BroadcastPool::new(self);
+            let bpool = BroadcastPool::new(&self.pool);
 
             let quorum = bpool
                 .broadcast(Request::GetTimestamp)
@@ -128,7 +147,7 @@ where
                 )
                 .map_err(|e| error::Error::FailedFirstQuorum {
                     obtained: e.replies().len(),
-                    required: self.quorum_size(),
+                    required: self.pool.quorum_size(),
                 })?;
 
             let replies = quorum.replies();
@@ -142,13 +161,13 @@ where
 
         {
             assume(max_ts.seqno + 1 < u64::MAX);
-            let bpool = BroadcastPool::new(self);
+            let bpool = BroadcastPool::new(&self.pool);
             let _quorum = bpool
                 .broadcast(Request::Write {
                     val,
                     timestamp: Timestamp {
                         seqno: max_ts.seqno + 1,
-                        client_id: self.id(),
+                        client_id: self.pool.id(),
                     },
                 })
                 .wait_for(
@@ -160,7 +179,7 @@ where
                 )
                 .map_err(|e| error::Error::FailedSecondQuorum {
                     obtained: e.replies().len(),
-                    required: self.quorum_size(),
+                    required: self.pool.quorum_size(),
                 })?;
 
             Ok(())

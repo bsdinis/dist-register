@@ -9,13 +9,13 @@ use std::sync::Mutex;
 mod abd;
 mod verdist;
 
+use abd::client::AbdPool;
 use abd::client::AbdRegisterClient;
 use abd::server::run_modelled_server;
 use verdist::network::channel::BufChannel;
 use verdist::network::channel::Channel;
 use verdist::network::channel::Connector;
 use verdist::network::error::ConnectError;
-use verdist::pool::ConnectionPool;
 use verdist::pool::FlawlessPool;
 use verdist::proto::Tagged;
 
@@ -137,7 +137,7 @@ where
 
     let client_fn = |id: u64, cv: Arc<(Mutex<u64>, Condvar)>| {
         let pool = connect_all(&args, connectors, id)?;
-        let client = FlawlessPool::new(pool, id);
+        let client = AbdPool::new(FlawlessPool::new(pool, id));
         println!("quorum size: {}", client.quorum_size());
 
         let (lock, var) = &*cv;

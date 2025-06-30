@@ -27,6 +27,7 @@ impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
 }
 
 struct LowerBoundPredicate {
+    #[allow(dead_code)]
     loc: Ghost<int>
 }
 

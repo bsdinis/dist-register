@@ -24,6 +24,7 @@ verus! {
 // counter is exactly `value` and half the authority to advance it
 // past that value. Can be combined with another half authority to
 // make a full authority.
+#[allow(dead_code)]
 pub enum MonotonicRegisterResourceValue {
     LowerBound { lower_bound: (nat, nat) },
     HalfRightToAdvance { value: (nat, nat) },
@@ -143,6 +144,7 @@ impl MonotonicRegisterResourceValue {
     }
 }
 
+#[allow(dead_code)]
 pub struct MonotonicRegisterResource {
     r: Resource<MonotonicRegisterResourceValue>,
 }
@@ -322,13 +324,6 @@ impl MonotonicRegisterInner {
         self.timestamp
     }
 
-    pub fn resource(&self) -> &Tracked<MonotonicRegisterResource> {
-         proof {
-            use_type_invariant(self);
-        }
-        &self.resource
-    }
-
     pub closed spec fn spec_resource(&self) -> &Tracked<MonotonicRegisterResource> {
         &self.resource
     }
@@ -349,6 +344,7 @@ impl MonotonicRegisterInner {
         self.spec_timestamp().to_nat() == self.spec_resource()@@.timestamp()
     }
 
+    #[allow(unused_variables)]
     pub fn read(&self, lower_bound: Tracked<MonotonicRegisterResource>) -> (r: MonotonicRegisterInner)
         requires
             self.spec_resource()@@ is FullRightToAdvance,
@@ -408,6 +404,7 @@ impl MonotonicRegisterInner {
 }
 
 pub struct MonotonicRegisterInv {
+    #[allow(dead_code)]
     pub resource_loc: Ghost<int>,
 }
 
@@ -421,6 +418,7 @@ impl vstd::rwlock::RwLockPredicate<MonotonicRegisterInner> for MonotonicRegister
 
 pub struct MonotonicRegister {
     inner: RwLock<MonotonicRegisterInner, MonotonicRegisterInv>,
+    #[allow(dead_code)]
     resource_loc: Ghost<int>,
 }
 

@@ -4,6 +4,7 @@ use vstd::prelude::*;
 
 verus! {
 
+#[allow(dead_code)]
 ghost enum HistEntry {
     Write {
         val: Option<u64>,
@@ -13,6 +14,7 @@ ghost enum HistEntry {
     }
 }
 
+#[allow(dead_code)]
 ghost struct History {
     entries: Seq<HistEntry>
 }

@@ -19,15 +19,9 @@ verus! {
 //
 // `FullRightToAdvance{ value }` -- knowledge that the monotonic counter is
 // exactly `value` and the authority to advance it past that value
-//
-// `HalfRightToAdvance{ value }` -- knowledge that the monotonic
-// counter is exactly `value` and half the authority to advance it
-// past that value. Can be combined with another half authority to
-// make a full authority.
 #[allow(dead_code)]
 pub enum MonotonicRegisterResourceValue {
     LowerBound { lower_bound: (nat, nat) },
-    HalfRightToAdvance { value: (nat, nat) },
     FullRightToAdvance { value: (nat, nat) },
     Invalid,
 }
@@ -78,36 +72,6 @@ impl PCM for MonotonicRegisterResourceValue {
             } else {
                 MonotonicRegisterResourceValue::Invalid {  }
             },
-            // A lower bound can be combined with a half right to
-            // advance as long as the lower bound doesn't exceed
-            // the value in the half right to advance.
-            (
-                MonotonicRegisterResourceValue::LowerBound { lower_bound },
-                MonotonicRegisterResourceValue::HalfRightToAdvance { value },
-            ) => if !nat_pair_gt(&lower_bound, &value) {
-                MonotonicRegisterResourceValue::HalfRightToAdvance { value }
-            } else {
-                MonotonicRegisterResourceValue::Invalid {  }
-            },
-            (
-                MonotonicRegisterResourceValue::HalfRightToAdvance { value },
-                MonotonicRegisterResourceValue::LowerBound { lower_bound },
-            ) => if !nat_pair_gt(&lower_bound, &value) {
-                MonotonicRegisterResourceValue::HalfRightToAdvance { value }
-            } else {
-                MonotonicRegisterResourceValue::Invalid {  }
-            },
-            // Two half rights to advance can be combined to make
-            // a whole right to advance, as long as the two values
-            // agree with each other.
-            (
-                MonotonicRegisterResourceValue::HalfRightToAdvance { value: value1 },
-                MonotonicRegisterResourceValue::HalfRightToAdvance { value: value2 },
-            ) => if value1 == value2 {
-                MonotonicRegisterResourceValue::FullRightToAdvance { value: value1 }
-            } else {
-                MonotonicRegisterResourceValue::Invalid {  }
-            },
             // Any other combination is invalid
             (_, _) => MonotonicRegisterResourceValue::Invalid {  },
         }
@@ -137,7 +101,6 @@ impl MonotonicRegisterResourceValue {
     pub open spec fn timestamp(self) -> (nat, nat) {
         match self {
             MonotonicRegisterResourceValue::LowerBound { lower_bound } => lower_bound,
-            MonotonicRegisterResourceValue::HalfRightToAdvance { value } => value,
             MonotonicRegisterResourceValue::FullRightToAdvance { value } => value,
             MonotonicRegisterResourceValue::Invalid => (0, 0),
         }
@@ -184,28 +147,6 @@ impl MonotonicRegisterResource {
         Self { r }
     }
 
-    // This function splits a resource granting full authority to
-    // advance a monotonic counter into two resources each granting
-    // half authority to advance it. They both have the same .loc()`,
-    // meaning they correspond to the same monotonic counter.
-    pub proof fn split(tracked self) -> (tracked return_value: (Self, Self))
-        requires
-            self@ is FullRightToAdvance,
-        ensures
-            ({
-                let (r1, r2) = return_value;
-                let value = self@->FullRightToAdvance_value;
-                &&& r1.loc() == r2.loc() == self.loc()
-                &&& r1@ == (MonotonicRegisterResourceValue::HalfRightToAdvance { value })
-                &&& r2@ == r1@
-            }),
-    {
-        let value = self@->FullRightToAdvance_value;
-        let v_half = MonotonicRegisterResourceValue::HalfRightToAdvance { value };
-        let tracked (r1, r2) = self.r.split(v_half, v_half);
-        (Self { r: r1 }, Self { r: r2 })
-    }
-
     // This function uses a resource granting full authority to
     // advance a monotonic counter to increment the counter.
     pub proof fn advance(tracked &mut self, new_value: (nat, nat))
@@ -220,33 +161,6 @@ impl MonotonicRegisterResource {
     {
         let r = MonotonicRegisterResourceValue::FullRightToAdvance { value: new_value };
         update_mut(&mut self.r, r);
-    }
-
-    // This function uses two tracked resources, each granting half
-    // authority to advance a monotonic counter, to increment the
-    // counter. The two permissions must have the same .loc()` values.
-    //
-    // It's not a requirement that the two halves match in value; this
-    // function can figure out that they match just from the fact that
-    // they co-exist.
-    pub proof fn advance_using_two_halves(tracked &mut self, tracked other: &mut Self, new_value: (nat, nat))
-        requires
-            old(self).loc() == old(other).loc(),
-            old(self)@ is HalfRightToAdvance,
-            old(other)@ is HalfRightToAdvance,
-            nat_pair_gt(&new_value, &old(self)@.timestamp()),
-            nat_pair_gt(&new_value, &old(other)@.timestamp()),
-        ensures
-            old(self)@ == old(other)@,
-            self.loc() == other.loc() == old(self).loc(),
-            other@ == self@,
-            self@ == (MonotonicRegisterResourceValue::HalfRightToAdvance {
-                value: new_value
-            }),
-    {
-        self.r.validate_2(&other.r);
-        let r = MonotonicRegisterResourceValue::HalfRightToAdvance { value: new_value };
-        update_and_redistribute(&mut self.r, &mut other.r, r, r);
     }
 
     pub proof fn extract_lower_bound(tracked &self) -> (tracked out: Self)
@@ -269,8 +183,6 @@ impl MonotonicRegisterResource {
             self.loc() == old(self).loc(),
             self@ is LowerBound && other@ is FullRightToAdvance ==> !nat_pair_gt(&self@.timestamp(), &other@.timestamp()),
             other@ is LowerBound && self@ is FullRightToAdvance ==> !nat_pair_gt(&other@.timestamp(), &self@.timestamp()),
-            self@ is LowerBound && other@ is HalfRightToAdvance ==> !nat_pair_gt(&self@.timestamp(), &other@.timestamp()),
-            other@ is LowerBound && self@ is HalfRightToAdvance ==> !nat_pair_gt(&other@.timestamp(), &self@.timestamp()),
 
     {
         self.r.validate_2(&other.r)

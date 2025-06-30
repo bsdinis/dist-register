@@ -17,7 +17,7 @@ use verdist::network::channel::Channel;
 use verdist::network::channel::Connector;
 use verdist::network::error::ConnectError;
 use verdist::pool::FlawlessPool;
-use verdist::proto::Tagged;
+use verdist::rpc::proto::Tagged;
 
 const REQUEST_LATENCY_DEFAULT: std::time::Duration = std::time::Duration::from_millis(1000);
 const REQUEST_STDDEV_DEFAULT: std::time::Duration = std::time::Duration::from_millis(2000);

@@ -6,7 +6,7 @@ use crate::abd::server::register::MonotonicRegisterResource;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::modelled::ModelledConnector;
-use crate::verdist::proto::Tagged;
+use crate::verdist::rpc::proto::Tagged;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -180,7 +180,7 @@ where
             match channel.try_recv() {
                     Ok(req) => {
                         let response = self.handle(req, *id);
-                        if channel.send(response).is_err() {
+                        if channel.send(&response).is_err() {
                             drop.push(*id);
                         }
                     }

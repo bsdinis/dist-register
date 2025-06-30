@@ -1,6 +1,6 @@
 use crate::verdist::network::channel::BufChannel;
 use crate::verdist::network::channel::Channel;
-use crate::verdist::proto::TaggedMessage;
+use crate::verdist::rpc::proto::TaggedMessage;
 
 use vstd::prelude::*;
 

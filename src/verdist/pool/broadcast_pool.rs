@@ -1,8 +1,8 @@
 use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::ConnectionPool;
-use crate::verdist::proto::Tagged;
-use crate::verdist::proto::TaggedMessage;
-use crate::verdist::request::RequestContext;
+use crate::verdist::rpc::proto::Tagged;
+use crate::verdist::rpc::proto::TaggedMessage;
+use crate::verdist::rpc::RequestContext;
 
 use vstd::prelude::*;
 
@@ -35,7 +35,7 @@ where
             assume(filter_fn.requires((idx,)));
             if filter_fn(idx) {
                 let channel = &conns[idx];
-                let _res = channel.send(tagged.clone());
+                let _res = channel.send(&tagged);
             }
         }
         RequestContext::new(self.pool, tagged.tag())

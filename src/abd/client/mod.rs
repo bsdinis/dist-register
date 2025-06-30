@@ -5,8 +5,8 @@ use crate::abd::proto::Timestamp;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::BroadcastPool;
 use crate::verdist::pool::ConnectionPool;
-use crate::verdist::proto::Tagged;
-use crate::verdist::request::Replies;
+use crate::verdist::rpc::proto::Tagged;
+use crate::verdist::rpc::Replies;
 
 pub mod error;
 mod history;

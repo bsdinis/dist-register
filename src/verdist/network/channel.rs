@@ -5,7 +5,7 @@ use crate::verdist::network::error::ConnectError;
 use crate::verdist::network::error::SendError;
 use crate::verdist::network::error::TryListenError;
 use crate::verdist::network::error::TryRecvError;
-use crate::verdist::proto::TaggedMessage;
+use crate::verdist::rpc::proto::TaggedMessage;
 
 use rand_distr::{Distribution, Normal};
 
@@ -40,10 +40,10 @@ pub assume_specification[default_delay]() -> (a: (Duration, Duration));
 
 pub trait Channel {
     type R;
-    type S;
+    type S: Clone;
 
     fn try_recv(&self) -> Result<Self::R, TryRecvError>;
-    fn send(&self, v: Self::S) -> Result<(), SendError<Self::S>>;
+    fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>>;
     fn id(&self) -> u64;
 
     fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {}
@@ -122,7 +122,7 @@ impl<C: Channel> Channel for BufChannel<C> {
     fn try_recv(&self) -> Result<Self::R, TryRecvError> {
         self.channel.try_recv()
     }
-    fn send(&self, v: Self::S) -> Result<(), SendError<Self::S>> {
+    fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>> {
         self.channel.send(v)
     }
     fn wait(&self) {

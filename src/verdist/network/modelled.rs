@@ -41,7 +41,7 @@ pub struct ServerChannel<R, S> {
     stddev_latency: std::time::Duration,
 }
 
-impl<R, S> Channel for ClientChannel<R, S> {
+impl<R, S: Clone> Channel for ClientChannel<R, S> {
     type R = R;
     type S = S;
 
@@ -54,10 +54,10 @@ impl<R, S> Channel for ClientChannel<R, S> {
         }
     }
 
-    fn send(&self, v: S) -> Result<(), crate::verdist::network::error::SendError<S>> {
+    fn send(&self, v: &S) -> Result<(), crate::verdist::network::error::SendError<S>> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
-            self.tx.send(v)?;
+            self.tx.send(v.clone())?;
         }
 
         Ok(())
@@ -77,7 +77,7 @@ impl<R, S> Channel for ClientChannel<R, S> {
     }
 }
 
-impl<R, S> Channel for ServerChannel<R, S> {
+impl<R, S: Clone> Channel for ServerChannel<R, S> {
     type R = R;
     type S = S;
 
@@ -90,10 +90,10 @@ impl<R, S> Channel for ServerChannel<R, S> {
         }
     }
 
-    fn send(&self, v: S) -> Result<(), crate::verdist::network::error::SendError<S>> {
+    fn send(&self, v: &S) -> Result<(), crate::verdist::network::error::SendError<S>> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
-            self.tx.send(v)?;
+            self.tx.send(v.clone())?;
         }
 
         Ok(())
@@ -139,7 +139,7 @@ impl<R, S> ServerChannel<R, S> {
     }
 }
 
-impl<R, S> Listener<ClientChannel<R, S>> for ModelledListener<R, S> {
+impl<R, S: Clone> Listener<ClientChannel<R, S>> for ModelledListener<R, S> {
     fn try_accept(
         &self,
     ) -> Result<ClientChannel<R, S>, crate::verdist::network::error::TryListenError> {
@@ -160,7 +160,7 @@ impl<R, S> Listener<ClientChannel<R, S>> for ModelledListener<R, S> {
     }
 }
 
-impl<R, S> Connector<ServerChannel<R, S>> for ModelledConnector<R, S> {
+impl<R, S: Clone> Connector<ServerChannel<R, S>> for ModelledConnector<R, S> {
     fn connect(&self, id: u64) -> Result<ServerChannel<R, S>, ConnectError> {
         eprintln!("[client|{id:>3}]: connecting from client");
         self.registering_tx.send(id).map_err(|_| ConnectError)?;

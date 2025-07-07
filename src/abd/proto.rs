@@ -1,3 +1,5 @@
+use crate::abd::resource::register::MonotonicRegisterResource;
+
 use vstd::prelude::*;
 
 verus! {
@@ -38,6 +40,7 @@ impl Timestamp {
     }
 }
 
+// TODO: add type invariant
 #[derive(Debug, Clone, Copy)]
 pub enum Request {
     Get,
@@ -48,18 +51,68 @@ pub enum Request {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
+// TODO: add type invariant
 pub enum Response {
     Get {
         val: Option<u64>,
         timestamp: Timestamp,
+        lb: Tracked<MonotonicRegisterResource>
     },
     GetTimestamp {
         timestamp: Timestamp,
+        lb: Tracked<MonotonicRegisterResource>,
     },
-    Write,
+    Write {
+        lb: Tracked<MonotonicRegisterResource>,
+    },
 }
 
+impl Clone for Response {
+    #[allow(unused_variables)]
+    fn clone(&self) -> Self {
+        match self {
+            Response::Get { val, timestamp, lb } => {
+                let tracked new_lb = lb.borrow().extract_lower_bound();
+                Response::Get {
+                    val: val.clone(),
+                    timestamp: timestamp.clone(),
+                    lb: Tracked(new_lb),
+                }
+            },
+            Response::GetTimestamp { timestamp, lb } => {
+                let tracked new_lb = lb.borrow().extract_lower_bound();
+                Response::GetTimestamp {
+                    timestamp: timestamp.clone(),
+                    lb: Tracked(new_lb),
+                }
+            },
+            Response::Write { lb } => {
+                let tracked new_lb = lb.borrow().extract_lower_bound();
+                Response::Write {
+                    lb: Tracked(new_lb),
+                }
+            },
+        }
+    }
+}
+
+}
+
+impl std::fmt::Debug for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Response::Get { val, timestamp, .. } => f
+                .debug_struct("Response::Get")
+                .field("value", &val)
+                .field("timestamp", &timestamp)
+                .finish(),
+            Response::GetTimestamp { timestamp, .. } => f
+                .debug_struct("Response::GetTimestamp")
+                .field("timestamp", &timestamp)
+                .finish(),
+            Response::Write { .. } => f.debug_struct("Response::Write").finish(),
+        }
+    }
 }
 
 impl std::fmt::Debug for Timestamp {

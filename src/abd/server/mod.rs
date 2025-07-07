@@ -1,8 +1,8 @@
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::proto::Timestamp;
+use crate::abd::resource::register::MonotonicRegisterResource;
 use crate::abd::server::register::MonotonicRegister;
-use crate::abd::server::register::MonotonicRegisterResource;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::modelled::ModelledConnector;
@@ -89,6 +89,7 @@ where
         let response = Response::Get {
             val: inner_register.val(),
             timestamp: inner_register.timestamp(),
+            lb: inner_register.lower_bound(),
         };
         let resource = inner_register.get_resource();
         handle.release_write(resource);
@@ -102,6 +103,7 @@ where
         let inner_register = self.register.read(lower_bound);
         let response = Response::GetTimestamp {
             timestamp: inner_register.timestamp(),
+            lb: inner_register.lower_bound(),
         };
         let resource = inner_register.get_resource();
         handle.release_write(resource);
@@ -113,8 +115,12 @@ where
     {
         let (_lower_bound, handle) = self.register_lower_bound.acquire_write();
         let lower_bound = self.register.write(val, timestamp);
+        let tracked new_lb = lower_bound.borrow().extract_lower_bound();
+        let response = Response::Write {
+            lb: Tracked(new_lb)
+        };
         handle.release_write(lower_bound);
-        Response::Write
+        response
     }
 
     fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response>

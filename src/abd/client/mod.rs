@@ -20,13 +20,16 @@ use vstd::prelude::*;
 
 verus! {
 
+// TODO: write weaker spec of history of values
 pub trait AbdRegisterClient<C> {
     fn read(&self) -> Result<(Option<u64>, Timestamp), error::Error>;
     fn write(&self, val: Option<u64>) -> Result<(), error::Error>;
 }
 
 pub struct AbdPool<Pool> {
-    pool: Pool
+    pool: Pool,
+    #[allow(dead_code)]
+    history: Ghost<Seq<Option<u64>>>,
 }
 
 impl<Pool, C> AbdPool<Pool>
@@ -34,7 +37,10 @@ where
     Pool: ConnectionPool<C = C>,
 {
     pub fn new(pool: Pool) -> Self {
-        AbdPool { pool }
+        AbdPool {
+            pool,
+            history: Ghost(Seq::empty()),
+        }
     }
 
     pub fn quorum_size(&self) -> usize {
@@ -54,8 +60,8 @@ where
             .broadcast(Request::Get)
             .wait_for(
                 |s| s.replies().len() >= s.quorum_size(),
-                |r| match r.into_inner() {
-                    Response::Get { timestamp, val } => Ok((timestamp, val)),
+                |r| match r.clone().into_inner() {
+                    Response::Get { timestamp, val, .. } => Ok((timestamp, val)),
                     _ => Err(r),
                 },
             )
@@ -112,7 +118,7 @@ where
                     s.replies.len() + n_max_ts >= s.quorum_size()
                 }),
                 |r| match r.deref() {
-                    Response::Write => Ok(()),
+                    Response::Write { .. } => Ok(()),
                     _ => Err(r),
                 },
             );
@@ -141,7 +147,7 @@ where
                 .wait_for(
                     |s| s.replies().len() >= s.quorum_size(),
                     |r| match r.deref() {
-                        Response::GetTimestamp { timestamp } => Ok(*timestamp),
+                        Response::GetTimestamp { timestamp, .. } => Ok(*timestamp),
                         _ => Err(r),
                     },
                 )
@@ -173,7 +179,7 @@ where
                 .wait_for(
                     |s| s.replies().len() >= s.quorum_size(),
                     |r| match r.deref() {
-                        Response::Write => Ok(()),
+                        Response::Write { .. } => Ok(()),
                         _ => Err(r),
                     },
                 )

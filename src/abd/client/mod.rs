@@ -10,37 +10,78 @@ use crate::verdist::rpc::Replies;
 
 pub mod error;
 mod history;
+pub mod logatom;
 mod utils;
 
 use utils::*;
 
 #[allow(unused_imports)]
 use builtin::*;
+use vstd::logatom::*;
 use vstd::prelude::*;
+use vstd::tokens::frac::GhostVar;
+use vstd::tokens::frac::GhostVarAuth;
+
+use logatom::*;
 
 verus! {
 
 // TODO: write weaker spec of history of values
 pub trait AbdRegisterClient<C> {
-    fn read(&self) -> Result<(Option<u64>, Timestamp), error::Error>;
-    fn write(&self, val: Option<u64>) -> Result<(), error::Error>;
+    spec fn loc(&self) -> int;
+
+    fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), (error::Error, Tracked<RL>)>)
+        requires
+            lin@.pre(RegisterRead { id: self.loc() })
+        ensures
+            r is Ok ==> ({
+                let (val, ts, compl) = r->Ok_0;
+                lin@.post(RegisterRead { id: self.loc() }, val, compl@)
+            }),
+            r is Err ==> ({
+                r->Err_0.1 == lin
+            })
+        ;
+
+    // TODO: help -- this should be able to be done with a shared reference: all the mutable
+    // accesses are in ghost state, and the register should be able to linearize against a local
+    // value.
+    fn write<ML: MutLinearizer<RegisterWrite>>(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, (error::Error, Tracked<ML>)>)
+        requires
+            lin@.pre(RegisterWrite { id: old(self).loc(), new_value: val })
+        ensures
+            r is Ok ==> ({
+                let compl = r->Ok_0;
+                lin@.post(RegisterWrite { id: old(self).loc(), new_value: val }, (), compl@)
+            }),
+            r is Err ==> ({
+                r->Err_0.1 == lin
+            })
+        ;
 }
 
 pub struct AbdPool<Pool> {
-    pool: Pool,
-    #[allow(dead_code)]
-    history: Ghost<Seq<Option<u64>>>,
+    pub pool: Pool,
+    pub register: Tracked<GhostVarAuth<Option<u64>>>,
 }
+
+type RegisterView = Tracked<GhostVar<Option<u64>>>;
 
 impl<Pool, C> AbdPool<Pool>
 where
     Pool: ConnectionPool<C = C>,
 {
-    pub fn new(pool: Pool) -> Self {
-        AbdPool {
+    pub fn new(pool: Pool) -> (Self, RegisterView) {
+        // TODO: this is not known (maybe this has to be Option<Option<u64>>?)
+        let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
+        let register = Tracked(register);
+        let view = Tracked(view);
+        let pool = AbdPool {
             pool,
-            history: Ghost(Seq::empty()),
-        }
+            register
+        };
+
+        (pool, view)
     }
 
     pub fn quorum_size(&self) -> usize {
@@ -54,9 +95,13 @@ where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
 {
-    fn read(&self) -> Result<(Option<u64>, Timestamp), error::Error> {
+    open spec fn loc(&self) -> int {
+        self.register@.id()
+    }
+
+    fn read<RL: ReadLinearizer<RegisterRead>>(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), (error::Error, Tracked<RL>)>) {
         let bpool = BroadcastPool::new(&self.pool);
-        let quorum = bpool
+        let quorum_res = bpool
             .broadcast(Request::Get)
             .wait_for(
                 |s| s.replies().len() >= s.quorum_size(),
@@ -64,11 +109,20 @@ where
                     Response::Get { timestamp, val, .. } => Ok((timestamp, val)),
                     _ => Err(r),
                 },
-            )
-            .map_err(|e| error::Error::FailedFirstQuorum {
-                obtained: e.replies().len(),
-                required: self.pool.quorum_size(),
-            })?;
+            );
+
+        let quorum = match quorum_res {
+            Ok(q) => q,
+            Err(e) => {
+                return Err((
+                    error::Error::FailedFirstQuorum {
+                        obtained: e.replies().len(),
+                        required: self.pool.quorum_size(),
+                    },
+                    Tracked(lin)
+                ));
+            }
+        };
 
         // check early return
         let replies = quorum.replies();
@@ -86,7 +140,11 @@ where
         }
 
         if n_max_ts >= self.pool.quorum_size() {
-            return Ok((max_val, max_ts));
+            let comp = Tracked({
+                let op = RegisterRead { id: self.loc() };
+                lin.apply(op, self.register.borrow(), &max_val)
+            });
+            return Ok((max_val, max_ts, comp));
         }
 
         // non-unanimous read: write-back
@@ -127,22 +185,29 @@ where
         let err_mapper = |e: Replies<_, _>|
                  requires e.replies.len() + n_max_ts < usize::MAX,
                     {
-                error::Error::FailedSecondQuorum {
+                 error::Error::FailedSecondQuorum {
                 obtained: e.replies.len() + n_max_ts,
                 required: self.pool.quorum_size(),
-            }
+                 }
         };
         assume(result.is_err() ==> err_mapper.requires((result->Err_0,)));
-        result.map_err(err_mapper)?;
+        if let Err(e) = result {
+            let e = err_mapper(e);
+            return Err((e, Tracked(lin)));
+        }
 
-        Ok((max_val, max_ts))
+        let comp = Tracked({
+            let op = RegisterRead { id: self.loc() };
+            lin.apply(op, self.register.borrow(), &max_val)
+        });
+        Ok((max_val, max_ts, comp))
     }
 
-    fn write(&self, val: Option<u64>) -> Result<(), error::Error> {
+    fn write<ML: MutLinearizer<RegisterWrite>>(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, (error::Error, Tracked<ML>)>) {
         let max_ts = {
             let bpool = BroadcastPool::new(&self.pool);
 
-            let quorum = bpool
+            let quorum_res = bpool
                 .broadcast(Request::GetTimestamp)
                 .wait_for(
                     |s| s.replies().len() >= s.quorum_size(),
@@ -150,11 +215,20 @@ where
                         Response::GetTimestamp { timestamp, .. } => Ok(*timestamp),
                         _ => Err(r),
                     },
-                )
-                .map_err(|e| error::Error::FailedFirstQuorum {
-                    obtained: e.replies().len(),
-                    required: self.pool.quorum_size(),
-                })?;
+                );
+
+            let quorum = match quorum_res {
+                Ok(q) => q,
+                Err(e) => {
+                    return Err((
+                        error::Error::FailedFirstQuorum {
+                            obtained: e.replies().len(),
+                            required: self.pool.quorum_size(),
+                        },
+                        Tracked(lin)
+                    ));
+                }
+            };
 
             let replies = quorum.replies();
             assume(replies.len() > 0);
@@ -168,7 +242,7 @@ where
         {
             assume(max_ts.seqno + 1 < u64::MAX);
             let bpool = BroadcastPool::new(&self.pool);
-            let _quorum = bpool
+            let quorum_res = bpool
                 .broadcast(Request::Write {
                     val,
                     timestamp: Timestamp {
@@ -182,13 +256,27 @@ where
                         Response::Write { .. } => Ok(()),
                         _ => Err(r),
                     },
-                )
-                .map_err(|e| error::Error::FailedSecondQuorum {
-                    obtained: e.replies().len(),
-                    required: self.pool.quorum_size(),
-                })?;
+                );
 
-            Ok(())
+            let _quorum = match quorum_res {
+                Ok(q) => q,
+                Err(e) => {
+                    return Err((
+                        error::Error::FailedSecondQuorum {
+                            obtained: e.replies().len(),
+                            required: self.pool.quorum_size(),
+                        },
+                        Tracked(lin)
+                    ));
+                }
+            };
+
+            let comp = Tracked({
+                let op = RegisterWrite { id: self.loc(), new_value: val };
+                lin.apply(op, self.register.borrow_mut(), (), &())
+            });
+
+            Ok(comp)
         }
     }
 }

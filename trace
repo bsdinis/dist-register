@@ -1,0 +1,43 @@
+
+Time 0:
+
+servers = [0.0, 0.0, 0.0]
+
+Client 1 writing(2):                         Client 2 writing(3):              Client 3 read():                 Client 4 read():
+
+queue the write(proph1)                      queue the write(proh2)
+aux_reads()                                  aux_reads()
+quorum = [0.0]                               quorum = [0.0, 0.0]
+                                             resolve the proph2 == 1.2
+stalls                                       send_write(3, 1.2)
+                                                                               aux_reads()
+                                                                               quorum = [0.0, 1.2]
+                                                                               writebacks(1.2)
+                                                                               gets ack
+                                                                               apply and put comp queue <= 1.2
+                                                                               return 1.2
+
+                                             wait_quorum()
+                                             apply and put comp queue <= 1.2
+                                             finishes
+
+servers = [1.2, 1.2, 0.0]
+
+continues
+quorum = [0.0, 1.2]
+resolve the proph1 == 2.1
+send_write(2, 2.1)
+                                                                                                              aux_reads()
+                                                                                                              quorum = [2.1, 2.1]
+
+quorum servers receives 2.1
+crashes
+                                                                                                              apply and put comp queue <= 2.1
+                                                                                                              return 2.1
+
+
+alternative: the servers have access to the queue and when they ack a write they check if they created a quorum and apply and put comps in the queue
+
+
+
+

@@ -1,16 +1,30 @@
 use clap::Parser;
 
+#[allow(unused_imports)]
+use builtin::*;
+use vstd::logatom::MutLinearizer;
+use vstd::logatom::ReadLinearizer;
+use vstd::prelude::*;
+use vstd::tokens::frac::GhostVar;
+use vstd::tokens::frac::GhostVarAuth;
+
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+#[allow(unused_imports)]
 use std::sync::Arc;
+#[allow(unused_imports)]
 use std::sync::Condvar;
+#[allow(unused_imports)]
 use std::sync::Mutex;
 
 mod abd;
 mod verdist;
 
+use abd::client::logatom::RegisterRead;
+use abd::client::logatom::RegisterWrite;
 use abd::client::AbdPool;
 use abd::client::AbdRegisterClient;
+use abd::proto::Timestamp;
 use abd::server::run_modelled_server;
 use verdist::network::channel::BufChannel;
 use verdist::network::channel::Channel;
@@ -18,9 +32,6 @@ use verdist::network::channel::Connector;
 use verdist::network::error::ConnectError;
 use verdist::pool::FlawlessPool;
 use verdist::rpc::proto::Tagged;
-
-const REQUEST_LATENCY_DEFAULT: std::time::Duration = std::time::Duration::from_millis(1000);
-const REQUEST_STDDEV_DEFAULT: std::time::Duration = std::time::Duration::from_millis(2000);
 
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
@@ -39,12 +50,6 @@ struct Args {
 
     #[arg(long, default_value_t = 1)]
     client_id: u64,
-}
-
-#[derive(Debug)]
-enum Error {
-    Connection(ConnectError),
-    Abd(abd::client::error::Error),
 }
 
 impl From<ConnectError> for Error {
@@ -77,6 +82,66 @@ impl std::fmt::Display for Error {
     }
 }
 
+impl std::fmt::Debug for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Connection(e) => e.fmt(f),
+            Error::Abd(e) => e.fmt(f),
+        }
+    }
+}
+
+verus! {
+
+enum Error {
+    Connection(ConnectError),
+    Abd(abd::client::error::Error),
+}
+
+#[verifier::external_trait_specification]
+pub trait ExError: std::fmt::Debug + std::fmt::Display {
+    type ExternalTraitSpecificationFor: std::error::Error;
+}
+
+pub assume_specification[std::time::Duration::from_millis](millis: u64) -> std::time::Duration;
+
+/*
+const REQUEST_LATENCY_DEFAULT: std::time::Duration = std::time::Duration::from_millis(1000);
+const REQUEST_STDDEV_DEFAULT: std::time::Duration = std::time::Duration::from_millis(2000);
+*/
+const REQUEST_LATENCY_DEFAULT_MS: u64 = 1000;
+const REQUEST_STDDEV_DEFAULT_MS: u64 = 2000;
+
+#[verifier::external_type_specification]
+struct ExArgs(Args);
+
+#[verifier::external_body]
+fn report_quorum_size(quorum_size: usize) {
+    println!("quorum size: {quorum_size}");
+}
+
+#[verifier::external_body]
+fn report_read(client_id: u64, r: (Option<u64>, Timestamp)) {
+    eprintln!(
+        "client {client_id:3} read finished: {:20}",
+        format!("{r:?}")
+    );
+}
+
+#[verifier::external_body]
+fn report_err<E: std::error::Error>(client_id: u64, e: E) {
+    eprintln!("client {client_id:3} failed: {e:20?}");
+}
+
+#[verifier::external_body]
+fn report_write(client_id: u64, val: Option<u64>) {
+    eprintln!(
+        "client {client_id:3} write finished: {:20}",
+        format!("{val:?}")
+    );
+}
+
+
 fn connect<C, Conn>(
     args: &Args,
     connector: &Conn,
@@ -88,7 +153,7 @@ where
 {
     let mut channel = connector.connect(client_id)?;
     if !args.no_delay {
-        channel.add_latency(REQUEST_LATENCY_DEFAULT / 2, REQUEST_STDDEV_DEFAULT / 2);
+        channel.add_latency(std::time::Duration::from_millis(REQUEST_LATENCY_DEFAULT_MS), std::time::Duration::from_millis(REQUEST_STDDEV_DEFAULT_MS));
     }
     Ok(BufChannel::new(channel))
 }
@@ -102,10 +167,13 @@ where
     Conn: Connector<C>,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
 {
-    connectors
-        .iter()
-        .map(|connector| connect(args, connector, client_id))
-        .collect()
+    let mut v = Vec::with_capacity(connectors.len());
+    for connector in connectors.iter() {
+        let conn = connect(args, connector, client_id)?;
+        v.push(conn)
+    }
+
+    Ok(v)
 }
 
 #[derive(Debug)]
@@ -116,13 +184,15 @@ enum Operation {
 
 struct Event {
     event_id: u64,
-    begin: std::time::Instant,
-    end: std::time::Instant,
+    begin_ms: u64,
+    end_ms: u64,
     op: Operation,
 }
 
+
 type Trace = Vec<Event>;
 
+/*
 fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error>
 where
     Conn: Connector<C> + Send + Sync,
@@ -137,7 +207,7 @@ where
 
     let client_fn = |id: u64, cv: Arc<(Mutex<u64>, Condvar)>| {
         let pool = connect_all(&args, connectors, id)?;
-        let client = AbdPool::new(FlawlessPool::new(pool, id));
+        let (client, view) = AbdPool::new(FlawlessPool::new(pool, id));
         println!("quorum size: {}", client.quorum_size());
 
         let (lock, var) = &*cv;
@@ -248,6 +318,133 @@ where
 
     Ok(Arc::into_inner(trace).unwrap().into_inner().unwrap())
 }
+*/
+
+
+pub struct ReadPerm {
+    pub tracked register: GhostVar<Option<u64>>,
+}
+
+pub struct WritePerm {
+    pub val: Option<u64>,
+    pub tracked register: GhostVar<Option<u64>>,
+}
+
+impl MutLinearizer<RegisterWrite> for WritePerm {
+    type Completion = GhostVar<Option<u64>>;
+
+    open spec fn namespaces(self) -> Set<int> { Set::empty() }
+
+    // TODO: do I not need some better like \exists v: r -> v
+    open spec fn pre(self, op: RegisterWrite) -> bool {
+        op.id == self.register.id()
+    }
+
+    open spec fn post(self, op: RegisterWrite, exec_res: (), completion: Self::Completion) -> bool {
+        &&& op.id == self.register.id()
+        &&& op.id == completion.id()
+        &&& op.new_value == completion@
+    }
+
+    proof fn apply(
+        tracked self,
+        op: RegisterWrite,
+        tracked resource: &mut GhostVarAuth<Option<u64>>,
+        new_state: (),
+        exec_res: &()
+    ) -> (tracked result: Self::Completion)
+    {
+        let tracked mut mself = self;
+
+        resource.update(&mut mself.register, op.new_value);
+        mself.register
+    }
+
+    proof fn peek(tracked &self, op: RegisterWrite, tracked resource: &GhostVarAuth<Option<u64>>) {}
+}
+
+impl ReadLinearizer<RegisterRead> for ReadPerm {
+    type Completion = GhostVar<Option<u64>>;
+
+    open spec fn namespaces(self) -> Set<int> { Set::empty() }
+
+    open spec fn pre(self, op: RegisterRead) -> bool {
+        &&& op.id == self.register.id()
+    }
+
+    open spec fn post(self, op: RegisterRead, exec_res: Option<u64>, completion: Self::Completion) -> bool {
+        &&& op.id == self.register.id()
+        &&& op.id == completion.id()
+        &&& self.register == completion
+        &&& exec_res == completion@
+    }
+
+    proof fn apply(
+        tracked self,
+        op: RegisterRead,
+        tracked resource: &GhostVarAuth<Option<u64>>,
+        exec_res: &Option<u64>
+    ) -> (tracked result: Self::Completion)
+    {
+        resource.agree(&self.register);
+        self.register
+    }
+
+    proof fn peek(tracked &self, op: RegisterRead, tracked resource: &GhostVarAuth<Option<u64>>) {}
+}
+
+
+fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error>
+where
+    Conn: Connector<C> + Send + Sync,
+    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+    C: Sync + Send,
+{
+    let pool = connect_all(&args, connectors, 0)?;
+    let (mut client, view) = AbdPool::new(FlawlessPool::new(pool, 0));
+    report_quorum_size(client.quorum_size());
+
+    let tracked read_perm = ReadPerm { register: view.get() };
+    let view = match client.read::<ReadPerm>(Tracked(read_perm)) {
+        Ok((v, ts, comp)) => {
+            report_read(0, (v, ts));
+            comp
+        },
+        Err((e, lin)) => {
+            report_err(0, e);
+            Tracked(lin.get().register)
+        }
+    };
+
+    let tracked write_perm = WritePerm { register: view.get(), val: Some(42u64) };
+    let view = match client.write::<WritePerm>(Some(42), Tracked(write_perm)) {
+        Ok(comp) => {
+            report_write(0, Some(42));
+            comp
+        },
+        Err((e, lin)) => {
+            report_err(0, e);
+            Tracked(lin.get().register)
+        }
+    };
+    assert(view@@ == Some(42u64));
+
+    let tracked read_perm = ReadPerm { register: view.get() };
+    let view = match client.read::<ReadPerm>(Tracked(read_perm)) {
+        Ok((v, ts, comp)) => {
+            report_read(0, (v, ts));
+            comp
+        },
+        Err((e, lin)) => {
+            report_err(0, e);
+            Tracked(lin.get().register)
+        }
+    };
+
+    Ok(Trace::new())
+}
+
+}
 
 struct PartialOrder(HashMap<(u64, u64), bool>);
 impl std::ops::Deref for PartialOrder {
@@ -332,11 +529,11 @@ impl std::fmt::Debug for PartialOrder {
 fn realtime(trace: &[Event]) -> PartialOrder {
     let mut order = HashMap::new();
     for op1 in trace {
-        assert!(op1.begin < op1.end, "invalid event");
+        assert!(op1.begin_ms < op1.end_ms, "invalid event");
         for op2 in trace {
-            if op1.end < op2.begin {
+            if op1.end_ms < op2.begin_ms {
                 order.insert((op1.event_id, op2.event_id), true);
-            } else if op2.end < op1.begin {
+            } else if op2.end_ms < op1.begin_ms {
                 order.insert((op1.event_id, op2.event_id), false);
             }
         }
@@ -349,7 +546,7 @@ fn partial(trace: &[Event]) -> PartialOrder {
     let mut order = HashMap::new();
 
     for op1 in trace {
-        assert!(op1.begin < op1.end, "invalid event");
+        assert!(op1.begin_ms < op1.end_ms, "invalid event");
         for op2 in trace {
             if let (Operation::Read(read_v), Operation::Write(write_v)) = (&op1.op, &op2.op) {
                 if read_v == write_v {

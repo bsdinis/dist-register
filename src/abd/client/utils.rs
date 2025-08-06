@@ -1,7 +1,7 @@
 use crate::abd::proto::Timestamp;
 
 #[allow(unused_imports)]
-use builtin::*;
+use verus_builtin::*;
 use vstd::prelude::*;
 
 verus! {

@@ -1,11 +1,12 @@
 use clap::Parser;
 
 #[allow(unused_imports)]
-use builtin::*;
+use verus_builtin::*;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::tokens::frac::GhostVar;
+#[allow(unused_imports)]
 use vstd::tokens::frac::GhostVarAuth;
 
 use std::collections::BTreeSet;
@@ -58,9 +59,15 @@ impl From<ConnectError> for Error {
     }
 }
 
-impl From<abd::client::error::Error> for Error {
-    fn from(value: abd::client::error::Error) -> Self {
-        Error::Abd(value)
+impl From<abd::client::error::ReadError<ReadPerm>> for Error {
+    fn from(value: abd::client::error::ReadError<ReadPerm>) -> Self {
+        Error::AbdRead(value)
+    }
+}
+
+impl From<abd::client::error::WriteError> for Error {
+    fn from(value: abd::client::error::WriteError) -> Self {
+        Error::AbdWrite(value)
     }
 }
 
@@ -68,7 +75,8 @@ impl std::error::Error for Error {
     fn cause(&self) -> Option<&dyn std::error::Error> {
         match self {
             Error::Connection(e) => Some(e),
-            Error::Abd(e) => Some(e),
+            Error::AbdRead(e) => Some(e),
+            Error::AbdWrite(e) => Some(e),
         }
     }
 }
@@ -77,7 +85,8 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Connection(e) => e.fmt(f),
-            Error::Abd(e) => e.fmt(f),
+            Error::AbdRead(e) => e.fmt(f),
+            Error::AbdWrite(e) => e.fmt(f),
         }
     }
 }
@@ -86,7 +95,8 @@ impl std::fmt::Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Connection(e) => e.fmt(f),
-            Error::Abd(e) => e.fmt(f),
+            Error::AbdRead(e) => e.fmt(f),
+            Error::AbdWrite(e) => e.fmt(f),
         }
     }
 }
@@ -95,7 +105,8 @@ verus! {
 
 enum Error {
     Connection(ConnectError),
-    Abd(abd::client::error::Error),
+    AbdRead(abd::client::error::ReadError<ReadPerm>),
+    AbdWrite(abd::client::error::WriteError),
 }
 
 #[verifier::external_trait_specification]
@@ -401,43 +412,39 @@ where
     C: Sync + Send,
 {
     let pool = connect_all(&args, connectors, 0)?;
-    let (mut client, view) = AbdPool::new(FlawlessPool::new(pool, 0));
+    let (mut client, view) = AbdPool::<_, WritePerm>::new(FlawlessPool::new(pool, 0));
     report_quorum_size(client.quorum_size());
 
-    let tracked read_perm = ReadPerm { register: view.get() };
-    let view = match client.read::<ReadPerm>(Tracked(read_perm)) {
+    let tracked read_perm = ReadPerm { register: view.clone().get() };
+    match client.read::<ReadPerm>(Tracked(read_perm)) {
         Ok((v, ts, comp)) => {
             report_read(0, (v, ts));
             comp
         },
-        Err((e, lin)) => {
+        Err(e) => {
             report_err(0, e);
-            Tracked(lin.get().register)
+            Tracked(e.linearizer.get().register)
         }
     };
 
-    let tracked write_perm = WritePerm { register: view.get(), val: Some(42u64) };
-    let view = match client.write::<WritePerm>(Some(42), Tracked(write_perm)) {
-        Ok(comp) => {
+    let tracked write_perm = WritePerm { register: view.clone().get(), val: Some(42u64) };
+    match client.write(Some(42), Tracked(write_perm)) {
+        Ok(_comp) => {
             report_write(0, Some(42));
-            comp
         },
-        Err((e, lin)) => {
+        Err(e) => {
             report_err(0, e);
-            Tracked(lin.get().register)
         }
     };
     assert(view@@ == Some(42u64));
 
-    let tracked read_perm = ReadPerm { register: view.get() };
-    let view = match client.read::<ReadPerm>(Tracked(read_perm)) {
-        Ok((v, ts, comp)) => {
+    let tracked read_perm = ReadPerm { register: view.clone().get() };
+    match client.read::<ReadPerm>(Tracked(read_perm)) {
+        Ok((v, ts, _comp)) => {
             report_read(0, (v, ts));
-            comp
         },
-        Err((e, lin)) => {
+        Err(e) => {
             report_err(0, e);
-            Tracked(lin.get().register)
         }
     };
 

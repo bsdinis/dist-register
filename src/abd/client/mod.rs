@@ -6,37 +6,46 @@ use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::BroadcastPool;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
-use crate::verdist::rpc::Replies;
 
 pub mod error;
 mod history;
+mod linearization;
 pub mod logatom;
 mod utils;
 
-use utils::*;
+use std::sync::Arc;
 
 #[allow(unused_imports)]
-use builtin::*;
+use verus_builtin::*;
 use vstd::logatom::*;
 use vstd::prelude::*;
+use vstd::proph::Prophecy;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 
+use linearization::*;
 use logatom::*;
+use utils::*;
 
 verus! {
 
-// TODO: write weaker spec of history of values
-pub trait AbdRegisterClient<C> {
+// NOTE: LIMITATION
+// - The MutLinearizer should be specified in the method
+// - Type problem: the linearization queue is parametrized by the linearizer type
+// - Polymorphism is hard
+pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     spec fn loc(&self) -> int;
 
-    fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), (error::Error, Tracked<RL>)>)
+    // TODO: read is &mut self because it needs access to the linearization queue
+    // This should be fixable with an atomic invariant
+    fn read<RL: ReadLinearizer<RegisterRead>>(&mut self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
         requires
-            lin@.pre(RegisterRead { id: self.loc() })
+            lin@.pre(RegisterRead { id: Ghost(old(self).loc()) })
         ensures
+            old(self).loc() == self.loc(),
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
-                lin@.post(RegisterRead { id: self.loc() }, val, compl@)
+                lin@.post(RegisterRead { id: Ghost(self.loc()) }, val, compl@)
             }),
             r is Err ==> ({
                 r->Err_0.1 == lin
@@ -46,13 +55,30 @@ pub trait AbdRegisterClient<C> {
     // TODO: help -- this should be able to be done with a shared reference: all the mutable
     // accesses are in ghost state, and the register should be able to linearize against a local
     // value.
-    fn write<ML: MutLinearizer<RegisterWrite>>(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, (error::Error, Tracked<ML>)>)
+    //
+    // NOTE: to make it shared we need to restructure the timestamp
+    // The timestamp requires a field for a per-client seqno that orders the writes on the same
+    // client
+    //
+    // Consider the following counterexample:
+    // - Two writes come through the same client
+    // - They both observe a read at (seqno, c_id')
+    // - They both write to (seqno + 1, c_id) -- but with different values
+    //
+    // To solve it, we add an extra (atomic) client seqno to break ties between concurrent writes
+    // in the same client:
+    // - Two writes come through the same client
+    // - They both observe a read at (seqno, c_id', c_seqno')
+    // - They race to increment an atomic internal c_seqno (one gets c_seqno1 and the other c_seqno2)
+    // - They write to (seqno + 1, c_id, c_seqno1) and (seqno + 1, c_id, c_seqno2) respectively
+    fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
         requires
-            lin@.pre(RegisterWrite { id: old(self).loc(), new_value: val })
+            lin@.pre(RegisterWrite { id: Ghost(old(self).loc()), new_value: val })
         ensures
+            old(self).loc() == self.loc(),
             r is Ok ==> ({
                 let compl = r->Ok_0;
-                lin@.post(RegisterWrite { id: old(self).loc(), new_value: val }, (), compl@)
+                lin@.post(RegisterWrite { id: Ghost(self.loc()), new_value: val }, (), compl@)
             }),
             r is Err ==> ({
                 r->Err_0.1 == lin
@@ -60,25 +86,33 @@ pub trait AbdRegisterClient<C> {
         ;
 }
 
-pub struct AbdPool<Pool> {
+pub struct AbdPool<Pool, ML: MutLinearizer<RegisterWrite>> {
     pub pool: Pool,
+
+    // Local view of the register
     pub register: Tracked<GhostVarAuth<Option<u64>>>,
+
+    // TODO: make this an atomic invariant
+    pub linearization_queue: LinearizationQueue<ML>,
 }
 
-type RegisterView = Tracked<GhostVar<Option<u64>>>;
+type RegisterView = Arc<Tracked<GhostVar<Option<u64>>>>;
 
-impl<Pool, C> AbdPool<Pool>
+
+impl<Pool, C, ML> AbdPool<Pool, ML>
 where
     Pool: ConnectionPool<C = C>,
+    ML: MutLinearizer<RegisterWrite>
 {
     pub fn new(pool: Pool) -> (Self, RegisterView) {
         // TODO: this is not known (maybe this has to be Option<Option<u64>>?)
         let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
         let register = Tracked(register);
-        let view = Tracked(view);
+        let view = Arc::new(Tracked(view));
         let pool = AbdPool {
             pool,
-            register
+            register,
+            linearization_queue: LinearizationQueue::new()
         };
 
         (pool, view)
@@ -90,16 +124,18 @@ where
 }
 
 
-impl<Pool, C> AbdRegisterClient<C> for AbdPool<Pool>
+impl<Pool, C, ML> AbdRegisterClient<C, ML> for AbdPool<Pool, ML>
 where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
+    ML: MutLinearizer<RegisterWrite>
 {
     open spec fn loc(&self) -> int {
         self.register@.id()
     }
 
-    fn read<RL: ReadLinearizer<RegisterRead>>(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), (error::Error, Tracked<RL>)>) {
+    fn read<RL: ReadLinearizer<RegisterRead>>(&mut self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
+    {
         let bpool = BroadcastPool::new(&self.pool);
         let quorum_res = bpool
             .broadcast(Request::Get)
@@ -114,13 +150,11 @@ where
         let quorum = match quorum_res {
             Ok(q) => q,
             Err(e) => {
-                return Err((
-                    error::Error::FailedFirstQuorum {
-                        obtained: e.replies().len(),
-                        required: self.pool.quorum_size(),
-                    },
-                    Tracked(lin)
-                ));
+                return Err(error::ReadError::FailedFirstQuorum {
+                    obtained: e.replies().len(),
+                    required: self.pool.quorum_size(),
+                    linearizer: Tracked(lin),
+                });
             }
         };
 
@@ -140,8 +174,9 @@ where
         }
 
         if n_max_ts >= self.pool.quorum_size() {
+            self.linearization_queue.apply_linearizer(&mut self.register, &max_ts);
             let comp = Tracked({
-                let op = RegisterRead { id: self.loc() };
+                let op = RegisterRead { id: Ghost(self.loc()) };
                 lin.apply(op, self.register.borrow(), &max_val)
             });
             return Ok((max_val, max_ts, comp));
@@ -150,7 +185,7 @@ where
         // non-unanimous read: write-back
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
-        let result = bpool
+        let replies_result = bpool
             .broadcast_filter(
                 Request::Write {
                     val: max_val,
@@ -182,28 +217,50 @@ where
             );
 
 
-        let err_mapper = |e: Replies<_, _>|
-                 requires e.replies.len() + n_max_ts < usize::MAX,
-                    {
-                 error::Error::FailedSecondQuorum {
-                obtained: e.replies.len() + n_max_ts,
+        if let Err(replies) = replies_result {
+            return Err(error::ReadError::FailedSecondQuorum {
+                obtained: replies.replies().len(),
                 required: self.pool.quorum_size(),
-                 }
-        };
-        assume(result.is_err() ==> err_mapper.requires((result->Err_0,)));
-        if let Err(e) = result {
-            let e = err_mapper(e);
-            return Err((e, Tracked(lin)));
+                linearizer: Tracked(lin),
+            });
         }
 
+        self.linearization_queue.apply_linearizer(&mut self.register, &max_ts);
         let comp = Tracked({
-            let op = RegisterRead { id: self.loc() };
+            let op = RegisterRead { id: Ghost(self.loc()) };
             lin.apply(op, self.register.borrow(), &max_val)
         });
         Ok((max_val, max_ts, comp))
     }
 
-    fn write<ML: MutLinearizer<RegisterWrite>>(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, (error::Error, Tracked<ML>)>) {
+    fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
+    {
+        // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
+        //
+        // Imagine if we added this after the read quorum is achieved
+        // and we know which timestamp we are writing to.
+        //
+        // A concurrent write can read the same timestamp but write to a posterior one
+        // (by having a greater client id)
+        //
+        // This means that secondary write can actually go ahead and finish before the first phase
+        // of our write finishes
+        //
+        // Consequently, when they apply all the linearizers up to their watermark, our linearizer
+        // is not there. This breaks the invariant on the linearization queue: all possible
+        // linearizers refering to timestamps not greater than the watermark (increased when the
+        // linearizers are applied) have been applied
+        //
+        // The way we go about this is by prophecizing the timestamp a write will get and put it in
+        // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
+        // variable.
+        let proph_ts = Prophecy::<Timestamp>::new();
+        let token = Tracked(self.linearization_queue.insert_linearizer(
+            lin,
+            RegisterWrite { id: Ghost(self.loc()), new_value: val },
+            proph_ts@
+        ));
+
         let max_ts = {
             let bpool = BroadcastPool::new(&self.pool);
 
@@ -220,13 +277,10 @@ where
             let quorum = match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
-                    return Err((
-                        error::Error::FailedFirstQuorum {
-                            obtained: e.replies().len(),
-                            required: self.pool.quorum_size(),
-                        },
-                        Tracked(lin)
-                    ));
+                    return Err(error::WriteError::FailedFirstQuorum {
+                        obtained: e.replies().len(),
+                        required: self.pool.quorum_size(),
+                    });
                 }
             };
 
@@ -239,16 +293,16 @@ where
             Ok(max_ts)
         }?;
 
+        let exec_ts = Timestamp { seqno: max_ts.seqno + 1, client_id: self.pool.id(), };
+        proph_ts.resolve(&exec_ts);
+
         {
             assume(max_ts.seqno + 1 < u64::MAX);
             let bpool = BroadcastPool::new(&self.pool);
             let quorum_res = bpool
                 .broadcast(Request::Write {
                     val,
-                    timestamp: Timestamp {
-                        seqno: max_ts.seqno + 1,
-                        client_id: self.pool.id(),
-                    },
+                    timestamp: exec_ts,
                 })
                 .wait_for(
                     |s| s.replies().len() >= s.quorum_size(),
@@ -261,20 +315,15 @@ where
             let _quorum = match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
-                    return Err((
-                        error::Error::FailedSecondQuorum {
-                            obtained: e.replies().len(),
-                            required: self.pool.quorum_size(),
-                        },
-                        Tracked(lin)
-                    ));
+                    return Err(error::WriteError::FailedSecondQuorum {
+                        obtained: e.replies().len(),
+                        required: self.pool.quorum_size(),
+                    });
                 }
             };
 
-            let comp = Tracked({
-                let op = RegisterWrite { id: self.loc(), new_value: val };
-                lin.apply(op, self.register.borrow_mut(), (), &())
-            });
+            let resource = Tracked(self.linearization_queue.apply_linearizer(&mut self.register, &exec_ts));
+            let comp = self.linearization_queue.extract_completion(token, resource);
 
             Ok(comp)
         }

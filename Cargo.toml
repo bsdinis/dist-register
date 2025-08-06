@@ -18,8 +18,8 @@ tracing-subscriber = { version = "0.3.18", features = [ "std", "env-filter" ] }
 
 # verus
 vstd = { path = "../verus/source/vstd" }
-builtin = { path = "../verus/source/builtin" }
-builtin_macros = { path = "../verus/source/builtin_macros" }
+verus_builtin = { path = "../verus/source/builtin" }
+verus_builtin_macros = { path = "../verus/source/builtin_macros" }
 
 [lints.clippy]
 explicit_iter_loop = "warn"

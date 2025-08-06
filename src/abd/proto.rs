@@ -4,7 +4,7 @@ use vstd::prelude::*;
 
 verus! {
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Structural, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timestamp {
     pub seqno: u64,
     pub client_id: u64,

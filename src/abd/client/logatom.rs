@@ -1,5 +1,5 @@
 #[allow(unused_imports)]
-use builtin::*;
+use verus_builtin::*;
 use vstd::logatom::*;
 use vstd::prelude::*;
 use vstd::tokens::frac::GhostVarAuth;
@@ -8,12 +8,12 @@ verus! {
 
 pub struct RegisterRead {
     /// resource location
-    pub id: int,
+    pub id: Ghost<int>,
 }
 
 pub struct RegisterWrite {
     /// resource location
-    pub id: int,
+    pub id: Ghost<int>,
 
     pub new_value: Option<u64>,
 }

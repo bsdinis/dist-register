@@ -21,6 +21,7 @@ use std::sync::Mutex;
 mod abd;
 mod verdist;
 
+use abd::client::linearizers::WritePerm;
 use abd::client::logatom::RegisterRead;
 use abd::client::logatom::RegisterWrite;
 use abd::client::AbdPool;
@@ -336,43 +337,6 @@ pub struct ReadPerm {
     pub tracked register: GhostVar<Option<u64>>,
 }
 
-pub struct WritePerm {
-    pub val: Option<u64>,
-    pub tracked register: GhostVar<Option<u64>>,
-}
-
-impl MutLinearizer<RegisterWrite> for WritePerm {
-    type Completion = GhostVar<Option<u64>>;
-
-    open spec fn namespaces(self) -> Set<int> { Set::empty() }
-
-    // TODO: do I not need some better like \exists v: r -> v
-    open spec fn pre(self, op: RegisterWrite) -> bool {
-        op.id == self.register.id()
-    }
-
-    open spec fn post(self, op: RegisterWrite, exec_res: (), completion: Self::Completion) -> bool {
-        &&& op.id == self.register.id()
-        &&& op.id == completion.id()
-        &&& op.new_value == completion@
-    }
-
-    proof fn apply(
-        tracked self,
-        op: RegisterWrite,
-        tracked resource: &mut GhostVarAuth<Option<u64>>,
-        new_state: (),
-        exec_res: &()
-    ) -> (tracked result: Self::Completion)
-    {
-        let tracked mut mself = self;
-
-        resource.update(&mut mself.register, op.new_value);
-        mself.register
-    }
-
-    proof fn peek(tracked &self, op: RegisterWrite, tracked resource: &GhostVarAuth<Option<u64>>) {}
-}
 
 impl ReadLinearizer<RegisterRead> for ReadPerm {
     type Completion = GhostVar<Option<u64>>;

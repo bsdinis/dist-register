@@ -10,6 +10,7 @@ use crate::verdist::rpc::proto::Tagged;
 pub mod error;
 mod history;
 mod linearization;
+pub mod linearizers;
 pub mod logatom;
 mod utils;
 

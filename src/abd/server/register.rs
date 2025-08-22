@@ -1,5 +1,3 @@
-use verus_builtin::*;
-use verus_builtin_macros::*;
 #[allow(unused_imports)]
 use vstd::prelude::*;
 use vstd::rwlock::RwLock;
@@ -140,7 +138,7 @@ impl MonotonicRegisterInner {
             use_type_invariant(&self);
         }
 
-        if timestamp.seqno > self.timestamp.seqno || (timestamp.seqno == self.timestamp.seqno && timestamp.client_id > self.timestamp.client_id) {
+        if timestamp > self.timestamp {
             let tracked mut r = self.resource.get();
             proof {
                 r.advance(timestamp.to_nat())

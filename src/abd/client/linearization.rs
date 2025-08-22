@@ -1,6 +1,4 @@
 use crate::abd::proto::Timestamp;
-#[allow(unused_imports)]
-use verus_builtin::*;
 use vstd::logatom::*;
 use vstd::prelude::*;
 use vstd::tokens::frac::GhostVarAuth;
@@ -50,12 +48,12 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
 //  - Together, they can be used to extract the completion
 
 pub struct LinearizationQueue<ML: MutLinearizer<RegisterWrite>> {
-    queue: Tracked<Map<int, MaybeLinearized<ML>>>,
+    pub queue: Tracked<Map<int, MaybeLinearized<ML>>>,
 
     // everything up to the watermark is guaranteed to be applied
-    watermark: Ghost<Timestamp>,
+    pub watermark: Ghost<Timestamp>,
 
-    curr_token: int,
+    pub curr_token: Ghost<int>,
 }
 
 impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
@@ -64,9 +62,9 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     //  - this queue is assumed to be common to all the clients
     pub fn new() -> Self {
         LinearizationQueue {
-            queue: Tracked(Map::empty()),
+            queue: Tracked(Map::tracked_empty()),
             watermark: Ghost(Timestamp { seqno: 0, client_id: 0 }),
-            curr_token: int,
+            curr_token: Ghost(0 as int),
         }
     }
 
@@ -76,13 +74,13 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         op: RegisterWrite,
         timestamp: Timestamp
     ) -> (r: Tracked<int>)
-        requires timestamp > old(self).watermark@
+        requires timestamp.gt(&old(self).watermark@)
     {
-        let pushed = Tracked(MaybeLinearized::Linearizer { lin, op, timestamp });
+        let tracked pushed = MaybeLinearized::Linearizer { lin, op, timestamp };
+        self.curr_token = Ghost(self.curr_token@ + 1);
         proof {
-            self.curr_token = self.curr_token + 1;
             // TODO: generate tokens
-            self.queue@.tracked_insert(self.curr_token, pushed);
+            self.queue.borrow_mut().tracked_insert(self.curr_token@, pushed);
         }
 
         Tracked(self.curr_token)
@@ -93,8 +91,8 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     // TODO: extract monotonic resource that claims that up to timestamp everything is resolve
     pub fn apply_linearizer(&mut self,
         register: &mut Tracked<GhostVarAuth<Option<u64>>>,
-        timestamp: &Timestamp) -> Tracked<()>
-        ensures self.watermark@ >= timestamp
+        timestamp: &Timestamp) -> (r: Tracked<()>)
+        ensures self.watermark@.ge(timestamp)
     {
         proof {
             *self.queue.borrow_mut() = self.queue@
@@ -111,9 +109,9 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         // ensures { somehow the token is related to the completion }
     {
         Tracked({
-            let comp = self.queue@.tracked_remove(token);
-            assume(comp@ is Comp); // this is known because the resource has been given
-            comp->completion
+            let comp = self.queue.borrow_mut().tracked_remove(token@);
+            assume(comp is Comp); // this is known because the resource has been given
+            comp->completion@
         })
     }
 }

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::verdist::network::error::TryRecvError;
 
-use vstd::prelude::verus;
+use vstd::prelude::*;
 
 verus! {
 

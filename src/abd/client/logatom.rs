@@ -1,5 +1,4 @@
 #[allow(unused_imports)]
-use verus_builtin::*;
 use vstd::logatom::*;
 use vstd::prelude::*;
 use vstd::tokens::frac::GhostVarAuth;

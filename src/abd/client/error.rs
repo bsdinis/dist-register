@@ -21,6 +21,17 @@ pub enum ReadError<RL> {
         linearizer: Tracked<RL>
     },
 }
+
+impl<RL> ReadError<RL> {
+    pub fn lin(self) -> Tracked<RL> {
+        match self {
+            ReadError::FailedFirstQuorum { linearizer, .. } => linearizer,
+            ReadError::FailedSecondQuorum { linearizer, .. } => linearizer,
+        }
+    }
+}
+
+
 /// ABD write related errors
 ///
 /// The only way an ABD write fails is when a quorum is known to be unatainable

@@ -17,7 +17,6 @@ mod utils;
 use std::sync::Arc;
 
 #[allow(unused_imports)]
-use verus_builtin::*;
 use vstd::logatom::*;
 use vstd::prelude::*;
 use vstd::proph::Prophecy;
@@ -49,7 +48,7 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
                 lin@.post(RegisterRead { id: Ghost(self.loc()) }, val, compl@)
             }),
             r is Err ==> ({
-                r->Err_0.1 == lin
+                r->Err_0.lin() == lin
             })
         ;
 
@@ -81,9 +80,6 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
                 let compl = r->Ok_0;
                 lin@.post(RegisterWrite { id: Ghost(self.loc()), new_value: val }, (), compl@)
             }),
-            r is Err ==> ({
-                r->Err_0.1 == lin
-            })
         ;
 }
 
@@ -135,7 +131,7 @@ where
         self.register@.id()
     }
 
-    fn read<RL: ReadLinearizer<RegisterRead>>(&mut self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
+    fn read<RL: ReadLinearizer<RegisterRead>>(&mut self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
     {
         let bpool = BroadcastPool::new(&self.pool);
         let quorum_res = bpool
@@ -256,11 +252,11 @@ where
         // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
         // variable.
         let proph_ts = Prophecy::<Timestamp>::new();
-        let token = Tracked(self.linearization_queue.insert_linearizer(
+        let token = self.linearization_queue.insert_linearizer(
             lin,
             RegisterWrite { id: Ghost(self.loc()), new_value: val },
             proph_ts@
-        ));
+        );
 
         let max_ts = {
             let bpool = BroadcastPool::new(&self.pool);
@@ -323,7 +319,7 @@ where
                 }
             };
 
-            let resource = Tracked(self.linearization_queue.apply_linearizer(&mut self.register, &exec_ts));
+            let resource = self.linearization_queue.apply_linearizer(&mut self.register, &exec_ts);
             let comp = self.linearization_queue.extract_completion(token, resource);
 
             Ok(comp)

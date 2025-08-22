@@ -1,5 +1,3 @@
-use verus_builtin::*;
-use verus_builtin_macros::*;
 use vstd::pcm::*;
 #[allow(unused_imports)]
 use vstd::pcm_lib::*;

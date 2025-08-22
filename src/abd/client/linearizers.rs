@@ -1,10 +1,6 @@
-#[allow(unused_imports)]
-use verus_builtin::*;
 use vstd::logatom::MutLinearizer;
-use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::tokens::frac::GhostVar;
-#[allow(unused_imports)]
 use vstd::tokens::frac::GhostVarAuth;
 
 use crate::abd::client::logatom::RegisterWrite;

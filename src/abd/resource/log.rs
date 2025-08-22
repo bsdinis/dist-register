@@ -1,4 +1,3 @@
-use verus_builtin_macros::*;
 use vstd::pcm::*;
 #[cfg(verus_keep_ghost)]
 use vstd::pcm_lib::*;

@@ -1,7 +1,6 @@
 use clap::Parser;
 
 #[allow(unused_imports)]
-use verus_builtin::*;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
@@ -23,7 +22,6 @@ mod verdist;
 
 use abd::client::linearizers::WritePerm;
 use abd::client::logatom::RegisterRead;
-use abd::client::logatom::RegisterWrite;
 use abd::client::AbdPool;
 use abd::client::AbdRegisterClient;
 use abd::proto::Timestamp;
@@ -387,7 +385,7 @@ where
         },
         Err(e) => {
             report_err(0, e);
-            Tracked(e.linearizer.get().register)
+            Tracked(e.lin().get().register)
         }
     };
 

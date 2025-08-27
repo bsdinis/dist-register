@@ -17,6 +17,12 @@ pub struct RegisterWrite {
     pub new_value: Option<u64>,
 }
 
+impl RegisterWrite {
+    pub open spec fn spec_clone(&self) -> RegisterWrite {
+        RegisterWrite { id: Ghost(self.id@), new_value: self.new_value.clone() }
+    }
+}
+
 impl ReadOperation for RegisterRead {
     type Resource = GhostVarAuth<Option<u64>>;
     type ExecResult = Option<u64>;

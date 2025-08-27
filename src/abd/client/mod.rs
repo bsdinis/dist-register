@@ -90,7 +90,7 @@ pub struct AbdPool<Pool, ML: MutLinearizer<RegisterWrite>> {
     pub register: Tracked<GhostVarAuth<Option<u64>>>,
 
     // TODO: make this an atomic invariant
-    pub linearization_queue: LinearizationQueue<ML>,
+    pub linearization_queue: Tracked<LinearizationQueue<ML>>,
 }
 
 type RegisterView = Arc<Tracked<GhostVar<Option<u64>>>>;
@@ -104,12 +104,16 @@ where
     pub fn new(pool: Pool) -> (Self, RegisterView) {
         // TODO: this is not known (maybe this has to be Option<Option<u64>>?)
         let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
+        let tracked lin_queue = LinearizationQueue::dummy();
+
         let register = Tracked(register);
         let view = Arc::new(Tracked(view));
+        let linearization_queue = Tracked(lin_queue);
+
         let pool = AbdPool {
             pool,
             register,
-            linearization_queue: LinearizationQueue::new()
+            linearization_queue,
         };
 
         (pool, view)
@@ -171,8 +175,8 @@ where
         }
 
         if n_max_ts >= self.pool.quorum_size() {
-            self.linearization_queue.apply_linearizer(&mut self.register, &max_ts);
             let comp = Tracked({
+                self.linearization_queue@.apply_linearizer(&mut self.register, &max_ts);
                 let op = RegisterRead { id: Ghost(self.loc()) };
                 lin.apply(op, self.register.borrow(), &max_val)
             });
@@ -222,8 +226,8 @@ where
             });
         }
 
-        self.linearization_queue.apply_linearizer(&mut self.register, &max_ts);
         let comp = Tracked({
+            self.linearization_queue@.apply_linearizer(&mut self.register, &max_ts);
             let op = RegisterRead { id: Ghost(self.loc()) };
             lin.apply(op, self.register.borrow(), &max_val)
         });
@@ -252,11 +256,11 @@ where
         // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
         // variable.
         let proph_ts = Prophecy::<Timestamp>::new();
-        let token = self.linearization_queue.insert_linearizer(
+        let token_res = Tracked(self.linearization_queue@.insert_linearizer(
             lin,
             RegisterWrite { id: Ghost(self.loc()), new_value: val },
             proph_ts@
-        );
+        ));
 
         let max_ts = {
             let bpool = BroadcastPool::new(&self.pool);
@@ -283,6 +287,7 @@ where
 
             let replies = quorum.replies();
             assume(replies.len() > 0);
+            // TODO: construct an upper bound on the watermark from the quorum of lower bounds
             let max_ts = max_from_get_ts_replies(replies);
             assert(max_ts is Some);
             let max_ts = max_ts.expect("the quorum should never be empty");
@@ -290,8 +295,13 @@ where
             Ok(max_ts)
         }?;
 
+        // TODO: prove timestamp uniqueness
         let exec_ts = Timestamp { seqno: max_ts.seqno + 1, client_id: self.pool.id(), };
         proph_ts.resolve(&exec_ts);
+
+        // TODO: with the timestamp uniqueness and the upper bound on the watermark
+        // we can prove contradictions to unwrap the token to extract the completion
+        let token = Tracked(token_res@.unwrap()).get();
 
         {
             assume(max_ts.seqno + 1 < u64::MAX);
@@ -319,10 +329,11 @@ where
                 }
             };
 
-            let resource = self.linearization_queue.apply_linearizer(&mut self.register, &exec_ts);
-            let comp = self.linearization_queue.extract_completion(token, resource);
+            let resource = Tracked(self.linearization_queue@.apply_linearizer(&mut self.register, &exec_ts));
+            let comp = Tracked(self.linearization_queue@.extract_completion(token, resource));
 
-            Ok(comp)
+
+            Ok(comp.get())
         }
     }
 }

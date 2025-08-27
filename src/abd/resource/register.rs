@@ -9,7 +9,7 @@ use crate::abd::proto::Timestamp;
 verus! {
 
 // A monotonic register permission represents a resource with one of
-// the following three values:
+// the following two values:
 //
 // `LowerBound{ lower_bound }` -- knowledge that the monotonic counter
 // is at least `lower_bound`

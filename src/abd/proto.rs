@@ -19,6 +19,10 @@ impl Timestamp {
         Timestamp { seqno: 0, client_id: 0 }
     }
 
+    pub open spec fn spec_default() -> (r: Self) {
+        Timestamp { seqno: 0, client_id: 0 }
+    }
+
     pub open spec fn to_nat(&self) -> (nat, nat) {
         (self.seqno as nat, self.client_id as nat)
     }

@@ -7,9 +7,6 @@ use crate::abd::resource::register::MonotonicRegisterResource;
 
 verus! {
 
-#[cfg(verus_keep_ghost)]
-use crate::abd::resource::register::nat_pair_gt;
-
 pub struct MonotonicRegisterInner {
     val: Option<u64>,
     timestamp: Timestamp,
@@ -89,7 +86,7 @@ impl MonotonicRegisterInner {
 
     #[verifier::type_invariant]
     pub open spec fn inv(&self) -> bool {
-        self.spec_timestamp().to_nat() == self.spec_resource()@@.timestamp()
+        self.spec_timestamp() == self.spec_resource()@@.timestamp()
     }
 
     #[allow(unused_variables)]
@@ -100,7 +97,7 @@ impl MonotonicRegisterInner {
             lower_bound@.loc() == self.loc(),
         ensures
             lower_bound@.loc() == r.loc(),
-            !nat_pair_gt(&lower_bound@@.timestamp(), &r.spec_resource()@@.timestamp()),
+            lower_bound@@.timestamp().le(&r.spec_resource()@@.timestamp()),
             r.spec_resource()@@ is LowerBound,
             r.spec_val() == self.spec_val(),
             r.spec_timestamp() == self.spec_timestamp(),
@@ -131,8 +128,8 @@ impl MonotonicRegisterInner {
         ensures
             r.spec_resource()@@ is FullRightToAdvance,
             r.loc() == self.loc(),
-            nat_pair_gt(&timestamp.to_nat(), &self.spec_resource()@@.timestamp()) ==> r.spec_timestamp() == timestamp && r.spec_val() == val,
-            !nat_pair_gt(&timestamp.to_nat(), &self.spec_resource()@@.timestamp()) ==> self == r
+            timestamp.gt(&self.spec_resource()@@.timestamp()) ==> r.spec_timestamp() == timestamp && r.spec_val() == val,
+            timestamp.le(&self.spec_resource()@@.timestamp()) ==> self == r
     {
         proof {
             use_type_invariant(&self);
@@ -141,7 +138,7 @@ impl MonotonicRegisterInner {
         if timestamp > self.timestamp {
             let tracked mut r = self.resource.get();
             proof {
-                r.advance(timestamp.to_nat())
+                r.advance(timestamp)
             }
 
             MonotonicRegisterInner { val, timestamp, resource: Tracked(r) }
@@ -214,7 +211,7 @@ impl MonotonicRegister {
         ensures
             r.spec_resource()@@ is LowerBound,
             r.loc() == self.loc(),
-            !nat_pair_gt(&lower_bound@@.timestamp(), &r.spec_resource()@@.timestamp()),
+            lower_bound@@.timestamp().le(&r.spec_resource()@@.timestamp()),
     {
         proof {
             use_type_invariant(self);
@@ -231,7 +228,7 @@ impl MonotonicRegister {
         ensures
             r@@ is LowerBound,
             r@.loc() == self.loc(),
-            !nat_pair_gt(&timestamp.to_nat(), &r@@.timestamp()),
+            timestamp.le(&r@@.timestamp()),
     {
         proof {
             use_type_invariant(self);

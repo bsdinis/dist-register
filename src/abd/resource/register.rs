@@ -4,6 +4,8 @@ use vstd::pcm_lib::*;
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
+use crate::abd::proto::Timestamp;
+
 verus! {
 
 // A monotonic register permission represents a resource with one of
@@ -16,14 +18,9 @@ verus! {
 // exactly `value` and the authority to advance it past that value
 #[allow(dead_code)]
 pub enum MonotonicRegisterResourceValue {
-    LowerBound { lower_bound: (nat, nat) },
-    FullRightToAdvance { value: (nat, nat) },
+    LowerBound { lower_bound: Timestamp },
+    FullRightToAdvance { value: Timestamp },
     Invalid,
-}
-
-pub open spec fn nat_pair_gt(lhs: &(nat, nat), rhs: &(nat, nat)) -> bool
-{
-    (lhs.0 > rhs.0) || (lhs.0 == rhs.0 && lhs.1 > rhs.1)
 }
 
 // To use `MonotonicRegisterResourceValue` as a resource, we have to implement
@@ -41,7 +38,7 @@ impl PCM for MonotonicRegisterResourceValue {
                 MonotonicRegisterResourceValue::LowerBound { lower_bound: lower_bound1 },
                 MonotonicRegisterResourceValue::LowerBound { lower_bound: lower_bound2 },
             ) => {
-                let max_lower_bound = if nat_pair_gt(&lower_bound1, &lower_bound2) {
+                let max_lower_bound = if lower_bound1.gt(&lower_bound2) {
                     lower_bound1
                 } else {
                     lower_bound2
@@ -54,7 +51,7 @@ impl PCM for MonotonicRegisterResourceValue {
             (
                 MonotonicRegisterResourceValue::LowerBound { lower_bound },
                 MonotonicRegisterResourceValue::FullRightToAdvance { value },
-            ) => if !nat_pair_gt(&lower_bound, &value) {
+            ) => if lower_bound.le(&value) {
                 MonotonicRegisterResourceValue::FullRightToAdvance { value }
             } else {
                 MonotonicRegisterResourceValue::Invalid {  }
@@ -62,7 +59,7 @@ impl PCM for MonotonicRegisterResourceValue {
             (
                 MonotonicRegisterResourceValue::FullRightToAdvance { value },
                 MonotonicRegisterResourceValue::LowerBound { lower_bound },
-            ) => if !nat_pair_gt(&lower_bound, &value) {
+            ) => if lower_bound.le(&value) {
                 MonotonicRegisterResourceValue::FullRightToAdvance { value }
             } else {
                 MonotonicRegisterResourceValue::Invalid {  }
@@ -73,7 +70,7 @@ impl PCM for MonotonicRegisterResourceValue {
     }
 
     open spec fn unit() -> Self {
-        MonotonicRegisterResourceValue::LowerBound { lower_bound: (0, 0) }
+        MonotonicRegisterResourceValue::LowerBound { lower_bound: Timestamp::spec_default() }
     }
 
     proof fn closed_under_incl(a: Self, b: Self) {
@@ -93,11 +90,11 @@ impl PCM for MonotonicRegisterResourceValue {
 }
 
 impl MonotonicRegisterResourceValue {
-    pub open spec fn timestamp(self) -> (nat, nat) {
+    pub open spec fn timestamp(self) -> Timestamp {
         match self {
             MonotonicRegisterResourceValue::LowerBound { lower_bound } => lower_bound,
             MonotonicRegisterResourceValue::FullRightToAdvance { value } => value,
-            MonotonicRegisterResourceValue::Invalid => (0, 0),
+            MonotonicRegisterResourceValue::Invalid => Timestamp::spec_default(),
         }
     }
 }
@@ -121,9 +118,9 @@ impl MonotonicRegisterResource {
     // knowledge that the current value is 0.
     pub proof fn alloc() -> (tracked result: Self)
         ensures
-            result@ == (MonotonicRegisterResourceValue::FullRightToAdvance { value: (0, 0) }),
+            result@ == (MonotonicRegisterResourceValue::FullRightToAdvance { value: Timestamp::spec_default() }),
     {
-        let v = MonotonicRegisterResourceValue::FullRightToAdvance { value: (0, 0) };
+        let v = MonotonicRegisterResourceValue::FullRightToAdvance { value: Timestamp::spec_default() };
         let tracked mut r = Resource::<MonotonicRegisterResourceValue>::alloc(v);
         Self { r }
     }
@@ -144,10 +141,10 @@ impl MonotonicRegisterResource {
 
     // This function uses a resource granting full authority to
     // advance a monotonic counter to increment the counter.
-    pub proof fn advance(tracked &mut self, new_value: (nat, nat))
+    pub proof fn advance(tracked &mut self, new_value: Timestamp)
         requires
             old(self)@ is FullRightToAdvance,
-            nat_pair_gt(&new_value, &old(self)@.timestamp()),
+            new_value.gt(&old(self)@.timestamp()),
         ensures
             self.loc() == old(self).loc(),
             self@ == (MonotonicRegisterResourceValue::FullRightToAdvance {
@@ -176,8 +173,8 @@ impl MonotonicRegisterResource {
         ensures
             self@ == old(self)@,
             self.loc() == old(self).loc(),
-            self@ is LowerBound && other@ is FullRightToAdvance ==> !nat_pair_gt(&self@.timestamp(), &other@.timestamp()),
-            other@ is LowerBound && self@ is FullRightToAdvance ==> !nat_pair_gt(&other@.timestamp(), &self@.timestamp()),
+            self@ is LowerBound && other@ is FullRightToAdvance ==> self@.timestamp().le(&other@.timestamp()),
+            other@ is LowerBound && self@ is FullRightToAdvance ==> other@.timestamp().le(&self@.timestamp()),
 
     {
         self.r.validate_2(&other.r)

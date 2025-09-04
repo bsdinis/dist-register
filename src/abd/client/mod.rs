@@ -7,6 +7,7 @@ use crate::verdist::pool::BroadcastPool;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
 
+mod client_id_map;
 pub mod error;
 mod history;
 mod linearization;
@@ -24,6 +25,8 @@ use vstd::proph::Prophecy;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 
+use client_id_map::ClientMap;
+use client_id_map::ClientOwns;
 use linearization::*;
 use logatom::*;
 use utils::*;

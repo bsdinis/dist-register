@@ -175,8 +175,14 @@ where
         }
 
         if n_max_ts >= self.pool.quorum_size() {
+            proof {
+                let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
+                let register = Tracked(register);
+                vstd::modes::tracked_swap(&mut register, &mut self.register);
+                self.linearization_queue@.apply_linearizer(register@, &max_ts);
+                vstd::modes::tracked_swap(&mut register, &mut self.register);
+            }
             let comp = Tracked({
-                self.linearization_queue@.apply_linearizer(&mut self.register, &max_ts);
                 let op = RegisterRead { id: Ghost(self.loc()) };
                 lin.apply(op, self.register.borrow(), &max_val)
             });
@@ -226,15 +232,20 @@ where
             });
         }
 
+        proof {
+            let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
+            vstd::modes::tracked_swap(&mut Tracked(register), &mut self.register);
+            self.linearization_queue@.apply_linearizer(register, &max_ts);
+            vstd::modes::tracked_swap(&mut Tracked(register), &mut self.register);
+        }
         let comp = Tracked({
-            self.linearization_queue@.apply_linearizer(&mut self.register, &max_ts);
             let op = RegisterRead { id: Ghost(self.loc()) };
             lin.apply(op, self.register.borrow(), &max_val)
         });
         Ok((max_val, max_ts, comp))
     }
 
-    fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
+    fn write(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
     {
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
         //
@@ -301,7 +312,8 @@ where
 
         // TODO: with the timestamp uniqueness and the upper bound on the watermark
         // we can prove contradictions to unwrap the token to extract the completion
-        let token = Tracked(token_res@.unwrap()).get();
+        assume(token_res@.is_ok());
+        let tracked Tracked(token) = token_res@.unwrap();
 
         {
             assume(max_ts.seqno + 1 < u64::MAX);
@@ -329,11 +341,19 @@ where
                 }
             };
 
-            let resource = Tracked(self.linearization_queue@.apply_linearizer(&mut self.register, &exec_ts));
+            let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
+            proof {
+            vstd::modes::tracked_swap(&mut Tracked(register), &mut self.register);
+            }
+            let tracked (resource, register) = self.linearization_queue@.apply_linearizer(register, &exec_ts);
+            proof {
+            vstd::modes::tracked_swap(&mut Tracked(register), &mut self.register);
+            }
+
             let comp = Tracked(self.linearization_queue@.extract_completion(token, resource));
 
 
-            Ok(comp.get())
+            Ok(comp)
         }
     }
 }

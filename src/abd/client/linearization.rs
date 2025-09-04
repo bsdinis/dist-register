@@ -14,28 +14,28 @@ pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
     // TODO: we need to establish that the op here has a one-to-one correspondence to the token map
     // values in the linearization queue
     Linearizer {
-        lin: Tracked<ML>,
+        tracked lin: ML,
         op: RegisterWrite,
         timestamp: Timestamp,
     },
     Comp {
         // is GhostVar<Option<u64>>
-        completion: Tracked<ML::Completion>,
+        tracked completion: ML::Completion,
         timestamp: Timestamp,
     }
 }
 
 
 impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
-    pub fn apply_linearizer(self, register: &mut Tracked<GhostVarAuth<Option<u64>>>, resolved_timestamp: &Timestamp) -> Self {
+    pub proof fn apply_linearizer(self,
+        tracked register: &mut GhostVarAuth<Option<u64>>,
+        resolved_timestamp: &Timestamp
+    ) -> Self {
         match self {
             MaybeLinearized::Linearizer { lin, op, timestamp } => {
-                if timestamp <= *resolved_timestamp {
+                if timestamp.le(resolved_timestamp) {
                     // ???? - this is not true
-                    let Tracked(l) = lin;
-                    let completion = Tracked({
-                        l.apply(op, register.borrow_mut(), (), &())
-                    });
+                    let tracked completion = lin.apply(op, register, (), &());
                     MaybeLinearized::Comp { completion, timestamp }
                 } else {
                     MaybeLinearized::Linearizer { lin, op, timestamp }
@@ -94,7 +94,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
 
     /// Inserts the linearizer into the linearization queue
     pub proof fn insert_linearizer(tracked &mut self,
-        lin: Tracked<ML>,
+        tracked lin: ML,
         op: RegisterWrite,
         timestamp: Timestamp
     ) -> (r: Result<Tracked<Token>, Tracked<InsertError>>)
@@ -132,42 +132,43 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
 
     /// Applies the linearizer for all writes prophecized to <= timestamp
     pub proof fn apply_linearizer(tracked &mut self,
-        register: &mut Tracked<GhostVarAuth<Option<u64>>>,
+        tracked register: GhostVarAuth<Option<u64>>,
         timestamp: &Timestamp
-    ) -> (tracked r: MonotonicRegisterResource)
+    ) -> (tracked r: (MonotonicRegisterResource, GhostVarAuth<Option<u64>>))
         requires old(self).inv(),
         ensures
             self.inv(),
             self.watermark@.timestamp().ge(timestamp),
-            self.watermark@ == r@,
-            r@ is LowerBound
+            self.watermark@ == r.0@,
+            r.0@ is LowerBound,
+            r.1.id() == register.id(),
     {
-        self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(register, timestamp));
+        self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
         self.watermark.advance(*timestamp);
 
-        self.watermark.extract_lower_bound()
+        (self.watermark.extract_lower_bound(), register)
     }
 
     /// Return the completion of the write at timestamp - removing it from the sequence
     pub proof fn extract_completion(tracked &mut self,
-        token: Tracked<Token>,
-        resource: Tracked<MonotonicRegisterResource>
-    ) -> (r: Tracked<ML::Completion>)
+        tracked token: Token,
+        tracked resource: MonotonicRegisterResource
+    ) -> (tracked r: ML::Completion)
         requires
             old(self).inv(),
-            old(self).watermark@.timestamp().ge(&resource@@.timestamp()),
+            old(self).watermark@.timestamp().ge(&resource@.timestamp()),
             token@.dom().len() == 1,
         ensures
             self.inv(),
             // TODO { somehow the token is related to the completion }
     {
-        let timestamp = token@@.values().choose().1;
+        let timestamp = token@.values().choose().1;
 
-        Tracked({
-            let comp = self.queue.tracked_remove(timestamp);
-            assume(comp is Comp); // this is known because the resource has been given
-            comp->completion@
-        })
+        let tracked comp = self.queue.tracked_remove(timestamp);
+        assume(comp is Comp); // this is known because the resource has been given
+        let tracked c = comp->completion;
+
+        c
     }
 }
 

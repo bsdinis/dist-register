@@ -374,7 +374,7 @@ where
     C: Sync + Send,
 {
     let pool = connect_all(&args, connectors, 0)?;
-    let (mut client, view) = AbdPool::<_, WritePerm>::new(FlawlessPool::new(pool, 0));
+    let (mut client, view) = AbdPool::<_, _, WritePerm>::new(FlawlessPool::new(pool, 0));
     report_quorum_size(client.quorum_size());
 
     let tracked read_perm = ReadPerm { register: view.clone().get() };

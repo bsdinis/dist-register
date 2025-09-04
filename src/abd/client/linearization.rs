@@ -44,6 +44,13 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
             completed => completed
         }
     }
+
+    pub closed spec fn timestamp(self) -> TimestampWitness {
+        match self {
+            MaybeLinearized::Linearizer { timestamp, .. } => timestamp,
+            MaybeLinearized::Comp { timestamp, .. } => timestamp,
+        }
+    }
 }
 
 enum InsertError {
@@ -65,6 +72,7 @@ enum InsertError {
 //  - Together, they can be used to extract the completion
 
 pub struct LinearizationQueue<ML: MutLinearizer<RegisterWrite>> {
+    // TODO: needs to be monotonic map?
     pub queue: Map<Timestamp, MaybeLinearized<ML>>,
 
     pub token_map: GhostMapAuth<int, (RegisterWrite, Timestamp)>,
@@ -117,9 +125,8 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             }));
         }
 
-        // TODO: get witness to the timestamp in the maybe linearized to derive contradiction
-        if self.queue.contains_key(timestamp) {
-            return Err(Tracked(InsertError::UniquenessContradiction { dup_witness: () }));
+        if let Some(maybe_lin) = self.queue.get(timestamp) {
+            return Err(Tracked(InsertError::UniquenessContradiction { dup_witness: maybe_lin.timestamp() }));
         }
 
         let dup_op = op.spec_clone();

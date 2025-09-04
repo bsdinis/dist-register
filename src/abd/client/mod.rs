@@ -12,6 +12,7 @@ mod history;
 mod linearization;
 pub mod linearizers;
 pub mod logatom;
+mod timestamp;
 mod utils;
 
 use std::sync::Arc;

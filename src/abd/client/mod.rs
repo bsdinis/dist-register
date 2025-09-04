@@ -87,6 +87,11 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
 pub struct AbdPool<Pool, ML: MutLinearizer<RegisterWrite>> {
     pub pool: Pool,
 
+    pub max_seqno: u64,
+
+    // map from pool.id() -> max seqno allocated
+    pub tracked singleton: GhostSubmap<u64, u64>,
+
     // Local view of the register
     pub register: Tracked<GhostVarAuth<Option<u64>>>,
 
@@ -96,6 +101,10 @@ pub struct AbdPool<Pool, ML: MutLinearizer<RegisterWrite>> {
 
 type RegisterView = Arc<Tracked<GhostVar<Option<u64>>>>;
 
+pub proof fn initialize_system() -> AtomicInvariant<_> {
+}
+
+pub proof fn get_system_invariants() -> AtomicInvariant<(), LinearizationQueue, ()>;
 
 impl<Pool, C, ML> AbdPool<Pool, ML>
 where
@@ -180,7 +189,7 @@ where
                 let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 let register = Tracked(register);
                 vstd::modes::tracked_swap(&mut register, &mut self.register);
-                self.linearization_queue@.apply_linearizer(register@, &max_ts);
+                self.linearization_queue.borrow_mut().apply_linearizer(register@, &max_ts);
                 vstd::modes::tracked_swap(&mut register, &mut self.register);
             }
             let comp = Tracked({
@@ -236,7 +245,7 @@ where
         proof {
             let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
             vstd::modes::tracked_swap(&mut Tracked(register), &mut self.register);
-            self.linearization_queue@.apply_linearizer(register, &max_ts);
+            self.linearization_queue.borrow_mut().apply_linearizer(register, &max_ts);
             vstd::modes::tracked_swap(&mut Tracked(register), &mut self.register);
         }
         let comp = Tracked({
@@ -268,11 +277,15 @@ where
         // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
         // variable.
         let proph_ts = Prophecy::<Timestamp>::new();
-        let token_res = Tracked(self.linearization_queue@.insert_linearizer(
+        let token_res = Tracked(self.linearization_queue.borrow_mut().insert_linearizer(
             lin,
             RegisterWrite { id: Ghost(self.loc()), new_value: val },
             proph_ts@
         ));
+
+        // TODO: if the token_res is a Watermark contradiction
+        // open global invariant and check that there exists a quorum of lower bounds
+        // that corroborates the watermark value
 
         let max_ts = {
             let bpool = BroadcastPool::new(&self.pool);
@@ -306,6 +319,13 @@ where
 
             Ok(max_ts)
         }?;
+
+        // TODO: if the token_res is a Watermark contradiction
+        // get another (overlapping) quorum that also corroborates the watermark (via exec state)
+        //
+        // contradition:
+        // \exists global inv quorum
+        // proph_ts <= old(watermark) <= min(global inv quorum) <= max(exec quorum) < chosen ts == proph_ts
 
         // TODO: prove timestamp uniqueness
         let exec_ts = Timestamp { seqno: max_ts.seqno + 1, client_id: self.pool.id(), };
@@ -346,12 +366,12 @@ where
             proof {
             vstd::modes::tracked_swap(&mut Tracked(register), &mut self.register);
             }
-            let tracked (resource, register) = self.linearization_queue@.apply_linearizer(register, &exec_ts);
+            let tracked (resource, register) = self.linearization_queue.borrow_mut().apply_linearizer(register, &exec_ts);
             proof {
             vstd::modes::tracked_swap(&mut Tracked(register), &mut self.register);
             }
 
-            let comp = Tracked(self.linearization_queue@.extract_completion(token, resource));
+            let comp = Tracked(self.linearization_queue.borrow_mut().extract_completion(token, resource));
 
 
             Ok(comp)

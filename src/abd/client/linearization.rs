@@ -46,14 +46,16 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
     }
 }
 
-#[derive(Debug)]
 enum InsertError {
     WatermarkContradiction {
-        resource: (), // LowerBound resource saying that the watermark is bigger than the timestamp
+        // LowerBound resource saying that the watermark is bigger than the timestamp
+        watermark_lb: MonotonicRegisterResource,
     },
     UniquenessContradiction {
-        resource: () // Read-only duplicable resource about the existence of the timestamp in the
-                     // global invariant map from timestamp -> unit
+        // Read-only duplicable resource about the existence of the timestamp in the
+        // global invariant set timestamp
+        // dup_witness: TimestampWitness,
+        dup_witness: (),
     },
 }
 
@@ -110,14 +112,18 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             })
     {
         if self.watermark@.timestamp().ge(&timestamp) {
-            return Err(Tracked(InsertError::WatermarkContradiction { resource: () }));
+            return Err(Tracked(InsertError::WatermarkContradiction {
+                watermark_lb: self.watermark.extract_lower_bound()
+            }));
         }
 
+        // TODO: get witness to the timestamp in the maybe linearized to derive contradiction
         if self.queue.contains_key(timestamp) {
-            return Err(Tracked(InsertError::UniquenessContradiction { resource: () }));
+            return Err(Tracked(InsertError::UniquenessContradiction { dup_witness: () }));
         }
 
         let dup_op = op.spec_clone();
+        // TODO: timestamp --> witness to the timestamp
         let pushed = MaybeLinearized::Linearizer { lin, op, timestamp };
 
         let ghost token_key = self.token_map.dom().find_unique_maximal(|a: int, b: int| a > b);
@@ -172,4 +178,13 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     }
 }
 
+}
+
+impl std::fmt::Debug for InsertError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InsertError::WatermarkContradiction { .. } => f.write_str("WatermarkContradiction"),
+            InsertError::UniquenessContradiction { .. } => f.write_str("UniquenessContradiction"),
+        }
+    }
 }

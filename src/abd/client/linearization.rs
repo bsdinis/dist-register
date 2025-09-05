@@ -7,6 +7,7 @@ use vstd::tokens::map::GhostMapAuth;
 use vstd::tokens::map::GhostSubmap;
 
 use crate::abd::client::logatom::*;
+use crate::abd::client::timestamp::*;
 
 verus! {
 
@@ -16,12 +17,12 @@ pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
     Linearizer {
         tracked lin: ML,
         op: RegisterWrite,
-        timestamp: Timestamp,
+        timestamp: TimestampWitness,
     },
     Comp {
         // is GhostVar<Option<u64>>
         tracked completion: ML::Completion,
-        timestamp: Timestamp,
+        timestamp: TimestampWitness,
     }
 }
 
@@ -33,7 +34,7 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
     ) -> Self {
         match self {
             MaybeLinearized::Linearizer { lin, op, timestamp } => {
-                if timestamp.le(resolved_timestamp) {
+                if timestamp@.le(resolved_timestamp) {
                     // ???? - this is not true
                     let tracked completion = lin.apply(op, register, (), &());
                     MaybeLinearized::Comp { completion, timestamp }
@@ -61,8 +62,7 @@ enum InsertError {
     UniquenessContradiction {
         // Read-only duplicable resource about the existence of the timestamp in the
         // global invariant set timestamp
-        // dup_witness: TimestampWitness,
-        dup_witness: (),
+        dup_witness: TimestampWitness,
     },
 }
 
@@ -130,14 +130,14 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         }
 
         let dup_op = op.spec_clone();
-        // TODO: timestamp --> witness to the timestamp
-        let pushed = MaybeLinearized::Linearizer { lin, op, timestamp };
+        // TODO: how to create a witness to the existence of the timestamp
+        let maybe_lin = MaybeLinearized::Linearizer { lin, op, timestamp: TimestampWitness::cheat(timestamp) };
 
         let ghost token_key = self.token_map.dom().find_unique_maximal(|a: int, b: int| a > b);
         assert(self.token_map.dom().disjoint(set![token_key]));
         let m = map![token_key => (dup_op, timestamp)];
         let tracked token = self.token_map.insert(m);
-        self.queue.tracked_insert(timestamp, pushed);
+        self.queue.tracked_insert(timestamp, maybe_lin);
 
         Ok(Tracked(token))
     }

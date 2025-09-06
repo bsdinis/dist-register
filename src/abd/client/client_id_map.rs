@@ -41,20 +41,20 @@ impl ClientMap {
 }
 
 pub struct ClientOwns {
-    pub tracked singleton: GhostSubmap<u64, u64>,
+    tracked singleton: GhostSubmap<u64, u64>,
 }
 
 impl ClientOwns {
     #[verifier::type_invariant]
-    pub open spec fn inv(self) -> bool {
+    pub closed spec fn inv(self) -> bool {
         self.singleton@.dom().is_singleton()
     }
 
-    pub open spec fn view(self) -> (u64, u64) {
+    pub closed spec fn view(self) -> (u64, u64) {
         self.singleton@.kv_pairs().choose()
     }
 
-    pub open spec fn id(self) -> int {
+    pub closed spec fn id(self) -> int {
         self.singleton.id()
     }
 }

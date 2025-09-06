@@ -13,20 +13,20 @@ use crate::abd::client::logatom::*;
 verus! {
 
 pub struct StatePredicate {
-    token_map_id: int,
-    watermark_loc: int,
-    register_id: int,
+    pub token_map_id: int,
+    pub watermark_loc: int,
+    pub register_id: int,
 }
 
 pub struct State<ML: MutLinearizer<RegisterWrite>> {
-    tracked linearization_queue: LinearizationQueue<ML>,
-    tracked register: GhostVarAuth<Option<u64>>,
+    pub tracked linearization_queue: LinearizationQueue<ML>,
+    pub tracked register: GhostVarAuth<Option<u64>>,
 }
 
 impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
     where ML: MutLinearizer<RegisterWrite>
 {
-    spec fn inv(p: StatePredicate, state: State<ML>) -> bool {
+    open spec fn inv(p: StatePredicate, state: State<ML>) -> bool {
         &&& p.token_map_id == state.linearization_queue.token_map.id()
         &&& p.watermark_loc == state.linearization_queue.watermark.loc()
         &&& p.register_id == state.register.id()
@@ -65,12 +65,12 @@ pub axiom fn get_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterView))
 ;
 
 pub struct ClientMapPredicate {
-    map_id: int
+    pub map_id: int
 }
 
 
 impl InvariantPredicate<ClientMapPredicate, ClientMap> for ClientMapPredicate {
-    spec fn inv(p: ClientMapPredicate, map: ClientMap) -> bool {
+    open spec fn inv(p: ClientMapPredicate, map: ClientMap) -> bool {
         p.map_id == map.map.id()
     }
 }

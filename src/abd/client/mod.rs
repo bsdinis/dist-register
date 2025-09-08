@@ -89,19 +89,20 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
         ;
 }
 
+#[verifier::reject_recursive_types(C)]
 pub struct AbdPool<Pool: ConnectionPool<C = C>, C, ML: MutLinearizer<RegisterWrite>> {
-    pub pool: Pool,
+    pool: Pool,
 
-    pub max_seqno: u64,
+    max_seqno: u64,
 
-    pub register_id: int,
+    register_id: int,
 
     // map from pool.id() -> max seqno allocated
-    pub client_owns: Tracked<ClientOwns>,
+    client_owns: Tracked<ClientOwns>,
 
-    pub state_inv: Arc<StateInvariant<ML>>,
+    state_inv: Arc<StateInvariant<ML>>,
 
-    pub client_map: ClientIdInvariant,
+    client_map: ClientIdInvariant,
 }
 
 
@@ -111,10 +112,18 @@ where
     Pool: ConnectionPool<C = C>,
     ML: MutLinearizer<RegisterWrite>
 {
+    #[verifier::external_body]
     pub fn new(pool: Pool) -> (Self, Arc<RegisterView>) {
-        let Tracked(a) = Tracked(invariants::get_system_state());
-        let (state_inv, view) = a;
-        let state_inv = Arc::new(state_inv);
+        let state_inv;
+        let view;
+        proof {
+            // TODO: spec/proof
+            let tracked (s, v) = invariants::get_system_state();
+            state_inv = Arc::new(s);
+            view = v;
+        }
+
+
         let Tracked(client_map) = Tracked(invariants::get_client_map());
 
         // XXX: we could derive this with a sign-in procedure to create ids
@@ -122,8 +131,10 @@ where
         let ghost register_id = view@.id();
 
         vstd::open_atomic_invariant!(&client_map => map => {
-            assume(!map@.contains_key(pool.id()));
-            client_owns = Tracked(map.reserve(pool.id()));
+            proof {
+                assume(!map@.contains_key(pool.id()));
+                client_owns = Tracked(map.reserve(pool.id()));
+            }
         });
 
         let pool = AbdPool {
@@ -139,7 +150,7 @@ where
     }
 
     #[verifier::type_invariant]
-    pub open spec fn inv(self) -> bool {
+    pub closed spec fn inv(self) -> bool {
         self.max_seqno == self.client_owns@@.1
     }
 
@@ -155,7 +166,7 @@ where
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>
 {
-    open spec fn loc(&self) -> int {
+    closed spec fn loc(&self) -> int {
         self.register_id
     }
 
@@ -294,11 +305,13 @@ where
         let proph_ts = Prophecy::<Timestamp>::new();
         let token_res;
         vstd::open_atomic_invariant!(&self.state_inv => state => {
-            token_res = Tracked(state.linearization_queue.insert_linearizer(
-                lin,
-                RegisterWrite { id: Ghost(self.loc()), new_value: val },
-                proph_ts@
-            ));
+            proof {
+                token_res = state.linearization_queue.insert_linearizer(
+                    lin,
+                    RegisterWrite { id: Ghost(self.loc()), new_value: val },
+                    proph_ts@
+                );
+            }
         });
 
         // TODO: if the token_res is a Watermark contradiction
@@ -351,8 +364,8 @@ where
 
         // TODO: with the timestamp uniqueness and the upper bound on the watermark
         // we can prove contradictions to unwrap the token to extract the completion
-        assume(token_res@.is_ok());
-        let Tracked(token) = token_res@.unwrap();
+        assume(token_res.is_ok());
+        let Tracked(token) = token_res.unwrap();
 
         {
             assume(max_ts.seqno + 1 < u64::MAX);

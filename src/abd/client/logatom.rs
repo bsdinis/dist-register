@@ -19,7 +19,7 @@ pub struct RegisterWrite {
 
 impl RegisterWrite {
     pub open spec fn spec_clone(&self) -> RegisterWrite {
-        RegisterWrite { id: Ghost(self.id@), new_value: self.new_value.clone() }
+        RegisterWrite { id: Ghost(self.id@), new_value: self.new_value }
     }
 }
 

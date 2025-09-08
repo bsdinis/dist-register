@@ -11,38 +11,35 @@ use crate::abd::client::timestamp::*;
 
 verus! {
 
-pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
+pub tracked enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
     // TODO: we need to establish that the op here has a one-to-one correspondence to the token map
     // values in the linearization queue
     Linearizer {
         tracked lin: ML,
         op: RegisterWrite,
-        timestamp: TimestampWitness,
+        tracked timestamp: TimestampWitness,
     },
     Comp {
         // is GhostVar<Option<u64>>
         tracked completion: ML::Completion,
-        timestamp: TimestampWitness,
+        tracked timestamp: TimestampWitness,
     }
 }
 
 
 impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
-    pub proof fn apply_linearizer(self,
+    pub proof fn apply_linearizer(tracked self,
         tracked register: &mut GhostVarAuth<Option<u64>>,
         resolved_timestamp: &Timestamp
-    ) -> Self {
+    ) -> (tracked r: Self) {
         match self {
-            MaybeLinearized::Linearizer { lin, op, timestamp } => {
-                if timestamp@.le(resolved_timestamp) {
-                    // ???? - this is not true
+            /* TODO: spec/proof
+            MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp@.le(resolved_timestamp) => {
                     let tracked completion = lin.apply(op, register, (), &());
                     MaybeLinearized::Comp { completion, timestamp }
-                } else {
-                    MaybeLinearized::Linearizer { lin, op, timestamp }
-                }
-            },
-            completed => completed
+            } ,
+            */
+            other => other
         }
     }
 
@@ -54,15 +51,15 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
     }
 }
 
-enum InsertError {
+pub tracked enum InsertError {
     WatermarkContradiction {
         // LowerBound resource saying that the watermark is bigger than the timestamp
-        watermark_lb: MonotonicRegisterResource,
+        tracked watermark_lb: MonotonicRegisterResource,
     },
     UniquenessContradiction {
         // Read-only duplicable resource about the existence of the timestamp in the
         // global invariant set timestamp
-        dup_witness: TimestampWitness,
+        tracked dup_witness: TimestampWitness,
     },
 }
 
@@ -125,19 +122,26 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             }));
         }
 
+        /* TODO: spec/proof
         if let Some(maybe_lin) = self.queue.get(timestamp) {
             return Err(Tracked(InsertError::UniquenessContradiction { dup_witness: maybe_lin.timestamp() }));
         }
+        */
 
         let dup_op = op.spec_clone();
+
         // TODO: how to create a witness to the existence of the timestamp
+        /* TODO: spec/proof
         let maybe_lin = MaybeLinearized::Linearizer { lin, op, timestamp: TimestampWitness::cheat(timestamp) };
+        */
 
         let ghost token_key = self.token_map.dom().find_unique_maximal(|a: int, b: int| a > b);
         assert(self.token_map.dom().disjoint(set![token_key]));
         let m = map![token_key => (dup_op, timestamp)];
         let tracked token = self.token_map.insert(m);
+        /* TODO: spec/proof
         self.queue.tracked_insert(timestamp, maybe_lin);
+        */
 
         Ok(Tracked(token))
     }
@@ -156,13 +160,16 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             r.0@ is LowerBound,
             r.1.id() == register.id(),
     {
+        /* TODO: spec/proof
         self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
+        */
         self.watermark.advance(*timestamp);
 
         (self.watermark.extract_lower_bound(), register)
     }
 
     /// Return the completion of the write at timestamp - removing it from the sequence
+    #[verifier::external_body] // TODO: spec/proof
     pub proof fn extract_completion(tracked &mut self,
         tracked token: Token,
         tracked resource: MonotonicRegisterResource
@@ -179,9 +186,14 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
 
         let tracked comp = self.queue.tracked_remove(timestamp);
         assume(comp is Comp); // this is known because the resource has been given
+
+        /* TODO: spec/proof
         let tracked c = comp->completion;
 
         c
+        */
+
+        unimplemented!()
     }
 }
 

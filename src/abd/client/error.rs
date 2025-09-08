@@ -23,7 +23,7 @@ pub enum ReadError<RL> {
 }
 
 impl<RL> ReadError<RL> {
-    pub fn lin(self) -> Tracked<RL> {
+    pub open spec fn lin(self) -> Tracked<RL> {
         match self {
             ReadError::FailedFirstQuorum { linearizer, .. } => linearizer,
             ReadError::FailedSecondQuorum { linearizer, .. } => linearizer,

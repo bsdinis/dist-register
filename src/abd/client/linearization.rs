@@ -1,5 +1,5 @@
 use crate::abd::proto::Timestamp;
-use crate::abd::resource::register::MonotonicRegisterResource;
+use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use vstd::logatom::*;
 use vstd::prelude::*;
 use vstd::tokens::frac::GhostVarAuth;
@@ -54,7 +54,7 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
 pub tracked enum InsertError {
     WatermarkContradiction {
         // LowerBound resource saying that the watermark is bigger than the timestamp
-        tracked watermark_lb: MonotonicRegisterResource,
+        tracked watermark_lb: MonotonicTimestampResource,
     },
     UniquenessContradiction {
         // Read-only duplicable resource about the existence of the timestamp in the
@@ -75,7 +75,7 @@ pub struct LinearizationQueue<ML: MutLinearizer<RegisterWrite>> {
     pub token_map: GhostMapAuth<int, (RegisterWrite, Timestamp)>,
 
     // everything up to the watermark is guaranteed to be applied
-    pub watermark: MonotonicRegisterResource,
+    pub watermark: MonotonicTimestampResource,
 }
 
 pub type Token = GhostSubmap<int, (RegisterWrite, Timestamp)>;
@@ -87,7 +87,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     pub proof fn dummy() -> (tracked result: Self) {
         let tracked queue = Map::tracked_empty();
         let tracked token_map = GhostMapAuth::new(Map::empty()).0;
-        let tracked watermark = MonotonicRegisterResource::alloc();
+        let tracked watermark = MonotonicTimestampResource::alloc();
         LinearizationQueue {
             queue,
             token_map,
@@ -151,7 +151,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     pub proof fn apply_linearizer(tracked &mut self,
         tracked register: GhostVarAuth<Option<u64>>,
         timestamp: &Timestamp
-    ) -> (tracked r: (MonotonicRegisterResource, GhostVarAuth<Option<u64>>))
+    ) -> (tracked r: (MonotonicTimestampResource, GhostVarAuth<Option<u64>>))
         requires old(self).inv(),
         ensures
             self.inv(),
@@ -172,7 +172,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     #[verifier::external_body] // TODO: spec/proof
     pub proof fn extract_completion(tracked &mut self,
         tracked token: Token,
-        tracked resource: MonotonicRegisterResource
+        tracked resource: MonotonicTimestampResource
     ) -> (tracked r: ML::Completion)
         requires
             old(self).inv(),

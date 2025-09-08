@@ -1,4 +1,4 @@
-use crate::abd::resource::register::MonotonicRegisterResource;
+use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 
 use vstd::prelude::*;
 
@@ -60,14 +60,14 @@ pub enum Response {
     Get {
         val: Option<u64>,
         timestamp: Timestamp,
-        lb: Tracked<MonotonicRegisterResource>
+        lb: Tracked<MonotonicTimestampResource>
     },
     GetTimestamp {
         timestamp: Timestamp,
-        lb: Tracked<MonotonicRegisterResource>,
+        lb: Tracked<MonotonicTimestampResource>,
     },
     Write {
-        lb: Tracked<MonotonicRegisterResource>,
+        lb: Tracked<MonotonicTimestampResource>,
     },
 }
 

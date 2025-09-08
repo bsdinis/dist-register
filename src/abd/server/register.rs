@@ -3,14 +3,14 @@ use vstd::prelude::*;
 use vstd::rwlock::RwLock;
 
 use crate::abd::proto::Timestamp;
-use crate::abd::resource::register::MonotonicRegisterResource;
+use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 
 verus! {
 
 pub struct MonotonicRegisterInner {
     val: Option<u64>,
     timestamp: Timestamp,
-    resource: Tracked<MonotonicRegisterResource>
+    resource: Tracked<MonotonicTimestampResource>
 }
 
 impl MonotonicRegisterInner {
@@ -24,7 +24,7 @@ impl MonotonicRegisterInner {
         MonotonicRegisterInner {
             val: None,
             timestamp: Timestamp::default(),
-            resource: Tracked(MonotonicRegisterResource::alloc())
+            resource: Tracked(MonotonicTimestampResource::alloc())
         }
     }
 
@@ -54,11 +54,11 @@ impl MonotonicRegisterInner {
         self.timestamp
     }
 
-    pub closed spec fn spec_resource(&self) -> &Tracked<MonotonicRegisterResource> {
+    pub closed spec fn spec_resource(&self) -> &Tracked<MonotonicTimestampResource> {
         &self.resource
     }
 
-    pub fn get_resource(self) -> (r: Tracked<MonotonicRegisterResource>)
+    pub fn get_resource(self) -> (r: Tracked<MonotonicTimestampResource>)
         ensures
             r == self.spec_resource(),
             r@.loc() == self.loc()
@@ -69,7 +69,7 @@ impl MonotonicRegisterInner {
         self.resource
     }
 
-    pub fn lower_bound(&self) -> (r: Tracked<MonotonicRegisterResource>)
+    pub fn lower_bound(&self) -> (r: Tracked<MonotonicTimestampResource>)
         ensures
             r@.loc() == self.loc(),
             r@@ is LowerBound,
@@ -90,7 +90,7 @@ impl MonotonicRegisterInner {
     }
 
     #[allow(unused_variables)]
-    pub fn read(&self, lower_bound: Tracked<MonotonicRegisterResource>) -> (r: MonotonicRegisterInner)
+    pub fn read(&self, lower_bound: Tracked<MonotonicTimestampResource>) -> (r: MonotonicRegisterInner)
         requires
             self.spec_resource()@@ is FullRightToAdvance,
             lower_bound@@ is LowerBound,
@@ -169,7 +169,7 @@ pub struct MonotonicRegister {
 
 impl MonotonicRegister {
     // return the register and the lower bound
-    pub fn default() -> (r: (Self, Tracked<MonotonicRegisterResource>))
+    pub fn default() -> (r: (Self, Tracked<MonotonicTimestampResource>))
         ensures
             r.1@@ is LowerBound,
             r.0.loc() == r.1@.loc(),
@@ -204,7 +204,7 @@ impl MonotonicRegister {
         self.resource_loc
     }
 
-    pub fn read(&self, lower_bound: Tracked<MonotonicRegisterResource>) -> (r: MonotonicRegisterInner)
+    pub fn read(&self, lower_bound: Tracked<MonotonicTimestampResource>) -> (r: MonotonicRegisterInner)
         requires
             lower_bound@@ is LowerBound,
             lower_bound@.loc() == self.loc(),
@@ -224,7 +224,7 @@ impl MonotonicRegister {
         res
     }
 
-    pub fn write(&self, val: Option<u64>, timestamp: Timestamp) -> (r: Tracked<MonotonicRegisterResource>)
+    pub fn write(&self, val: Option<u64>, timestamp: Timestamp) -> (r: Tracked<MonotonicTimestampResource>)
         ensures
             r@@ is LowerBound,
             r@.loc() == self.loc(),

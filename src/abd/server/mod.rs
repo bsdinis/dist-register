@@ -1,7 +1,7 @@
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::proto::Timestamp;
-use crate::abd::resource::register::MonotonicRegisterResource;
+use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::server::register::MonotonicRegister;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::network::channel::Listener;
@@ -31,8 +31,8 @@ struct LowerBoundPredicate {
     loc: Ghost<int>
 }
 
-impl vstd::rwlock::RwLockPredicate<Tracked<MonotonicRegisterResource>> for LowerBoundPredicate {
-    closed spec fn inv(self, lb: Tracked<MonotonicRegisterResource>) -> bool {
+impl vstd::rwlock::RwLockPredicate<Tracked<MonotonicTimestampResource>> for LowerBoundPredicate {
+    closed spec fn inv(self, lb: Tracked<MonotonicTimestampResource>) -> bool {
            lb@@ is LowerBound && lb@.loc() == self.loc
     }
 }
@@ -43,7 +43,7 @@ pub struct RegisterServer<L, C> {
     register: MonotonicRegister,
     connected: RwLock<HashMap<u64, C>, EmptyCond>,
     listener: L,
-    register_lower_bound: RwLock<Tracked<MonotonicRegisterResource>, LowerBoundPredicate>,
+    register_lower_bound: RwLock<Tracked<MonotonicTimestampResource>, LowerBoundPredicate>,
 }
 
 impl<L, C> RegisterServer<L, C>

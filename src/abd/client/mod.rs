@@ -215,7 +215,7 @@ where
                 proof {
                     let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
-                    state.linearization_queue.apply_linearizer(register, &max_ts);
+                    state.linearization_queue.apply_linearizer(register, max_ts);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
                 let op = RegisterRead { id: Ghost(self.loc()) };
@@ -272,7 +272,7 @@ where
             proof {
                 let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
-                state.linearization_queue.apply_linearizer(register, &max_ts);
+                state.linearization_queue.apply_linearizer(register, max_ts);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
             }
             let op = RegisterRead { id: Ghost(self.loc()) };
@@ -399,7 +399,7 @@ where
                 proof {
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
-                let tracked (resource, register) = state.linearization_queue.apply_linearizer(register, &exec_ts);
+                let tracked (resource, register) = state.linearization_queue.apply_linearizer(register, exec_ts);
                 proof {
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }

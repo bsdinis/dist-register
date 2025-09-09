@@ -97,7 +97,7 @@ impl MonotonicRegisterInner {
             lower_bound@.loc() == self.loc(),
         ensures
             lower_bound@.loc() == r.loc(),
-            lower_bound@@.timestamp().le(&r.spec_resource()@@.timestamp()),
+            lower_bound@@.timestamp() <= r.spec_resource()@@.timestamp(),
             r.spec_resource()@@ is LowerBound,
             r.spec_val() == self.spec_val(),
             r.spec_timestamp() == self.spec_timestamp(),
@@ -128,8 +128,8 @@ impl MonotonicRegisterInner {
         ensures
             r.spec_resource()@@ is FullRightToAdvance,
             r.loc() == self.loc(),
-            timestamp.gt(&self.spec_resource()@@.timestamp()) ==> r.spec_timestamp() == timestamp && r.spec_val() == val,
-            timestamp.le(&self.spec_resource()@@.timestamp()) ==> self == r
+            timestamp > self.spec_resource()@@.timestamp() ==> r.spec_timestamp() == timestamp && r.spec_val() == val,
+            timestamp <= self.spec_resource()@@.timestamp() ==> self == r
     {
         proof {
             use_type_invariant(&self);
@@ -211,7 +211,7 @@ impl MonotonicRegister {
         ensures
             r.spec_resource()@@ is LowerBound,
             r.loc() == self.loc(),
-            lower_bound@@.timestamp().le(&r.spec_resource()@@.timestamp()),
+            lower_bound@@.timestamp() <= r.spec_resource()@@.timestamp(),
     {
         proof {
             use_type_invariant(self);
@@ -228,7 +228,7 @@ impl MonotonicRegister {
         ensures
             r@@ is LowerBound,
             r@.loc() == self.loc(),
-            timestamp.le(&r@@.timestamp()),
+            timestamp <= r@@.timestamp(),
     {
         proof {
             use_type_invariant(self);

@@ -38,7 +38,7 @@ impl PCM for MonotonicTimestampResourceValue {
                 MonotonicTimestampResourceValue::LowerBound { lower_bound: lower_bound1 },
                 MonotonicTimestampResourceValue::LowerBound { lower_bound: lower_bound2 },
             ) => {
-                let max_lower_bound = if lower_bound1.gt(&lower_bound2) {
+                let max_lower_bound = if lower_bound1 > lower_bound2 {
                     lower_bound1
                 } else {
                     lower_bound2
@@ -51,7 +51,7 @@ impl PCM for MonotonicTimestampResourceValue {
             (
                 MonotonicTimestampResourceValue::LowerBound { lower_bound },
                 MonotonicTimestampResourceValue::FullRightToAdvance { value },
-            ) => if lower_bound.le(&value) {
+            ) => if lower_bound <= value {
                 MonotonicTimestampResourceValue::FullRightToAdvance { value }
             } else {
                 MonotonicTimestampResourceValue::Invalid {  }
@@ -59,7 +59,7 @@ impl PCM for MonotonicTimestampResourceValue {
             (
                 MonotonicTimestampResourceValue::FullRightToAdvance { value },
                 MonotonicTimestampResourceValue::LowerBound { lower_bound },
-            ) => if lower_bound.le(&value) {
+            ) => if lower_bound <= value {
                 MonotonicTimestampResourceValue::FullRightToAdvance { value }
             } else {
                 MonotonicTimestampResourceValue::Invalid {  }
@@ -144,7 +144,7 @@ impl MonotonicTimestampResource {
     pub proof fn advance(tracked &mut self, new_value: Timestamp)
         requires
             old(self)@ is FullRightToAdvance,
-            new_value.gt(&old(self)@.timestamp()),
+            new_value > old(self)@.timestamp(),
         ensures
             self.loc() == old(self).loc(),
             self@ == (MonotonicTimestampResourceValue::FullRightToAdvance {
@@ -173,8 +173,8 @@ impl MonotonicTimestampResource {
         ensures
             self@ == old(self)@,
             self.loc() == old(self).loc(),
-            self@ is LowerBound && other@ is FullRightToAdvance ==> self@.timestamp().le(&other@.timestamp()),
-            other@ is LowerBound && self@ is FullRightToAdvance ==> other@.timestamp().le(&self@.timestamp()),
+            self@ is LowerBound && other@ is FullRightToAdvance ==> self@.timestamp() <= other@.timestamp(),
+            other@ is LowerBound && self@ is FullRightToAdvance ==> other@.timestamp() <= self@.timestamp(),
 
     {
         self.r.validate_2(&other.r)

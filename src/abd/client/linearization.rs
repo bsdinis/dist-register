@@ -30,11 +30,11 @@ pub tracked enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
 impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
     pub proof fn apply_linearizer(tracked self,
         tracked register: &mut GhostVarAuth<Option<u64>>,
-        resolved_timestamp: &Timestamp
+        resolved_timestamp: Timestamp
     ) -> (tracked r: Self) {
         match self {
             /* TODO: spec/proof
-            MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp@.le(resolved_timestamp) => {
+            MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp@ < resolved_timestamp => {
                     let tracked completion = lin.apply(op, register, (), &());
                     MaybeLinearized::Comp { completion, timestamp }
             } ,
@@ -116,7 +116,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
                 &&& tok@@.contains_value((op, timestamp))
             })
     {
-        if self.watermark@.timestamp().ge(&timestamp) {
+        if self.watermark@.timestamp() >= timestamp {
             return Err(Tracked(InsertError::WatermarkContradiction {
                 watermark_lb: self.watermark.extract_lower_bound()
             }));
@@ -150,12 +150,12 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     /// Applies the linearizer for all writes prophecized to <= timestamp
     pub proof fn apply_linearizer(tracked &mut self,
         tracked register: GhostVarAuth<Option<u64>>,
-        timestamp: &Timestamp
+        timestamp: Timestamp
     ) -> (tracked r: (MonotonicTimestampResource, GhostVarAuth<Option<u64>>))
         requires old(self).inv(),
         ensures
             self.inv(),
-            self.watermark@.timestamp().ge(timestamp),
+            self.watermark@.timestamp() >= timestamp,
             self.watermark@ == r.0@,
             r.0@ is LowerBound,
             r.1.id() == register.id(),
@@ -163,7 +163,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         /* TODO: spec/proof
         self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
         */
-        self.watermark.advance(*timestamp);
+        self.watermark.advance(timestamp);
 
         (self.watermark.extract_lower_bound(), register)
     }
@@ -176,7 +176,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     ) -> (tracked r: ML::Completion)
         requires
             old(self).inv(),
-            old(self).watermark@.timestamp().ge(&resource@.timestamp()),
+            old(self).watermark@.timestamp() >= resource@.timestamp(),
             token@.dom().len() == 1,
         ensures
             self.inv(),

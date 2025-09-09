@@ -9,7 +9,7 @@ pub fn max_from_get_replies(vals: &[(usize, (Timestamp, Option<u64>))]) -> (r: O
         vals.len() > 0 ==> ({
             &&& r is Some
             &&& vals@.map_values(|v: (usize, (Timestamp, Option<u64>))| v.1).contains(r->0)
-            &&& forall|idx: int| #![auto] 0 <= idx < vals.len() ==> (r->0).0.ge(&vals[idx].1.0)
+            &&& forall|idx: int| #![auto] 0 <= idx < vals.len() ==> (r->0).0 >= vals[idx].1.0
         }),
         vals.len() == 0 ==> r is None
 {
@@ -39,7 +39,7 @@ pub fn max_from_get_replies(vals: &[(usize, (Timestamp, Option<u64>))]) -> (r: O
     let r = Some(vals[max_idx].1);
     assert(r is Some);
     assume(vals@.map_values(|v: (usize, (Timestamp, Option<u64>))| v.1).contains(r->0));
-    assume(forall|idx: int| #![auto] 0 <= idx < vals.len() ==> (r->0).0.ge(&vals[idx].1.0));
+    assume(forall|idx: int| #![auto] 0 <= idx < vals.len() ==> (r->0).0 >= vals[idx].1.0);
     r
 }
 
@@ -48,7 +48,7 @@ pub fn max_from_get_ts_replies(vals: &[(usize, Timestamp)]) -> (r: Option<Timest
         vals.len() > 0 ==> ({
             &&& r is Some
             &&& vals@.map_values(|v: (usize, Timestamp)| v.1).contains(r->0)
-            &&& forall|idx: int| #![auto] 0 <= idx < vals.len() ==> (r->0).ge(&vals[idx].1)
+            &&& forall|idx: int| #![auto] 0 <= idx < vals.len() ==> (r->0) >= vals[idx].1
         }),
         vals.len() == 0 ==> r is None
 {
@@ -74,7 +74,7 @@ pub fn max_from_get_ts_replies(vals: &[(usize, Timestamp)]) -> (r: Option<Timest
     let r = Some(max_ts);
     assert(r is Some);
     assume(vals@.map_values(|v: (usize, Timestamp)| v.1).contains(r->0));
-    assume(forall|idx: int| #![auto] 0 <= idx < vals.len() ==> (r->0).ge(&vals[idx].1));
+    assume(forall|idx: int| #![auto] 0 <= idx < vals.len() ==> (r->0) >= vals[idx].1);
     r
 }
 

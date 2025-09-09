@@ -20,10 +20,10 @@ use std::sync::Mutex;
 mod abd;
 mod verdist;
 
-use abd::client::linearizers::WritePerm;
-use abd::client::logatom::RegisterRead;
 use abd::client::AbdPool;
 use abd::client::AbdRegisterClient;
+use abd::invariants::logatom::RegisterRead;
+use abd::invariants::logatom::WritePerm;
 use abd::proto::Timestamp;
 use abd::server::run_modelled_server;
 use verdist::network::channel::BufChannel;

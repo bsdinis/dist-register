@@ -6,8 +6,8 @@ use vstd::tokens::frac::GhostVarAuth;
 use vstd::tokens::map::GhostMapAuth;
 use vstd::tokens::map::GhostSubmap;
 
-use crate::abd::client::logatom::*;
-use crate::abd::client::timestamp::*;
+use crate::abd::invariants::logatom::*;
+use crate::abd::invariants::timestamp::*;
 
 verus! {
 

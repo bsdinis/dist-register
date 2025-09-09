@@ -1,3 +1,10 @@
+use crate::abd::invariants;
+use crate::abd::invariants::client_id_map::ClientOwns;
+use crate::abd::invariants::lin_queue::*;
+use crate::abd::invariants::logatom::*;
+use crate::abd::invariants::ClientIdInvariant;
+use crate::abd::invariants::RegisterView;
+use crate::abd::invariants::StateInvariant;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::proto::Timestamp;
@@ -7,13 +14,7 @@ use crate::verdist::pool::BroadcastPool;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
 
-mod client_id_map;
 pub mod error;
-mod invariants;
-mod linearization;
-pub mod linearizers;
-pub mod logatom;
-mod timestamp;
 mod utils;
 
 use std::sync::Arc;
@@ -27,13 +28,6 @@ use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 use vstd::tokens::map::GhostSubmap;
 
-use client_id_map::ClientMap;
-use client_id_map::ClientOwns;
-use invariants::ClientIdInvariant;
-use invariants::RegisterView;
-use invariants::StateInvariant;
-use linearization::*;
-use logatom::*;
 use utils::*;
 
 verus! {

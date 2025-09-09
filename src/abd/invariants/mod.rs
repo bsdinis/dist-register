@@ -6,9 +6,14 @@ use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 use vstd::tokens::map::GhostMapAuth;
 
-use crate::abd::client::client_id_map::*;
-use crate::abd::client::linearization::*;
-use crate::abd::client::logatom::*;
+pub mod client_id_map;
+pub mod lin_queue;
+pub mod logatom;
+pub mod timestamp;
+
+use client_id_map::*;
+use lin_queue::*;
+use logatom::*;
 
 verus! {
 

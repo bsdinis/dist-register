@@ -9,7 +9,6 @@ use crate::verdist::rpc::proto::Tagged;
 
 mod client_id_map;
 pub mod error;
-mod history;
 mod invariants;
 mod linearization;
 pub mod linearizers;

@@ -10,6 +10,7 @@ verus! {
 pub struct MonotonicRegisterInner {
     val: Option<u64>,
     timestamp: Timestamp,
+    // TODO: move this to global atomic invariant
     resource: Tracked<MonotonicTimestampResource>
 }
 
@@ -162,6 +163,11 @@ impl vstd::rwlock::RwLockPredicate<MonotonicRegisterInner> for MonotonicRegister
 }
 
 pub struct MonotonicRegister {
+    // TODO: move to global atomic invariant
+    //      - add a GhostMapAuth to the state global invariant
+    //      - this allows the invariant that the watermark is <= min quorum timestamp
+    //      - store a GhostSubmap to the MonotonicRegisterInner
+    //      - might even collapse this into the MonotonicRegisterInner
     inner: RwLock<MonotonicRegisterInner, MonotonicRegisterInv>,
     #[allow(dead_code)]
     resource_loc: Ghost<int>,

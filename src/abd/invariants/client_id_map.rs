@@ -1,4 +1,3 @@
-use vstd::map::Map;
 use vstd::tokens::map::GhostMapAuth;
 use vstd::tokens::map::GhostSubmap;
 

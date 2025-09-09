@@ -81,9 +81,6 @@ pub struct LinearizationQueue<ML: MutLinearizer<RegisterWrite>> {
 pub type Token = GhostSubmap<int, (RegisterWrite, Timestamp)>;
 
 impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
-    // TODO:
-    //  - create function to "create" the atomic invariant with the linearization queue in it
-    //  - this queue is assumed to be common to all the clients
     pub proof fn dummy() -> (tracked result: Self) {
         let tracked queue = Map::tracked_empty();
         let tracked token_map = GhostMapAuth::new(Map::empty()).0;

@@ -40,9 +40,11 @@ impl vstd::rwlock::RwLockPredicate<Tracked<MonotonicTimestampResource>> for Lowe
 #[verifier::reject_recursive_types(C)]
 pub struct RegisterServer<L, C> {
     id: u64,
-    register: MonotonicRegister,
-    connected: RwLock<HashMap<u64, C>, EmptyCond>,
     listener: L,
+    connected: RwLock<HashMap<u64, C>, EmptyCond>,
+
+    // TODO: add atomic invariant
+    register: MonotonicRegister,
     register_lower_bound: RwLock<Tracked<MonotonicTimestampResource>, LowerBoundPredicate>,
 }
 

@@ -9,6 +9,7 @@ use vstd::tokens::map::GhostMapAuth;
 pub mod client_id_map;
 pub mod lin_queue;
 pub mod logatom;
+pub mod server_map;
 pub mod timestamp;
 
 use client_id_map::*;

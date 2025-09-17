@@ -39,7 +39,7 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
         &&& p.watermark_loc == state.linearization_queue.watermark.loc()
         &&& p.register_id == state.register.id()
         &&& p.server_map_id == state.server_map.id()
-        &&& state.linearization_queue.watermark <= state.server_map.min_quorum_ts()
+        &&& state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()
     }
 }
 
@@ -54,14 +54,18 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
 {
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked linearization_queue = LinearizationQueue::dummy();
+    let tracked server_map = ServerMap::dummy();
     let pred = StatePredicate {
         token_map_id: linearization_queue.token_map.id(),
         watermark_loc: linearization_queue.watermark.loc(),
         register_id: register.id(),
+        server_map_id: server_map.id(),
     };
 
 
-    let tracked state_inv = AtomicInvariant::new(pred, State { linearization_queue, register }, 1int);
+    let tracked state = State { linearization_queue, register, server_map };
+    // assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
+    let tracked state_inv = AtomicInvariant::new(pred, state, 1int);
 
     (state_inv, Tracked(view))
 }

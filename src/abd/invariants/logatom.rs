@@ -4,6 +4,8 @@ use vstd::prelude::*;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 
+use std::sync::Arc;
+
 verus! {
 
 pub struct RegisterRead {
@@ -89,10 +91,10 @@ impl MutLinearizer<RegisterWrite> for WritePerm {
         exec_res: &()
     ) -> (tracked result: Self::Completion)
     {
-        let tracked mut mself = self;
+        let tracked WritePerm { val, mut register } = self;
 
-        resource.update(&mut mself.register, op.new_value);
-        mself.register
+        resource.update(&mut register, op.new_value);
+        register
     }
 
     proof fn peek(tracked &self, op: RegisterWrite, tracked resource: &GhostVarAuth<Option<u64>>) {}

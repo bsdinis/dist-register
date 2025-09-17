@@ -86,19 +86,21 @@ broadcast proof fn lemma_op_frac_subset_of<T>(a: SetCarrier<T>, b: SetCarrier<T>
 pub struct Exclusive;
 pub struct Monotonic;
 
-trait GhostSetMode {}
+mod private {
+    pub trait GhostSetMode {}
+}
 
-impl GhostSetMode for Exclusive {}
-impl GhostSetMode for Monotonic {}
+impl private::GhostSetMode for Exclusive {}
+impl private::GhostSetMode for Monotonic {}
 
 #[verifier::reject_recursive_types(T)]
-pub struct GhostSetAuth<T, Mode: GhostSetMode> {
+pub struct GhostSetAuth<T, Mode: > {
     resource: Resource<SetCarrier<T>>,
     _marker: std::marker::PhantomData<Mode>,
 }
 
 #[verifier::reject_recursive_types(T)]
-pub struct GhostSubset<T, Mode: GhostSetMode> {
+pub struct GhostSubset<T, Mode: > {
     resource: Resource<SetCarrier<T>>,
     _marker: std::marker::PhantomData<Mode>,
 }
@@ -150,7 +152,7 @@ pub struct GhostSubset<T, Mode: GhostSetMode> {
 /// }
 /// ```
 ///
-impl<T, Mode: GhostSetMode> GhostSetAuth<T, Mode> {
+impl<T, Mode: > GhostSetAuth<T, Mode> {
     #[verifier::type_invariant]
     spec fn inv(self) -> bool {
         &&& self.resource.value().auth is Some
@@ -272,7 +274,7 @@ impl<T> GhostSetAuth<T, Exclusive> {
 }
 
 
-impl<T, Mode: GhostSetMode> GhostSubset<T, Mode> {
+impl<T, Mode: > GhostSubset<T, Mode> {
     #[verifier::type_invariant]
     spec fn inv(self) -> bool {
         &&& self.resource.value().auth is None

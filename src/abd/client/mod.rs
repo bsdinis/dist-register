@@ -110,7 +110,6 @@ where
         let state_inv;
         let view;
         proof {
-            // TODO: spec/proof
             let tracked (s, v) = invariants::get_system_state();
             state_inv = Arc::new(s);
             view = v;
@@ -206,9 +205,9 @@ where
             let comp;
             vstd::open_atomic_invariant!(&self.state_inv => state => {
                 proof {
-                    let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
+                    let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
-                    state.linearization_queue.apply_linearizer(register, max_ts);
+                    let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizer(register, max_ts);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
                 let op = RegisterRead { id: Ghost(self.loc()) };
@@ -263,9 +262,9 @@ where
         let comp;
         vstd::open_atomic_invariant!(&self.state_inv => state => {
             proof {
-                let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
+                let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
-                state.linearization_queue.apply_linearizer(register, max_ts);
+                let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizer(register, max_ts);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
             }
             let op = RegisterRead { id: Ghost(self.loc()) };
@@ -296,7 +295,7 @@ where
         // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
         // variable.
         let proph_ts = Prophecy::<Timestamp>::new();
-        let token_res;
+        let tracked token_res;
         vstd::open_atomic_invariant!(&self.state_inv => state => {
             proof {
                 token_res = state.linearization_queue.insert_linearizer(
@@ -357,8 +356,9 @@ where
 
         // TODO: with the timestamp uniqueness and the upper bound on the watermark
         // we can prove contradictions to unwrap the token to extract the completion
-        assume(token_res.is_ok());
-        let Tracked(token) = token_res.unwrap();
+        assume(token_res.tracked_is_ok());
+        let tracked token;
+        proof { token = token_res.tracked_unwrap() };
 
         {
             assume(max_ts.seqno + 1 < u64::MAX);
@@ -388,16 +388,16 @@ where
 
             let comp;
             vstd::open_atomic_invariant!(&self.state_inv => state => {
-                let tracked (register, _view) = GhostVarAuth::<Option<u64>>::new(None);
+                let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 proof {
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
-                let tracked (resource, register) = state.linearization_queue.apply_linearizer(register, exec_ts);
+                let tracked (resource, mut register) = state.linearization_queue.apply_linearizer(register, exec_ts);
                 proof {
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
 
-                let comp = Tracked(state.linearization_queue.extract_completion(token, resource));
+                comp = Tracked(state.linearization_queue.extract_completion(token, resource));
             });
 
 

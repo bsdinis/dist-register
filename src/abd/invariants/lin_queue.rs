@@ -33,12 +33,10 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
         resolved_timestamp: Timestamp
     ) -> (tracked r: Self) {
         match self {
-            /* TODO: spec/proof
             MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp@ < resolved_timestamp => {
                     let tracked completion = lin.apply(op, register, (), &());
                     MaybeLinearized::Comp { completion, timestamp }
             } ,
-            */
             other => other
         }
     }
@@ -47,6 +45,16 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
         match self {
             MaybeLinearized::Linearizer { timestamp, .. } => timestamp,
             MaybeLinearized::Comp { timestamp, .. } => timestamp,
+        }
+    }
+
+    pub proof fn tracked_get_completion(tracked self) -> (tracked r: ML::Completion)
+        requires self is Comp,
+        ensures self->completion == r
+    {
+        match self {
+            MaybeLinearized::Comp { completion, .. } => completion,
+            _ => proof_from_false()
         }
     }
 }
@@ -101,46 +109,33 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         tracked lin: ML,
         op: RegisterWrite,
         timestamp: Timestamp
-    ) -> (r: Result<Tracked<Token>, Tracked<InsertError>>)
+    ) -> (tracked r: Result<Token, InsertError>)
         requires
             old(self).inv(),
         ensures
             self.inv(),
             r is Ok ==> ({
                 let tok = r->Ok_0;
-                &&& tok@.id() == self.token_map.id()
-                &&& tok@.dom().len() == 1
-                &&& tok@@.contains_value((op, timestamp))
+                &&& tok.id() == self.token_map.id()
+                &&& tok.dom().len() == 1
+                &&& tok@.contains_value((op, timestamp))
             })
     {
         if self.watermark@.timestamp() >= timestamp {
-            return Err(Tracked(InsertError::WatermarkContradiction {
+            return Err(InsertError::WatermarkContradiction {
                 watermark_lb: self.watermark.extract_lower_bound()
-            }));
+            });
         }
-
-        /* TODO: spec/proof
-        if let Some(maybe_lin) = self.queue.get(timestamp) {
-            return Err(Tracked(InsertError::UniquenessContradiction { dup_witness: maybe_lin.timestamp() }));
-        }
-        */
 
         let dup_op = op.spec_clone();
 
-        // TODO: how to create a witness to the existence of the timestamp
-        /* TODO: spec/proof
-        let maybe_lin = MaybeLinearized::Linearizer { lin, op, timestamp: TimestampWitness::cheat(timestamp) };
-        */
 
         let ghost token_key = self.token_map.dom().find_unique_maximal(|a: int, b: int| a > b);
         assert(self.token_map.dom().disjoint(set![token_key]));
         let m = map![token_key => (dup_op, timestamp)];
         let tracked token = self.token_map.insert(m);
-        /* TODO: spec/proof
-        self.queue.tracked_insert(timestamp, maybe_lin);
-        */
 
-        Ok(Tracked(token))
+        Ok(token)
     }
 
 
@@ -157,16 +152,13 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             r.0@ is LowerBound,
             r.1.id() == register.id(),
     {
-        /* TODO: spec/proof
-        self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
-        */
+        // self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
         self.watermark.advance(timestamp);
 
         (self.watermark.extract_lower_bound(), register)
     }
 
     /// Return the completion of the write at timestamp - removing it from the sequence
-    #[verifier::external_body] // TODO: spec/proof
     pub proof fn extract_completion(tracked &mut self,
         tracked token: Token,
         tracked resource: MonotonicTimestampResource
@@ -183,14 +175,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
 
         let tracked comp = self.queue.tracked_remove(timestamp);
         assume(comp is Comp); // this is known because the resource has been given
-
-        /* TODO: spec/proof
-        let tracked c = comp->completion;
-
-        c
-        */
-
-        unimplemented!()
+        comp.tracked_get_completion()
     }
 }
 

@@ -10,11 +10,11 @@ pub mod client_id_map;
 pub mod lin_queue;
 pub mod logatom;
 pub mod server_map;
-pub mod timestamp;
 
 use client_id_map::*;
 use lin_queue::*;
 use logatom::*;
+use server_map::*;
 
 verus! {
 
@@ -22,11 +22,13 @@ pub struct StatePredicate {
     pub token_map_id: int,
     pub watermark_loc: int,
     pub register_id: int,
+    pub server_map_id: int,
 }
 
 pub struct State<ML: MutLinearizer<RegisterWrite>> {
-    pub tracked linearization_queue: LinearizationQueue<ML>,
     pub tracked register: GhostVarAuth<Option<u64>>,
+    pub tracked linearization_queue: LinearizationQueue<ML>,
+    pub tracked server_map: ServerMap,
 }
 
 impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
@@ -36,6 +38,8 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
         &&& p.token_map_id == state.linearization_queue.token_map.id()
         &&& p.watermark_loc == state.linearization_queue.watermark.loc()
         &&& p.register_id == state.register.id()
+        &&& p.server_map_id == state.server_map.id()
+        &&& state.linearization_queue.watermark <= state.server_map.min_quorum_ts()
     }
 }
 
@@ -48,12 +52,11 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
         r.0.namespace() == 1int,
         r.0.constant().register_id == r.1@.id(),
 {
-    let tracked queue = LinearizationQueue::<ML>::dummy();
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked linearization_queue = LinearizationQueue::dummy();
     let pred = StatePredicate {
-        token_map_id: queue.token_map.id(),
-        watermark_loc: queue.watermark.loc(),
+        token_map_id: linearization_queue.token_map.id(),
+        watermark_loc: linearization_queue.watermark.loc(),
         register_id: register.id(),
     };
 

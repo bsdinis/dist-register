@@ -7,7 +7,6 @@ use vstd::tokens::map::GhostMapAuth;
 use vstd::tokens::map::GhostSubmap;
 
 use crate::abd::invariants::logatom::*;
-use crate::abd::invariants::timestamp::*;
 
 verus! {
 
@@ -17,12 +16,13 @@ pub tracked enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
     Linearizer {
         tracked lin: ML,
         op: RegisterWrite,
-        tracked timestamp: TimestampWitness,
+        timestamp: Timestamp,
     },
     Comp {
         // is GhostVar<Option<u64>>
         tracked completion: ML::Completion,
-        tracked timestamp: TimestampWitness,
+        timestamp: Timestamp,
+        // TODO: add token that can be extracted
     }
 }
 
@@ -33,7 +33,7 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
         resolved_timestamp: Timestamp
     ) -> (tracked r: Self) {
         match self {
-            MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp@ < resolved_timestamp => {
+             MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp < resolved_timestamp => {
                     let tracked completion = lin.apply(op, register, (), &());
                     MaybeLinearized::Comp { completion, timestamp }
             } ,
@@ -41,7 +41,7 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
         }
     }
 
-    pub closed spec fn timestamp(self) -> TimestampWitness {
+    pub closed spec fn timestamp(self) -> Timestamp {
         match self {
             MaybeLinearized::Linearizer { timestamp, .. } => timestamp,
             MaybeLinearized::Comp { timestamp, .. } => timestamp,
@@ -63,11 +63,6 @@ pub tracked enum InsertError {
     WatermarkContradiction {
         // LowerBound resource saying that the watermark is bigger than the timestamp
         tracked watermark_lb: MonotonicTimestampResource,
-    },
-    UniquenessContradiction {
-        // Read-only duplicable resource about the existence of the timestamp in the
-        // global invariant set timestamp
-        tracked dup_witness: TimestampWitness,
     },
 }
 
@@ -126,7 +121,6 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
                 watermark_lb: self.watermark.extract_lower_bound()
             });
         }
-
         let dup_op = op.spec_clone();
 
 
@@ -185,7 +179,6 @@ impl std::fmt::Debug for InsertError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InsertError::WatermarkContradiction { .. } => f.write_str("WatermarkContradiction"),
-            InsertError::UniquenessContradiction { .. } => f.write_str("UniquenessContradiction"),
         }
     }
 }

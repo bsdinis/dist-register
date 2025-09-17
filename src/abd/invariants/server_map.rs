@@ -9,7 +9,7 @@ use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 verus! {
 
 pub struct ServerMap {
-    /// mapping from server id to its resource
+    /// mapping from server id to its lower bound
     pub map: GhostMapAuth<u64, Tracked<MonotonicTimestampResource>>,
 }
 
@@ -40,6 +40,12 @@ impl ServerMap {
         let tracked singleton = self.map.insert(map![server_id => resource]);
         ServerOwns { singleton }
     }
+
+    /// Return the minimum timestamp that a quorum can observe
+    pub proof fn min_quorum_ts(tracked &self) -> Timestamp
+    {
+        self@.values()
+    }
 }
 
 pub struct ServerOwns {
@@ -49,11 +55,16 @@ pub struct ServerOwns {
 impl ServerOwns {
     #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
-        self.singleton@.dom().is_singleton()
+        &&& self.singleton@.dom().is_singleton()
+        &&& self.lower_bound()@@ is LowerBound
     }
 
     pub closed spec fn id(self) -> int {
         self.singleton.id()
+    }
+
+    pub closed spec fn lower_bound(self) -> Tracked<MonotonicTimestampResource> {
+        self.singleton@.kv_pairs().choose().1
     }
 
     pub closed spec fn view(self) -> (u64, Timestamp) {

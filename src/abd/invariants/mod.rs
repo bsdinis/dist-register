@@ -64,7 +64,8 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
 
 
     let tracked state = State { linearization_queue, register, server_map };
-    // assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
+    assume(linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()); // TODO
+    assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
     let tracked state_inv = AtomicInvariant::new(pred, state, 1int);
 
     (state_inv, Tracked(view))

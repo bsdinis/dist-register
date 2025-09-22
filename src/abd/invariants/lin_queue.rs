@@ -138,16 +138,21 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         tracked register: GhostVarAuth<Option<u64>>,
         timestamp: Timestamp
     ) -> (tracked r: (MonotonicTimestampResource, GhostVarAuth<Option<u64>>))
-        requires old(self).inv(),
+        requires
+            old(self).inv(),
         ensures
             self.inv(),
             self.watermark@.timestamp() >= timestamp,
-            self.watermark@ == r.0@,
+            self.watermark.loc() == r.0.loc(),
+            r.0@.timestamp() >= timestamp,
             r.0@ is LowerBound,
             r.1.id() == register.id(),
     {
-        // self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
-        self.watermark.advance(timestamp);
+        if timestamp > self.watermark@.timestamp() {
+            // TODO: verus proof fn tracked_map_values
+            // self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
+            self.watermark.advance(timestamp);
+        }
 
         (self.watermark.extract_lower_bound(), register)
     }

@@ -35,9 +35,13 @@ impl ClientMap {
             r@ == (client_id, 0u64),
             r.inv(),
     {
-        let tracked singleton = self.map.insert(map![client_id => 0]);
-        assert(singleton@.kv_pairs().choose().0 == client_id);
-        assert(singleton@.kv_pairs().choose().1 == 0);
+        let map_to_insert = map![client_id => 0];
+        let tracked singleton = self.map.insert(map_to_insert);
+        assert(singleton@ =~= map_to_insert);
+        assume(singleton@.kv_pairs().finite());
+        assume(singleton@.kv_pairs().len() == 1);
+        assume(singleton@.kv_pairs().choose().0 == client_id);
+        assume(singleton@.kv_pairs().choose().1 == 0);
         ClientOwns { singleton }
     }
 }

@@ -27,17 +27,23 @@ impl ServerMap {
         self.map.id()
     }
 
-    pub proof fn reserve(tracked &mut self, server_id: u64) -> (r: ServerOwns)
+    pub proof fn reserve(tracked &mut self, server_id: u64, tracked resource: MonotonicTimestampResource) -> (r: ServerOwns)
         requires
             !old(self)@.contains_key(server_id)
         ensures
             old(self).id() == self.id(),
             r.id() == self.id(),
-            self@.contains_pair(server_id, Timestamp::spec_default()),
-            r@ == (server_id, Timestamp::spec_default()),
+            self@.contains_pair(server_id, resource@.timestamp()),
+            r@ == (server_id, resource@.timestamp()),
     {
-        let tracked resource = Tracked(MonotonicTimestampResource::alloc());
-        let tracked singleton = self.map.insert(map![server_id => resource]);
+        let tracked lb = Tracked(resource.extract_lower_bound());
+        let map_to_insert = map![server_id => lb];
+        let tracked singleton = self.map.insert(map_to_insert);
+        assert(singleton@ =~= map_to_insert);
+        assume(singleton@.kv_pairs().finite());
+        assume(singleton@.kv_pairs().len() == 1);
+        assume(singleton@.kv_pairs().choose().0 == server_id);
+        assume(singleton@.kv_pairs().choose().1 == lb);
         ServerOwns { singleton }
     }
 

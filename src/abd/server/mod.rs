@@ -3,6 +3,7 @@ use crate::abd::proto::Response;
 use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::server::register::MonotonicRegister;
+use crate::abd::server::register::MonotonicRegisterInner;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::modelled::ModelledConnector;
@@ -43,9 +44,7 @@ pub struct RegisterServer<L, C> {
     listener: L,
     connected: RwLock<HashMap<u64, C>, EmptyCond>,
 
-    // TODO: add atomic invariant
     register: MonotonicRegister,
-    register_lower_bound: RwLock<Tracked<MonotonicTimestampResource>, LowerBoundPredicate>,
 }
 
 impl<L, C> RegisterServer<L, C>
@@ -56,23 +55,17 @@ where
     pub fn new(listener: L, id: u64) -> (r: Self)
         ensures r.inv()
     {
-        let (register, register_lower_bound)= MonotonicRegister::default();
-        let register_lower_bound = RwLock::new(
-            register_lower_bound,
-            Ghost(LowerBoundPredicate { loc: register.loc() })
-        );
+        let register = MonotonicRegister::default();
         RegisterServer {
             id,
             register,
             connected: RwLock::new(HashMap::new(), Ghost(EmptyCond)),
             listener,
-            register_lower_bound,
         }
     }
 
     pub closed spec fn inv(&self) -> bool {
         &&& self.register.inv()
-        &&& self.register_lower_bound.pred() == LowerBoundPredicate { loc: self.register.loc() }
     }
 
     fn accept(&self, channel: C)
@@ -86,43 +79,40 @@ where
     fn handle_get(&self) -> Response
         requires self.inv()
     {
-        let (lower_bound, handle) = self.register_lower_bound.acquire_write();
-        let inner_register = self.register.read(lower_bound);
-        let response = Response::Get {
-            val: inner_register.val(),
-            timestamp: inner_register.timestamp(),
-            lb: inner_register.lower_bound(),
-        };
-        let resource = inner_register.get_resource();
-        handle.release_write(resource);
-        response
+        let MonotonicRegisterInner {
+            val,
+            timestamp,
+            resource
+        } = self.register.read();
+
+        Response::Get {
+            val,
+            timestamp,
+            lb: resource,
+        }
     }
 
     fn handle_get_timestamp(&self) -> Response
         requires self.inv()
     {
-        let (lower_bound, handle) = self.register_lower_bound.acquire_write();
-        let inner_register = self.register.read(lower_bound);
-        let response = Response::GetTimestamp {
-            timestamp: inner_register.timestamp(),
-            lb: inner_register.lower_bound(),
-        };
-        let resource = inner_register.get_resource();
-        handle.release_write(resource);
-        response
+        let MonotonicRegisterInner {
+            timestamp,
+            resource,
+            ..
+        } = self.register.read();
+
+        Response::GetTimestamp {
+            timestamp,
+            lb: resource,
+        }
     }
 
     fn handle_write(&self, val: Option<u64>, timestamp: Timestamp) -> Response
         requires self.inv()
     {
-        let (_lower_bound, handle) = self.register_lower_bound.acquire_write();
-        let lower_bound = self.register.write(val, timestamp);
-        let tracked new_lb = lower_bound.borrow().extract_lower_bound();
-        let response = Response::Write {
-            lb: Tracked(new_lb)
-        };
-        handle.release_write(lower_bound);
-        response
+        let lb = self.register.write(val, timestamp);
+
+        Response::Write { lb }
     }
 
     fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response>

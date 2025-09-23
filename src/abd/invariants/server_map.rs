@@ -10,42 +10,48 @@ verus! {
 
 pub struct ServerMap {
     /// mapping from server id to its lower bound
-    pub map: GhostMapAuth<u64, Tracked<MonotonicTimestampResource>>,
+    pub tracked map: Map<u64, Tracked<MonotonicTimestampResource>>,
 }
 
 impl ServerMap {
     pub proof fn dummy() -> (tracked r: Self) {
-        let tracked map = ServerMap { map: GhostMapAuth::dummy() };
-        map
+        let tracked set = ServerMap { map: Map::tracked_empty() };
+        set
     }
 
     pub open spec fn view(self) -> Map<u64, Timestamp> {
-        self.map@.map_values(|r: Tracked<MonotonicTimestampResource>| r@@.timestamp())
+        self.map.map_values(|r: Tracked<MonotonicTimestampResource>| r@@.timestamp())
     }
 
-    pub open spec fn id(self) -> int {
+    /*
+    pub open spec fn loc(self) -> int {
         self.map.id()
     }
+    */
 
+    /* TODO: unclear if this is needed
     pub proof fn reserve(tracked &mut self, server_id: u64, tracked resource: MonotonicTimestampResource) -> (r: ServerOwns)
         requires
-            !old(self)@.contains_key(server_id)
+            !old(self)@.contains_key(server_id),
+            resource@.timestamp() == Timestamp::spec_default(),
+            resource is LowerBound,
         ensures
             old(self).id() == self.id(),
             r.id() == self.id(),
-            self@.contains_pair(server_id, resource@.timestamp()),
-            r@ == (server_id, resource@.timestamp()),
+            self@.contains_pair(server_id, Timestamp::spec_default()),
+            r@ == (server_id, Timestamp::spec_default()),
+            self@[server_id] == resource,
     {
-        let tracked lb = Tracked(resource.extract_lower_bound());
-        let map_to_insert = map![server_id => lb];
+        let map_to_insert = map![server_id => Tracked(resource)];
         let tracked singleton = self.map.insert(map_to_insert);
         assert(singleton@ =~= map_to_insert);
         assume(singleton@.kv_pairs().finite());
         assume(singleton@.kv_pairs().len() == 1);
         assume(singleton@.kv_pairs().choose().0 == server_id);
-        assume(singleton@.kv_pairs().choose().1 == lb);
+        assume(singleton@.kv_pairs().choose().1 == resource);
         ServerOwns { singleton }
     }
+    */
 
     /// Return the minimum timestamp that a quorum can observe
     pub closed spec fn min_quorum_ts(self) -> Timestamp
@@ -54,29 +60,5 @@ impl ServerMap {
     }
 }
 
-pub struct ServerOwns {
-    tracked singleton: GhostSubmap<u64, Tracked<MonotonicTimestampResource>>,
-}
-
-impl ServerOwns {
-    #[verifier::type_invariant]
-    pub closed spec fn inv(self) -> bool {
-        &&& self.singleton@.dom().is_singleton()
-        &&& self.lower_bound()@@ is LowerBound
-    }
-
-    pub closed spec fn id(self) -> int {
-        self.singleton.id()
-    }
-
-    pub closed spec fn lower_bound(self) -> Tracked<MonotonicTimestampResource> {
-        self.singleton@.kv_pairs().choose().1
-    }
-
-    pub closed spec fn view(self) -> (u64, Timestamp) {
-        let (id, ts) = self.singleton@.kv_pairs().choose();
-        (id, ts@@.timestamp())
-    }
-}
 
 }

@@ -4,7 +4,6 @@ use vstd::logatom::*;
 use vstd::prelude::*;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
-use vstd::tokens::map::GhostMapAuth;
 
 pub mod client_id_map;
 pub mod lin_queue;
@@ -22,7 +21,7 @@ pub struct StatePredicate {
     pub token_map_id: int,
     pub watermark_loc: int,
     pub register_id: int,
-    pub server_map_id: int,
+    // pub server_map_id: int,
 }
 
 pub struct State<ML: MutLinearizer<RegisterWrite>> {
@@ -38,7 +37,7 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
         &&& p.token_map_id == state.linearization_queue.token_map.id()
         &&& p.watermark_loc == state.linearization_queue.watermark.loc()
         &&& p.register_id == state.register.id()
-        &&& p.server_map_id == state.server_map.id()
+        // &&& p.server_map_id == state.server_map.id()
         &&& state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()
     }
 }
@@ -59,7 +58,7 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
         token_map_id: linearization_queue.token_map.id(),
         watermark_loc: linearization_queue.watermark.loc(),
         register_id: register.id(),
-        server_map_id: server_map.id(),
+        // server_map_id: server_map.id(),
     };
 
 

@@ -8,19 +8,19 @@ use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 verus! {
 
 pub struct MonotonicRegisterInner {
-    val: Option<u64>,
-    timestamp: Timestamp,
-    // TODO: move this to global atomic invariant
-    resource: Tracked<MonotonicTimestampResource>
+    pub val: Option<u64>,
+    pub timestamp: Timestamp,
+    pub resource: Tracked<MonotonicTimestampResource>
 }
 
 impl MonotonicRegisterInner {
     pub fn default() -> (r: MonotonicRegisterInner)
         ensures
-            r.spec_val() is None,
-            r.spec_timestamp().client_id == 0,
-            r.spec_timestamp().seqno == 0,
-            r.spec_resource()@@ is FullRightToAdvance,
+            r.val is None,
+            r.timestamp.client_id == 0,
+            r.timestamp.seqno == 0,
+            r.resource@@ is FullRightToAdvance,
+            r.inv(),
     {
         MonotonicRegisterInner {
             val: None,
@@ -33,109 +33,60 @@ impl MonotonicRegisterInner {
         Ghost(self.resource@.loc())
     }
 
-    pub fn val(&self) -> Option<u64> {
-         proof {
-            use_type_invariant(self);
-        }
-        self.val
-    }
-
-    pub closed spec fn spec_val(&self) -> Option<u64> {
-        self.val
-    }
-
-    pub fn timestamp(&self) -> Timestamp {
-         proof {
-            use_type_invariant(self);
-        }
-        self.timestamp
-    }
-
-    pub closed spec fn spec_timestamp(&self) -> Timestamp {
-        self.timestamp
-    }
-
-    pub closed spec fn spec_resource(&self) -> &Tracked<MonotonicTimestampResource> {
-        &self.resource
-    }
-
-    pub fn get_resource(self) -> (r: Tracked<MonotonicTimestampResource>)
-        ensures
-            r == self.spec_resource(),
-            r@.loc() == self.loc()
-    {
-         proof {
-            use_type_invariant(&self);
-        }
-        self.resource
-    }
-
     pub fn lower_bound(&self) -> (r: Tracked<MonotonicTimestampResource>)
+        requires
+            self.inv()
         ensures
             r@.loc() == self.loc(),
             r@@ is LowerBound,
-            r@@.timestamp() == self.spec_resource()@@.timestamp()
+            r@@.timestamp() == self.resource@@.timestamp()
     {
-        proof {
-            use_type_invariant(&self);
-        }
-        let tracked resource = self.resource.borrow();
-        let tracked lower_bound = resource.extract_lower_bound();
-
-        Tracked(lower_bound)
+        Tracked(self.resource.borrow().extract_lower_bound())
     }
 
-    #[verifier::type_invariant]
     pub open spec fn inv(&self) -> bool {
-        self.spec_timestamp() == self.spec_resource()@@.timestamp()
+        &&& self.timestamp == self.resource@@.timestamp()
     }
 
     #[allow(unused_variables)]
-    pub fn read(&self, lower_bound: Tracked<MonotonicTimestampResource>) -> (r: MonotonicRegisterInner)
+    pub fn read(&self) -> (r: MonotonicRegisterInner)
         requires
-            self.spec_resource()@@ is FullRightToAdvance,
-            lower_bound@@ is LowerBound,
-            lower_bound@.loc() == self.loc(),
+            self.resource@@ is FullRightToAdvance,
+            self.inv(),
         ensures
-            lower_bound@.loc() == r.loc(),
-            lower_bound@@.timestamp() <= r.spec_resource()@@.timestamp(),
-            r.spec_resource()@@ is LowerBound,
-            r.spec_val() == self.spec_val(),
-            r.spec_timestamp() == self.spec_timestamp(),
+            r.inv(),
+            r.resource@@ is LowerBound,
+            r.val == self.val,
+            r.timestamp == self.timestamp,
+            r.loc() == self.loc(),
     {
-        proof {
-            use_type_invariant(self);
-        }
         let val = self.val;
         let timestamp = self.timestamp;
         let tracked r = self.resource.borrow();
-        let tracked lb = lower_bound.get();
+        let tracked lb = r.extract_lower_bound();
 
         proof {
             lb.lemma_lower_bound(r);
         }
 
-        let tracked lower_bound = r.extract_lower_bound();
         MonotonicRegisterInner {
             val,
             timestamp,
-            resource: Tracked(lower_bound),
+            resource: Tracked(lb),
         }
     }
 
     pub fn write(self, val: Option<u64>, timestamp: Timestamp) -> (r: Self)
         requires
-            self.spec_resource()@@ is FullRightToAdvance,
+            self.resource@@ is FullRightToAdvance,
+            self.inv(),
         ensures
-            r.spec_resource()@@ is FullRightToAdvance,
+            r.inv(),
             r.loc() == self.loc(),
-            timestamp > self.spec_resource()@@.timestamp() ==> r.spec_timestamp() == timestamp && r.spec_val() == val,
-            timestamp <= self.spec_resource()@@.timestamp() ==> self == r
+            r.resource@@ is FullRightToAdvance,
+            timestamp > self.timestamp ==> r.timestamp == timestamp && r.val == val,
+            timestamp <= self.timestamp ==> self == r
     {
-        proof {
-            use_type_invariant(&self);
-        }
-
         if timestamp > self.timestamp {
             let tracked mut r = self.resource.get();
             proof {
@@ -158,47 +109,35 @@ impl vstd::rwlock::RwLockPredicate<MonotonicRegisterInner> for MonotonicRegister
     open spec fn inv(self, v: MonotonicRegisterInner) -> bool {
         &&& v.inv()
         &&& v.loc() == self.resource_loc
-        &&& v.spec_resource()@@ is FullRightToAdvance
+        &&& v.resource@@ is FullRightToAdvance
     }
 }
 
 pub struct MonotonicRegister {
-    // TODO: move to global atomic invariant
-    //      - add a GhostMapAuth to the state global invariant
-    //      - this allows the invariant that the watermark is <= min quorum timestamp
-    //      - store a GhostSubmap to the MonotonicRegisterInner
-    //      - might even collapse this into the MonotonicRegisterInner
     inner: RwLock<MonotonicRegisterInner, MonotonicRegisterInv>,
+
     #[allow(dead_code)]
     resource_loc: Ghost<int>,
 }
 
 impl MonotonicRegister {
     // return the register and the lower bound
-    pub fn default() -> (r: (Self, Tracked<MonotonicTimestampResource>))
+    pub fn default() -> (r: Self)
         ensures
-            r.1@@ is LowerBound,
-            r.0.loc() == r.1@.loc(),
-            r.0.inv()
+            r.inv()
     {
         let inner_reg = MonotonicRegisterInner::default();
         let tracked r = inner_reg.resource.borrow();
         let resource_loc = Ghost(r.loc());
 
-        let tracked lower_bound = r.extract_lower_bound();
+        let pred = Ghost(MonotonicRegisterInv { resource_loc });
+        assert(<MonotonicRegisterInv as vstd::rwlock::RwLockPredicate<_>>::inv(pred@, inner_reg));
+        let inner = RwLock::new(inner_reg, pred);
 
-        proof  {
-            use_type_invariant(&inner_reg);
-        }
-
-        let inner = RwLock::new(inner_reg, Ghost(MonotonicRegisterInv { resource_loc }));
-
-        let r = (MonotonicRegister {
+        MonotonicRegister {
             inner,
-            resource_loc
-        }, Tracked(lower_bound));
-
-        r
+            resource_loc,
+        }
     }
 
     #[verifier::type_invariant]
@@ -210,21 +149,17 @@ impl MonotonicRegister {
         self.resource_loc
     }
 
-    pub fn read(&self, lower_bound: Tracked<MonotonicTimestampResource>) -> (r: MonotonicRegisterInner)
-        requires
-            lower_bound@@ is LowerBound,
-            lower_bound@.loc() == self.loc(),
+    pub fn read(&self) -> (r: MonotonicRegisterInner)
         ensures
-            r.spec_resource()@@ is LowerBound,
+            r.resource@@ is LowerBound,
             r.loc() == self.loc(),
-            lower_bound@@.timestamp() <= r.spec_resource()@@.timestamp(),
     {
         proof {
             use_type_invariant(self);
         }
         let handle = self.inner.acquire_read();
-        let val = handle.borrow();
-        let res = val.read(lower_bound);
+        let inner = handle.borrow();
+        let res = inner.read();
         handle.release_read();
 
         res
@@ -242,10 +177,6 @@ impl MonotonicRegister {
         let (guard, handle) = self.inner.acquire_write();
 
         let new_value = guard.write(val, timestamp);
-        proof  {
-            use_type_invariant(&new_value);
-        }
-
         let tracked r = new_value.resource.borrow();
         let tracked lower_bound = r.extract_lower_bound();
 

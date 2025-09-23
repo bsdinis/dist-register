@@ -10,6 +10,35 @@ pub struct Timestamp {
     pub client_id: u64,
 }
 
+impl vstd::std_specs::cmp::PartialOrdSpecImpl for Timestamp {
+    open spec fn obeys_partial_cmp_spec() -> bool { true }
+
+    open spec fn partial_cmp_spec(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.seqno == other.seqno && self.client_id == other.client_id {
+            Some(std::cmp::Ordering::Equal)
+        } else if self.seqno < other.seqno || (self.seqno == other.seqno && self.client_id < other.client_id) {
+            Some(std::cmp::Ordering::Less)
+        } else {
+            Some(std::cmp::Ordering::Greater)
+        }
+    }
+
+}
+
+impl vstd::std_specs::cmp::OrdSpecImpl for Timestamp {
+    open spec fn obeys_cmp_spec() -> bool { true }
+
+    open spec fn cmp_spec(&self, other: &Self) -> std::cmp::Ordering {
+        if self.seqno == other.seqno && self.client_id == other.client_id {
+            std::cmp::Ordering::Equal
+        } else if self.seqno < other.seqno || (self.seqno == other.seqno && self.client_id < other.client_id) {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    }
+}
+
 impl Timestamp {
     pub fn default() -> (r: Self)
         ensures

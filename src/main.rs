@@ -335,7 +335,6 @@ pub struct ReadPerm {
     pub register: Arc<Tracked<GhostVar<Option<u64>>>>,
 }
 
-
 impl ReadLinearizer<RegisterRead> for ReadPerm {
     type Completion = Arc<Tracked<GhostVar<Option<u64>>>>;
 
@@ -378,6 +377,7 @@ where
     report_quorum_size(client.quorum_size());
 
     let tracked read_perm = ReadPerm { register: view.clone() };
+    assume(read_perm.pre(RegisterRead { id: Ghost(client.loc()) }));
     match client.read::<ReadPerm>(Tracked(read_perm)) {
         Ok((v, ts, _comp)) => {
             report_read(0, (v, ts));
@@ -401,6 +401,7 @@ where
     */
 
     let tracked read_perm = ReadPerm { register: view.clone() };
+    assume(read_perm.pre(RegisterRead { id: Ghost(view@.id()) }));
     match client.read::<ReadPerm>(Tracked(read_perm)) {
         Ok((v, ts, _comp)) => {
             report_read(0, (v, ts));

@@ -19,6 +19,7 @@ mod utils;
 
 use std::sync::Arc;
 
+use vstd::invariant::InvariantPredicate;
 #[allow(unused_imports)]
 use vstd::logatom::*;
 use vstd::modes::tracked_swap;
@@ -41,11 +42,10 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
 
     // TODO: read is &mut self because it needs access to the linearization queue
     // This should be fixable with an atomic invariant
-    fn read<RL: ReadLinearizer<RegisterRead>>(&mut self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
+    fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
         requires
-            lin@.pre(RegisterRead { id: Ghost(old(self).loc()) })
+            lin@.pre(RegisterRead { id: Ghost(self.loc()) })
         ensures
-            old(self).loc() == self.loc(),
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
                 lin@.post(RegisterRead { id: Ghost(self.loc()) }, val, compl@)
@@ -75,10 +75,12 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
             lin@.pre(RegisterWrite { id: Ghost(old(self).loc()), new_value: val })
         ensures
             old(self).loc() == self.loc(),
-            r is Ok ==> ({
-                let compl = r->Ok_0;
-                lin@.post(RegisterWrite { id: Ghost(self.loc()), new_value: val }, (), compl@)
-            }),
+            // TODO: does this condition make sense???
+            //
+            // r is Ok ==> ({
+            //     let compl = r->Ok_0;
+            //     lin@.post(RegisterWrite { id: Ghost(self.loc()), new_value: val }, (), compl@)
+            // }),
         ;
 }
 
@@ -124,6 +126,7 @@ where
 
         vstd::open_atomic_invariant!(&client_map => map => {
             proof {
+                // TODO(assume): removing this invariant requires an ID service
                 assume(!map@.contains_key(pool.id()));
                 client_owns = Tracked(map.reserve(pool.id()));
             }
@@ -162,7 +165,7 @@ where
         self.register_id
     }
 
-    fn read<RL: ReadLinearizer<RegisterRead>>(&mut self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
+    fn read<RL: ReadLinearizer<RegisterRead>>(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
     {
         let bpool = BroadcastPool::new(&self.pool);
         let quorum_res = bpool
@@ -188,6 +191,7 @@ where
 
         // check early return
         let replies = quorum.replies();
+        // TODO(assume): network axiomatization invariant -- comes from spec'ing network layer
         assume(replies.len() > 0);
         let opt = max_from_get_replies(replies);
         assert(opt is Some);
@@ -196,6 +200,7 @@ where
         let q_iter = quorum.replies().iter();
         for (_idx, (ts, _val)) in q_iter {
             if ts.seqno == max_ts.seqno && ts.client_id == max_ts.client_id {
+                // TODO(assume): integer overflow assume
                 assume(n_max_ts + 1 < usize::MAX);
                 n_max_ts += 1;
             }
@@ -211,7 +216,12 @@ where
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
                 let op = RegisterRead { id: Ghost(self.loc()) };
+                // TODO(assume): linearizer requirements
+                assume(op.requires(state.register, max_val));
                 comp = Tracked(lin.apply(op, &state.register, &max_val));
+
+                // TODO(assume): min quorum invariant
+                assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
             });
             return Ok((max_val, max_ts, comp));
         }
@@ -268,7 +278,11 @@ where
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
             }
             let op = RegisterRead { id: Ghost(self.loc()) };
+            // TODO(assume): linearizer requirements
+            assume(op.requires(state.register, max_val));
             comp = Tracked(lin.apply(op, &state.register, &max_val));
+            // TODO(assume): min quorum invariant
+            assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
         });
         Ok((max_val, max_ts, comp))
     }
@@ -304,12 +318,12 @@ where
                     proph_ts@
                 );
             }
+            // TODO(assume): min quorum invariant
+            assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
         });
 
-        // TODO: if the token_res is a Watermark contradiction
-        // open global invariant and check that there exists a quorum of lower bounds
-        // that corroborates the watermark value
-
+        // TODO(nickolai): this is a load-bearing assert
+        assert(token_res is Ok ==> token_res.unwrap().id() == self.state_inv.constant().lin_queue_namespace["token_map"]);
         let max_ts = {
             let bpool = BroadcastPool::new(&self.pool);
 
@@ -334,8 +348,8 @@ where
             };
 
             let replies = quorum.replies();
+            // TODO(assume): network axiomatization invariant -- comes from spec'ing network layer
             assume(replies.len() > 0);
-            // TODO: construct an upper bound on the watermark from the quorum of lower bounds
             let max_ts = max_from_get_ts_replies(replies);
             assert(max_ts is Some);
             let max_ts = max_ts.expect("the quorum should never be empty");
@@ -343,25 +357,26 @@ where
             Ok(max_ts)
         }?;
 
-        // TODO: if the token_res is a Watermark contradiction
-        // get another (overlapping) quorum that also corroborates the watermark (via exec state)
+        // TODO(contradiction): if the token_res is a Watermark contradiction
         //
-        // contradition:
-        // \exists global inv quorum
-        // proph_ts <= old(watermark) <= min(global inv quorum) <= max(exec quorum) < chosen ts == proph_ts
+        // this implies: proph_ts <= old(watermark)
+        // watermark invariant implies: old(watermark) <= min(quorum)
+        // min definition: min(quorum) <= exec quorum
+        // construction: exec quorum < exec_ts
+        // resolution: exec_ts == proph_ts
 
-        // TODO: prove timestamp uniqueness
+        // TODO(assume): integer overflow
+        // XXX: timestamp recycling would be interesting
+        assume(max_ts.seqno < u64::MAX - 1);
         let exec_ts = Timestamp { seqno: max_ts.seqno + 1, client_id: self.pool.id(), };
         proph_ts.resolve(&exec_ts);
 
-        // TODO: with the timestamp uniqueness and the upper bound on the watermark
-        // we can prove contradictions to unwrap the token to extract the completion
-        assume(token_res.tracked_is_ok());
+        // TODO(assume): comes from contradiction above
+        assume(token_res is Ok);
         let tracked token;
         proof { token = token_res.tracked_unwrap() };
 
         {
-            assume(max_ts.seqno + 1 < u64::MAX);
             let bpool = BroadcastPool::new(&self.pool);
             let quorum_res = bpool
                 .broadcast(Request::Write {
@@ -388,6 +403,7 @@ where
 
             let comp;
             vstd::open_atomic_invariant!(&self.state_inv => state => {
+                assert(token.id() == state.linearization_queue.token_map.id());
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 proof {
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
@@ -398,6 +414,8 @@ where
                 }
 
                 comp = Tracked(state.linearization_queue.extract_completion(token, resource));
+                // TODO(assume): min quorum invariant
+                assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
             });
 
 

@@ -18,10 +18,9 @@ use server_map::*;
 verus! {
 
 pub struct StatePredicate {
-    pub token_map_id: int,
-    pub watermark_loc: int,
+    pub lin_queue_namespace: Map<&'static str, int>,
     pub register_id: int,
-    // pub server_map_id: int,
+    pub server_map_locs: Map<u64, int>,
 }
 
 pub struct State<ML: MutLinearizer<RegisterWrite>> {
@@ -34,10 +33,10 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
     where ML: MutLinearizer<RegisterWrite>
 {
     open spec fn inv(p: StatePredicate, state: State<ML>) -> bool {
-        &&& p.token_map_id == state.linearization_queue.token_map.id()
-        &&& p.watermark_loc == state.linearization_queue.watermark.loc()
+        &&& p.lin_queue_namespace == state.linearization_queue.namespace()
         &&& p.register_id == state.register.id()
-        // &&& p.server_map_id == state.server_map.id()
+        &&& p.server_map_locs == state.server_map.locs()
+        &&& state.linearization_queue.inv()
         &&& state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()
     }
 }
@@ -55,14 +54,14 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
     let tracked linearization_queue = LinearizationQueue::dummy();
     let tracked server_map = ServerMap::dummy();
     let pred = StatePredicate {
-        token_map_id: linearization_queue.token_map.id(),
-        watermark_loc: linearization_queue.watermark.loc(),
+        lin_queue_namespace: linearization_queue.namespace(),
         register_id: register.id(),
-        // server_map_id: server_map.id(),
+        server_map_locs: server_map.locs(),
     };
 
 
     let tracked state = State { linearization_queue, register, server_map };
+    // TODO(assume): min quorum invariant
     assume(linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()); // TODO
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
     let tracked state_inv = AtomicInvariant::new(pred, state, 1int);

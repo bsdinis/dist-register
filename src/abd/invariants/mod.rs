@@ -17,8 +17,19 @@ use server_map::*;
 
 verus! {
 
+// XXX: how to number invariants
+//
+// Right now we are giving them sequential numbers. This is very error prone.
+//
+// Alternative:
+//  - define a pub uninterp spec fn invariant_X_id()
+//
+// spec fns are deterministic so the value would be the same
+//
+// Question: how to handle collisions?
+
 pub struct StatePredicate {
-    pub lin_queue_namespace: Map<&'static str, int>,
+    pub lin_queue_named_ids: Map<&'static str, int>,
     pub register_id: int,
     pub server_map_locs: Map<u64, int>,
 }
@@ -33,7 +44,7 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
     where ML: MutLinearizer<RegisterWrite>
 {
     open spec fn inv(p: StatePredicate, state: State<ML>) -> bool {
-        &&& p.lin_queue_namespace == state.linearization_queue.namespace()
+        &&& p.lin_queue_named_ids == state.linearization_queue.named_ids()
         &&& p.register_id == state.register.id()
         &&& p.server_map_locs == state.server_map.locs()
         &&& state.linearization_queue.inv()
@@ -42,19 +53,19 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
 }
 
 pub type StateInvariant<ML> = AtomicInvariant<StatePredicate, State<ML>, StatePredicate>;
-pub type RegisterView = Tracked<GhostVar<Option<u64>>>;
+pub type RegisterView = GhostVar<Option<u64>>;
 
 pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterView))
     where ML: MutLinearizer<RegisterWrite>
     ensures
         r.0.namespace() == 1int,
-        r.0.constant().register_id == r.1@.id(),
+        r.0.constant().register_id == r.1.id(),
 {
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked linearization_queue = LinearizationQueue::dummy();
     let tracked server_map = ServerMap::dummy();
     let pred = StatePredicate {
-        lin_queue_namespace: linearization_queue.namespace(),
+        lin_queue_named_ids: linearization_queue.named_ids(),
         register_id: register.id(),
         server_map_locs: server_map.locs(),
     };
@@ -66,14 +77,14 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
     let tracked state_inv = AtomicInvariant::new(pred, state, 1int);
 
-    (state_inv, Tracked(view))
+    (state_inv, view)
 }
 
 pub axiom fn get_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterView))
     where ML: MutLinearizer<RegisterWrite>
     ensures
         r.0.namespace() == 1int,
-        r.0.constant().register_id == r.1@.id(),
+        r.0.constant().register_id == r.1.id(),
 ;
 
 pub struct ClientMapPredicate {

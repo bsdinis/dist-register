@@ -38,17 +38,19 @@ verus! {
 // - Type problem: the linearization queue is parametrized by the linearizer type
 // - Polymorphism is hard
 pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
-    spec fn loc(&self) -> int;
+    spec fn register_loc(&self) -> int;
+    spec fn named_locs(&self) -> Map<&'static str, int>;
 
     // TODO: read is &mut self because it needs access to the linearization queue
     // This should be fixable with an atomic invariant
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
         requires
-            lin@.pre(RegisterRead { id: Ghost(self.loc()) })
+            lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
+            !lin@.namespaces().contains(1)
         ensures
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
-                lin@.post(RegisterRead { id: Ghost(self.loc()) }, val, compl@)
+                lin@.post(RegisterRead { id: Ghost(self.register_loc()) }, val, compl@)
             }),
             r is Err ==> ({
                 r->Err_0.lin() == lin
@@ -72,14 +74,14 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     // - They write to (seqno + 1, c_id, c_seqno1) and (seqno + 1, c_id, c_seqno2) respectively
     fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
         requires
-            lin@.pre(RegisterWrite { id: Ghost(old(self).loc()), new_value: val })
+            lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val })
         ensures
-            old(self).loc() == self.loc(),
+            old(self).named_locs() == self.named_locs(),
             // TODO: does this condition make sense???
             //
             // r is Ok ==> ({
             //     let compl = r->Ok_0;
-            //     lin@.post(RegisterWrite { id: Ghost(self.loc()), new_value: val }, (), compl@)
+            //     lin@.post(RegisterWrite { id: Ghost(self.register_loc()), new_value: val }, (), compl@)
             // }),
         ;
 }
@@ -90,14 +92,14 @@ pub struct AbdPool<Pool: ConnectionPool<C = C>, C, ML: MutLinearizer<RegisterWri
 
     max_seqno: u64,
 
-    register_id: int,
+    register_id: Ghost<int>,
 
     // map from pool.id() -> max seqno allocated
     client_owns: Tracked<ClientOwns>,
 
-    state_inv: Arc<StateInvariant<ML>>,
+    state_inv: Tracked<StateInvariant<ML>>,
 
-    client_map: ClientIdInvariant,
+    client_map: Tracked<ClientIdInvariant>,
 }
 
 
@@ -108,12 +110,12 @@ where
     ML: MutLinearizer<RegisterWrite>
 {
     #[verifier::external_body]
-    pub fn new(pool: Pool) -> (Self, Arc<RegisterView>) {
-        let state_inv;
-        let view;
+    pub fn new(pool: Pool) -> (Self, Arc<Tracked<RegisterView>>) {
+        let tracked state_inv;
+        let tracked view;
         proof {
             let tracked (s, v) = invariants::get_system_state();
-            state_inv = Arc::new(s);
+            state_inv = s;
             view = v;
         }
 
@@ -122,26 +124,26 @@ where
 
         // XXX: we could derive this with a sign-in procedure to create ids
         let tracked client_owns;
-        let ghost register_id = view@.id();
+        let ghost register_id = view.id();
 
         vstd::open_atomic_invariant!(&client_map => map => {
             proof {
                 // TODO(assume): removing this invariant requires an ID service
                 assume(!map@.contains_key(pool.id()));
-                client_owns = Tracked(map.reserve(pool.id()));
+                client_owns = map.reserve(pool.id());
             }
         });
 
         let pool = AbdPool {
             pool,
             max_seqno: 0,
-            client_owns,
-            state_inv,
-            client_map,
-            register_id,
+            client_owns: Tracked(client_owns),
+            state_inv: Tracked(state_inv),
+            client_map: Tracked(client_map),
+            register_id: Ghost(register_id),
         };
 
-        (pool, Arc::new(view))
+        (pool, Arc::new(Tracked(view)))
     }
 
     #[verifier::type_invariant]
@@ -161,8 +163,16 @@ where
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>
 {
-    closed spec fn loc(&self) -> int {
-        self.register_id
+    closed spec fn register_loc(&self) -> int {
+        self.register_id@
+    }
+
+    closed spec fn named_locs(&self) -> Map<&'static str, int> {
+        map![
+            "register" => self.register_id@,
+            "state_inv" => self.state_inv@.namespace(),
+            "client_map" => self.client_map@.namespace(),
+        ]
     }
 
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
@@ -208,14 +218,16 @@ where
 
         if n_max_ts >= self.pool.quorum_size() {
             let comp;
-            vstd::open_atomic_invariant!(&self.state_inv => state => {
+            // TODO(assume): this needs to be upheld by an invariant
+            assume(self.state_inv@.namespace() == 1int);
+            vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                     let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizer(register, max_ts);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
-                let op = RegisterRead { id: Ghost(self.loc()) };
+                let op = RegisterRead { id: Ghost(self.register_loc()) };
                 // TODO(assume): linearizer requirements
                 assume(op.requires(state.register, max_val));
                 comp = Tracked(lin.apply(op, &state.register, &max_val));
@@ -270,14 +282,16 @@ where
         }
 
         let comp;
-        vstd::open_atomic_invariant!(&self.state_inv => state => {
+        // TODO(assume): this needs to be upheld by an invariant
+        assume(self.state_inv@.namespace() == 1int);
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
                 let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizer(register, max_ts);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
             }
-            let op = RegisterRead { id: Ghost(self.loc()) };
+            let op = RegisterRead { id: Ghost(self.register_loc()) };
             // TODO(assume): linearizer requirements
             assume(op.requires(state.register, max_val));
             comp = Tracked(lin.apply(op, &state.register, &max_val));
@@ -310,11 +324,12 @@ where
         // variable.
         let proph_ts = Prophecy::<Timestamp>::new();
         let tracked token_res;
-        vstd::open_atomic_invariant!(&self.state_inv => state => {
+        assume(self.state_inv@.namespace() == 1int);
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 token_res = state.linearization_queue.insert_linearizer(
                     lin,
-                    RegisterWrite { id: Ghost(self.loc()), new_value: val },
+                    RegisterWrite { id: Ghost(self.register_loc()), new_value: val },
                     proph_ts@
                 );
             }
@@ -323,7 +338,7 @@ where
         });
 
         // TODO(nickolai): this is a load-bearing assert
-        assert(token_res is Ok ==> token_res.unwrap().id() == self.state_inv.constant().lin_queue_namespace["token_map"]);
+        assert(token_res is Ok ==> token_res.unwrap().id() == self.state_inv@.constant().lin_queue_named_ids["token_map"]);
         let max_ts = {
             let bpool = BroadcastPool::new(&self.pool);
 
@@ -402,7 +417,7 @@ where
             };
 
             let comp;
-            vstd::open_atomic_invariant!(&self.state_inv => state => {
+            vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 assert(token.id() == state.linearization_queue.token_map.id());
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 proof {

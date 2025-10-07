@@ -377,7 +377,7 @@ where
     report_quorum_size(client.quorum_size());
 
     let tracked read_perm = ReadPerm { register: view.clone() };
-    assume(read_perm.pre(RegisterRead { id: Ghost(client.loc()) }));
+    assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
     match client.read::<ReadPerm>(Tracked(read_perm)) {
         Ok((v, ts, _comp)) => {
             report_read(0, (v, ts));

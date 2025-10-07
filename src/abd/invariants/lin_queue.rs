@@ -1,7 +1,9 @@
 use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use vstd::logatom::*;
+use vstd::map::*;
 use vstd::prelude::*;
+use vstd::set::*;
 use vstd::tokens::frac::GhostVarAuth;
 use vstd::tokens::map::GhostMapAuth;
 use vstd::tokens::map::GhostSubmap;
@@ -10,39 +12,62 @@ use crate::abd::invariants::logatom::*;
 
 verus! {
 
-pub tracked enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
-    // TODO: we need to establish that the op here has a one-to-one correspondence to the token map
+pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
+    // TODO: we need to establish that the op here
+    // has a one-to-one correspondence to the token map
     // values in the linearization queue
     Linearizer {
-        tracked lin: ML,
-        op: RegisterWrite,
-        timestamp: Timestamp,
+        lin: ML,
+        ghost op: RegisterWrite,
+        ghost timestamp: Timestamp,
     },
     Comp {
         // is GhostVar<Option<u64>>
-        tracked completion: ML::Completion,
-        timestamp: Timestamp,
-        // TODO: add token that can be extracted
+        completion: ML::Completion,
+        ghost op: RegisterWrite,
+        ghost timestamp: Timestamp,
+        ghost lin: ML,
     }
 }
 
 
 impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
+    pub proof fn linearizer(tracked lin: ML, op: RegisterWrite, timestamp: Timestamp) -> (tracked result: Self)
+        ensures
+            result == (MaybeLinearized::Linearizer { lin, op, timestamp, })
+    {
+        MaybeLinearized::Linearizer {
+            lin,
+            op,
+            timestamp,
+        }
+    }
+
     pub proof fn apply_linearizer(tracked self,
         tracked register: &mut GhostVarAuth<Option<u64>>,
         resolved_timestamp: Timestamp
-    ) -> (tracked r: Self) {
+    ) -> (tracked r: Self)
+        opens_invariants self.namespaces()
+    {
         match self {
-             MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp < resolved_timestamp => {
+             MaybeLinearized::Linearizer { lin, op, timestamp, .. } if timestamp < resolved_timestamp => {
                     // TODO(nickolai): interesting to figure out at this stage how to verify the
                     // linearizer requirements
                     // TODO(assume): linearizer assumes
+                    let ghost lin_copy = lin;
                     assume(lin.pre(op));
                     assume(op.requires(*register, (), ()));
                     let tracked completion = lin.apply(op, register, (), &());
-                    MaybeLinearized::Comp { completion, timestamp }
+                    MaybeLinearized::Comp { completion, timestamp, lin: lin_copy, op }
             } ,
             other => other
+        }
+    }
+
+    pub closed spec fn lin(self) -> ML {
+        match self {
+            MaybeLinearized::Linearizer { lin, .. } => lin,
+            MaybeLinearized::Comp { lin, .. } => lin,
         }
     }
 
@@ -50,6 +75,13 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
         match self {
             MaybeLinearized::Linearizer { timestamp, .. } => timestamp,
             MaybeLinearized::Comp { timestamp, .. } => timestamp,
+        }
+    }
+
+    pub closed spec fn namespaces(self) -> Set<int> {
+        match self {
+            MaybeLinearized::Linearizer { lin, .. } => lin.namespaces(),
+            MaybeLinearized::Comp { .. } => Set::empty(),
         }
     }
 
@@ -80,17 +112,18 @@ pub struct LinearizationQueue<ML: MutLinearizer<RegisterWrite>> {
     // TODO: needs to be monotonic map?
     pub queue: Map<Timestamp, MaybeLinearized<ML>>,
 
+    // TODO: make token_map keys =~= queue
     // Why we need a token map in addition to the queue
     //
     // The values in the queue are possibly all changed with apply_linearizer
     // This would require all Submaps to be passed, which is impossible
-    pub token_map: GhostMapAuth<int, (RegisterWrite, Timestamp)>,
+    pub token_map: GhostMapAuth<Timestamp, (ML, RegisterWrite)>,
 
     // everything up to the watermark is guaranteed to be applied
     pub watermark: MonotonicTimestampResource,
 }
 
-pub type Token = GhostSubmap<int, (RegisterWrite, Timestamp)>;
+pub type Token<ML> = GhostSubmap<Timestamp, (ML, RegisterWrite)>;
 
 impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     pub proof fn dummy() -> (tracked result: Self)
@@ -111,12 +144,23 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         &&& self.token_map@.dom().finite()
         &&& self.queue.dom().finite()
         // TODO
-        // &&& forall |timestamp: Timestamp|
-        // timestamp <= self.watermark && self.queue.contains_key(timestamp) ==> self.queue[timestamp] is Comp
+        // &&& self.token_map@.dom == self.queue.dom()
+        // TODO
+        // &&& forall |timestamp: Timestamp| {
+        //     &&& timestamp <= self.watermark && self.queue.contains_key(timestamp) ==> {
+        //          &&& self.queue[timestamp] is Comp
+        //          &&& self.queue[timestamp].lin().post(self.queue[timestamp].op())
+        //     }
+        //     &&& timestamp > self.watermark && self.queue.contains_key(timestamp) ==> {
+        //          &&& self.queue[timestamp] is Linearizer
+        //          &&& self.queue[timestamp].lin().pre(self.queue[timestamp].op())
+        //     }
+        //     &&& self.queue.contains_key(timestamp) ==> (self.queue[timestamp].lin(), self.queue[timestamp].op()) == self.token_map@[timestamp]
+        // }
     }
 
     // TODO(nickolai): there must be a better way
-    pub open spec fn namespace(self) -> Map<&'static str, int> {
+    pub open spec fn named_ids(self) -> Map<&'static str, int> {
         map![
             "token_map" => self.token_map.id(),
             "watermark" => self.watermark.loc(),
@@ -128,21 +172,20 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         tracked lin: ML,
         op: RegisterWrite,
         timestamp: Timestamp
-    ) -> (tracked r: Result<Token, InsertError>)
+    ) -> (tracked r: Result<Token<ML>, InsertError>)
         requires
             old(self).inv(),
         ensures
             self.inv(),
-            self.namespace() == old(self).namespace(),
+            self.named_ids() == old(self).named_ids(),
             r is Ok ==> ({
                 let tok = r->Ok_0;
                 &&& tok@.dom().finite()
                 &&& tok.id() == self.token_map.id()
-                &&& tok.dom().len() == 1
-                &&& tok@.contains_value((op, timestamp))
+                &&& tok.dom() == set![timestamp]
+                &&& tok[timestamp] == (lin, op)
                 &&& self.token_map@.len() == old(self).token_map@.len() + 1
-                &&& self.token_map@.dom().intersect(tok@.dom()) == tok@.dom()
-                &&& self.queue.contains_key(timestamp)
+                &&& tok@ <= self.token_map@
             }),
             r is Err ==> old(self) == self,
     {
@@ -152,34 +195,20 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
                 watermark_lb: self.watermark.extract_lower_bound()
             });
         }
-        let ghost token_key = if self.token_map@.is_empty() {
-            0
-        } else {
-            let k = self.token_map@.dom().find_unique_maximal(|a: int, b: int| a <= b) + 1;
-            // TODO(assume): figure out goddamn maps
-            // Investigation: contains_key is just dom().contains
-            // dom is a closed spec, with no proofs so there is no info on this
-            assume(!self.token_map@.contains_key(k));
-            k
-        };
-        let m = map![token_key => (op, timestamp)];
-        // TODO(nickolai): what???
-        assert(m.contains_value((op, timestamp))) by {
-            Map::axiom_map_insert_same_contains(Map::empty(), token_key, (op, timestamp));
-        };
-        let ghost old_len = self.token_map@.len();
 
-        assert(self.token_map@.dom().finite());
-        assert(m.dom().finite());
-        self.queue.insert(timestamp, MaybeLinearized::Linearizer { lin, op, timestamp });
-        // TODO(assume): goddamn maps
-        assume(self.queue.contains_key(timestamp));
+        // TODO(assume): get client lease on timestamp to prove uniqueness
+        assume(!self.token_map@.contains_key(timestamp));
+
+
+        let m = map![timestamp => (lin, op)];
+        // contains key is a load bearing assert here, allows verus to understand that
+        // m.contains_value(...) and that is enough to prove the rest
+        assert(m.contains_key(timestamp));
+
+        let tracked maybe_lin = MaybeLinearized::linearizer(lin, op, timestamp);
+
+        self.queue.tracked_insert(timestamp, maybe_lin);
         let tracked token = self.token_map.insert(m);
-        assert(self.token_map@.dom().finite());
-        assert(self.token_map@.len() == old_len + 1);
-
-        assert(token.id() == self.token_map.id());
-        assert(token.dom().len() == 1);
 
         Ok(token)
     }
@@ -194,7 +223,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             old(self).inv(),
         ensures
             self.inv(),
-            self.namespace() == old(self).namespace(),
+            self.named_ids() == old(self).named_ids(),
             self.watermark@.timestamp() >= timestamp,
             self.watermark.loc() == r.0.loc(),
             r.0@.timestamp() == self.watermark@.timestamp(),
@@ -212,7 +241,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
 
     /// Return the completion of the write at timestamp - removing it from the sequence
     pub proof fn extract_completion(tracked &mut self,
-        tracked token: Token,
+        tracked token: Token<ML>,
         tracked resource: MonotonicTimestampResource
     ) -> (tracked r: ML::Completion)
         requires
@@ -225,10 +254,10 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             // old(self).queue.contains_key(token@.timestamp)
         ensures
             self.inv(),
-            self.namespace() == old(self).namespace(),
+            self.named_ids() == old(self).named_ids(),
             // r.timestamp == token@.timestamp
     {
-        let timestamp = token@.values().choose().1;
+        let timestamp = token@.dom().choose();
 
         // TODO(assume): this is actually a precondition
         assume(self.queue.contains_key(timestamp));

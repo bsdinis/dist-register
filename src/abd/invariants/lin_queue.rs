@@ -51,8 +51,8 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
     {
         match self {
              MaybeLinearized::Linearizer { lin, op, timestamp, .. } if timestamp < resolved_timestamp => {
-                    // TODO(assume): linearizer assumes
                     let ghost lin_copy = lin;
+                    // TODO(assume): linearizer assumes
                     assume(lin.pre(op));
                     assume(op.requires(*register, (), ()));
                     let tracked completion = lin.apply(op, register, (), &());
@@ -66,6 +66,13 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
         match self {
             MaybeLinearized::Linearizer { lin, .. } => lin,
             MaybeLinearized::Comp { lin, .. } => lin,
+        }
+    }
+
+    pub closed spec fn op(self) -> RegisterWrite {
+        match self {
+            MaybeLinearized::Linearizer { op, .. } => op,
+            MaybeLinearized::Comp { op, .. } => op,
         }
     }
 
@@ -191,18 +198,22 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         &&& self.token_map@.dom().finite()
         &&& self.queue.dom().finite()
         &&& self.token_map@.dom() == self.queue.dom()
-        // TODO
-        // &&& forall |timestamp: Timestamp| {
-        //     &&& timestamp <= self.watermark && self.queue.contains_key(timestamp) ==> {
-        //          &&& self.queue[timestamp] is Comp
-        //          &&& self.queue[timestamp].lin().post(self.queue[timestamp].op())
-        //     }
-        //     &&& timestamp > self.watermark && self.queue.contains_key(timestamp) ==> {
-        //          &&& self.queue[timestamp] is Linearizer
-        //          &&& self.queue[timestamp].lin().pre(self.queue[timestamp].op())
-        //     }
-        //     &&& self.token_map@.contains_key(timestamp) ==> (self.queue[timestamp].lin(), self.queue[timestamp].op()) == self.token_map@[timestamp]
-        // }
+        &&& forall |timestamp: Timestamp| {
+            &&& timestamp <= self.watermark@.timestamp() && self.queue.contains_key(timestamp) ==> {
+                let comp = self.queue[timestamp];
+                &&& comp is Comp
+                &&& comp.lin().post(comp.op(), (), comp->completion)
+            }
+            &&& timestamp > self.watermark@.timestamp() && self.queue.contains_key(timestamp) ==> {
+                let lin = self.queue[timestamp];
+                &&& lin is Linearizer
+                &&& lin.lin().pre(lin.op())
+            }
+            &&& self.token_map@.contains_key(timestamp) ==> {
+                let maybe_lin = self.queue[timestamp];
+                self.token_map@[timestamp] == (maybe_lin.lin(), maybe_lin.op())
+            }
+        }
     }
 
     // TODO(nickolai): there must be a better way
@@ -221,6 +232,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     ) -> (tracked r: Result<LinToken<ML>, InsertError>)
         requires
             old(self).inv(),
+            lin.pre(op),
         ensures
             self.inv(),
             self.named_ids() == old(self).named_ids(),
@@ -282,6 +294,10 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             // TODO: verus proof fn tracked_map_values
             // self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
             self.watermark.advance(timestamp);
+            // TODO(assume): requires proof fn enabled tracked_map_values
+            assume(forall |timestamp: Timestamp| {
+                timestamp <= self.watermark@.timestamp() && self.queue.contains_key(timestamp) ==> self.queue[timestamp] is Comp
+            });
         }
 
         (self.watermark.extract_lower_bound(), register)
@@ -316,8 +332,6 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         // load bearing assert
         assert(self.queue.dom() == self.token_map@.dom());
 
-        // TODO(assume): comes from lin queue invariant + resource
-        assume(comp is Comp);
         comp.tracked_get_completion()
     }
 }

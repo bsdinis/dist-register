@@ -333,12 +333,12 @@ where
                     proph_ts@
                 );
             }
+            // TODO(nickolai): this is a load-bearing assert
+            assert(token_res is Ok ==> token_res.unwrap().id() == self.state_inv@.constant().lin_queue_named_ids["token_map"]);
             // TODO(assume): min quorum invariant
             assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
         });
 
-        // TODO(nickolai): this is a load-bearing assert
-        assert(token_res is Ok ==> token_res.unwrap().id() == self.state_inv@.constant().lin_queue_named_ids["token_map"]);
         let max_ts = {
             let bpool = BroadcastPool::new(&self.pool);
 
@@ -390,6 +390,7 @@ where
         assume(token_res is Ok);
         let tracked token;
         proof { token = token_res.tracked_unwrap() };
+        assert(token.timestamp() == exec_ts);
 
         {
             let bpool = BroadcastPool::new(&self.pool);
@@ -427,6 +428,8 @@ where
                 proof {
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
+
+                assert(resource@.timestamp() >= exec_ts);
 
                 comp = Tracked(state.linearization_queue.extract_completion(token, resource));
                 // TODO(assume): min quorum invariant

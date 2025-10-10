@@ -47,14 +47,17 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
         tracked register: &mut GhostVarAuth<Option<u64>>,
         resolved_timestamp: Timestamp
     ) -> (tracked r: Self)
-        opens_invariants self.namespaces()
+        requires
+            self is Linearizer ==> self.lin().pre(self.op()),
+            old(register).id() == self.op().id,
+        ensures
+            old(register).id() == register.id(),
+        opens_invariants
+            self.namespaces()
     {
         match self {
              MaybeLinearized::Linearizer { lin, op, timestamp, .. } if timestamp < resolved_timestamp => {
                     let ghost lin_copy = lin;
-                    // TODO(assume): linearizer assumes
-                    assume(lin.pre(op));
-                    assume(op.requires(*register, (), ()));
                     let tracked completion = lin.apply(op, register, (), &());
                     MaybeLinearized::Comp { completion, timestamp, lin: lin_copy, op }
             } ,

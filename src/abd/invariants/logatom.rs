@@ -75,7 +75,7 @@ impl MutLinearizer<RegisterWrite> for WritePerm {
         &&& op.id == self.register.id()
         &&& op.id == completion.id()
         &&& op.new_value == completion@
-    }
+     }
 
     proof fn apply(
         tracked self,

@@ -51,6 +51,8 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
         &&& p.server_map_locs == state.server_map.locs()
         &&& state.linearization_queue.inv()
         &&& state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()
+        // TODO(invariant): add invariant that says that the register value
+        // is whatever is the op value of what is at the top of the queue
     }
 }
 

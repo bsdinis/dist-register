@@ -124,7 +124,7 @@ where
 
         // XXX: we could derive this with a sign-in procedure to create ids
         let tracked client_owns;
-        let ghost register_id = view.id();
+        let ghost register_id = state_inv.constant().register_id;
 
         vstd::open_atomic_invariant!(&client_map => map => {
             proof {
@@ -151,6 +151,7 @@ where
         &&& self.max_seqno == self.client_owns@@.1
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.client_map@.namespace() == invariants::client_map_inv_id()
+        &&& self.state_inv@.constant().register_id == self.register_id
     }
 
     pub fn quorum_size(&self) -> usize {
@@ -230,8 +231,10 @@ where
                     let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizer(register, max_ts);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
+
                 let op = RegisterRead { id: Ghost(self.register_loc()) };
-                // TODO(assume): linearizer requirements
+                // TODO(assume): read linearizer requirements
+                // probably comes from state invariant tied to the linearization queue
                 assume(op.requires(state.register, max_val));
                 comp = Tracked(lin.apply(op, &state.register, &max_val));
 
@@ -292,10 +295,13 @@ where
                 let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizer(register, max_ts);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
             }
+
             let op = RegisterRead { id: Ghost(self.register_loc()) };
-            // TODO(assume): linearizer requirements
+            // TODO(assume): read linearizer requirements
+            // probably comes from state invariant tied to the linearization queue
             assume(op.requires(state.register, max_val));
             comp = Tracked(lin.apply(op, &state.register, &max_val));
+
             // TODO(assume): min quorum invariant
             assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
         });

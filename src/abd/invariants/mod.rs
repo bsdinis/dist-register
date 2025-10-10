@@ -27,6 +27,8 @@ verus! {
 // spec fns are deterministic so the value would be the same
 //
 // Question: how to handle collisions?
+pub open spec fn state_inv_id() -> int { 1int }
+pub open spec fn client_map_inv_id() -> int { 2int }
 
 pub struct StatePredicate {
     pub lin_queue_named_ids: Map<&'static str, int>,
@@ -58,7 +60,7 @@ pub type RegisterView = GhostVar<Option<u64>>;
 pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterView))
     where ML: MutLinearizer<RegisterWrite>
     ensures
-        r.0.namespace() == 1int,
+        r.0.namespace() == state_inv_id(),
         r.0.constant().register_id == r.1.id(),
 {
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
@@ -75,7 +77,7 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
     // TODO(assume): min quorum invariant
     assume(linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()); // TODO
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
-    let tracked state_inv = AtomicInvariant::new(pred, state, 1int);
+    let tracked state_inv = AtomicInvariant::new(pred, state, state_inv_id());
 
     (state_inv, view)
 }
@@ -83,7 +85,7 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
 pub axiom fn get_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterView))
     where ML: MutLinearizer<RegisterWrite>
     ensures
-        r.0.namespace() == 1int,
+        r.0.namespace() == state_inv_id(),
         r.0.constant().register_id == r.1.id(),
 ;
 
@@ -101,18 +103,18 @@ impl InvariantPredicate<ClientMapPredicate, ClientMap> for ClientMapPredicate {
 pub type ClientIdInvariant = AtomicInvariant<ClientMapPredicate, ClientMap, ClientMapPredicate>;
 
 pub proof fn initialize_client_map() -> (r: ClientIdInvariant)
-    ensures r.namespace() == 2int
+    ensures r.namespace() == client_map_inv_id()
 {
     let tracked map = ClientMap::dummy();
     let pred = ClientMapPredicate { map_id: map.id() };
 
-    let tracked inv = AtomicInvariant::new(pred, map, 2int);
+    let tracked inv = AtomicInvariant::new(pred, map, client_map_inv_id());
 
     inv
 }
 
 pub axiom fn get_client_map() -> (r: ClientIdInvariant)
-    ensures r.namespace() == 2int
+    ensures r.namespace() == client_map_inv_id()
 ;
 
 }

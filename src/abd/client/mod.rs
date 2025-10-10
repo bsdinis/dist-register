@@ -128,7 +128,7 @@ where
 
         vstd::open_atomic_invariant!(&client_map => map => {
             proof {
-                // TODO(assume): removing this invariant requires an ID service
+                // XXX(assume): removing this invariant requires an ID service
                 assume(!map@.contains_key(pool.id()));
                 client_owns = map.reserve(pool.id());
             }
@@ -148,7 +148,9 @@ where
 
     #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
-        self.max_seqno == self.client_owns@@.1
+        &&& self.max_seqno == self.client_owns@@.1
+        &&& self.state_inv@.namespace() == invariants::state_inv_id()
+        &&& self.client_map@.namespace() == invariants::client_map_inv_id()
     }
 
     pub fn quorum_size(&self) -> usize {
@@ -177,6 +179,9 @@ where
 
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
     {
+        proof {
+            use_type_invariant(self);
+        }
         let bpool = BroadcastPool::new(&self.pool);
         let quorum_res = bpool
             .broadcast(Request::Get)
@@ -210,7 +215,7 @@ where
         let q_iter = quorum.replies().iter();
         for (_idx, (ts, _val)) in q_iter {
             if ts.seqno == max_ts.seqno && ts.client_id == max_ts.client_id {
-                // TODO(assume): integer overflow assume
+                // XXX(assume): integer overflow assume
                 assume(n_max_ts + 1 < usize::MAX);
                 n_max_ts += 1;
             }
@@ -218,8 +223,6 @@ where
 
         if n_max_ts >= self.pool.quorum_size() {
             let comp;
-            // TODO(assume): this needs to be upheld by an invariant
-            assume(self.state_inv@.namespace() == 1int);
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
@@ -282,8 +285,6 @@ where
         }
 
         let comp;
-        // TODO(assume): this needs to be upheld by an invariant
-        assume(self.state_inv@.namespace() == 1int);
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
@@ -303,6 +304,8 @@ where
 
     fn write(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
     {
+        // XXX(assume): this is required because of mut restrictions
+        assume(self.inv());
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
         //
         // Imagine if we added this after the read quorum is achieved
@@ -324,7 +327,6 @@ where
         // variable.
         let proph_ts = Prophecy::<Timestamp>::new();
         let tracked token_res;
-        assume(self.state_inv@.namespace() == 1int);
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 token_res = state.linearization_queue.insert_linearizer(
@@ -380,7 +382,7 @@ where
         // construction: exec quorum < exec_ts
         // resolution: exec_ts == proph_ts
 
-        // TODO(assume): integer overflow
+        // XXX(assume): integer overflow
         // XXX: timestamp recycling would be interesting
         assume(max_ts.seqno < u64::MAX - 1);
         let exec_ts = Timestamp { seqno: max_ts.seqno + 1, client_id: self.pool.id(), };

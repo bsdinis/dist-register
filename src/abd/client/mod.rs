@@ -41,8 +41,6 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     spec fn register_loc(&self) -> int;
     spec fn named_locs(&self) -> Map<&'static str, int>;
 
-    // TODO: read is &mut self because it needs access to the linearization queue
-    // This should be fixable with an atomic invariant
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
         requires
             lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
@@ -77,7 +75,7 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
             lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val })
         ensures
             old(self).named_locs() == self.named_locs(),
-            // TODO: does this condition make sense???
+            // TODO(meeting): does this condition make sense? probably yes
             //
             // r is Ok ==> ({
             //     let compl = r->Ok_0;
@@ -233,9 +231,10 @@ where
                 }
 
                 let op = RegisterRead { id: Ghost(self.register_loc()) };
-                // TODO(assume): read linearizer requirements
-                // probably comes from state invariant tied to the linearization queue
-                assume(op.requires(state.register, max_val));
+                // TODO(assume): read linearizer op requirement
+                // This probably comes from an element of the global invariant
+                // TODO(meeting): this is probably an interesting part to spec out
+                assume(state.register@ == &max_val);
                 comp = Tracked(lin.apply(op, &state.register, &max_val));
 
                 // TODO(assume): min quorum invariant
@@ -297,9 +296,10 @@ where
             }
 
             let op = RegisterRead { id: Ghost(self.register_loc()) };
-            // TODO(assume): read linearizer requirements
-            // probably comes from state invariant tied to the linearization queue
-            assume(op.requires(state.register, max_val));
+            // TODO(assume): read linearizer op requirement
+            // This probably comes from an element of the global invariant
+            // TODO(meeting): this is probably an interesting part to spec out
+            assume(state.register@ == &max_val);
             comp = Tracked(lin.apply(op, &state.register, &max_val));
 
             // TODO(assume): min quorum invariant
@@ -341,8 +341,10 @@ where
                     proph_ts@
                 );
             }
-            // TODO(nickolai): this is a load-bearing assert
+
+            // XXX(nickolai): this is a load-bearing assert
             assert(token_res is Ok ==> token_res.unwrap().id() == self.state_inv@.constant().lin_queue_named_ids["token_map"]);
+
             // TODO(assume): min quorum invariant
             assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
         });
@@ -440,6 +442,7 @@ where
                 assert(resource@.timestamp() >= exec_ts);
 
                 comp = Tracked(state.linearization_queue.extract_completion(token, resource));
+
                 // TODO(assume): min quorum invariant
                 assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
             });

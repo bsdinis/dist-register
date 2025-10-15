@@ -387,7 +387,7 @@ where
         }
     };
 
-    /* TODO: figure this out
+    /* TODO(typechecking): figure this out (Arc<Tracked<GhostVar<_>>> vs GhostVar)
     let tracked write_perm = WritePerm { register: view.clone(), val: Some(42u64) };
     match client.write(Some(42), Tracked(write_perm)) {
         Ok(_comp) => {

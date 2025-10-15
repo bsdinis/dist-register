@@ -37,16 +37,18 @@ impl<RL> ReadError<RL> {
 /// The only way an ABD write fails is when a quorum is known to be unatainable
 /// This happens when a connection reset happens
 /// In this case, the error is exposed to the client
-// TODO: can a failed write return the linearizer
-//  - Problem: the linearizer may be applied by either a subsequent write or read (in both cases)
+// TODO(failed-write): handling a provably failed write (multiple channels were closed at
+// send time) is hard.
 //
-// Possible solution: we could return either the linearizer or the completion
-//  - Problem: at the point of the error, we don't know if the watermarked has cleared
+// The crux is that the linearizer may be applied by either a subsequent write or read (in both cases).
+// If the second round failed, we can return the token for the linearizer:
+// - Offer a call to wait on the linearization token (from the timestamp)
+// - Extract the completion
 //
-// Possible solution:
-//  - return the linearization token
-//  - have an extra call that allows the user to recover the completion once the watermark has hit
-//  - nits:
+// For the first round, it's harder, because the timestamp at this point is prophecized, with no
+// good way to be resolved.
+//
+// - nits:
 //      - the token has no way to relate to the watermark
 //      - in the case of a failed first quorum we never actually resolve the timestamp of the call
 //      - maybe the prophecy timestamp needs to be returned too?

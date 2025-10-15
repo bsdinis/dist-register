@@ -30,7 +30,7 @@ impl ServerMap {
     /// Return the minimum timestamp that a quorum can observe
     pub closed spec fn min_quorum_ts(self) -> Timestamp
     {
-        self@.values().choose() // TODO: make server_map a universe
+        self@.values().choose()
     }
 }
 

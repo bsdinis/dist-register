@@ -13,9 +13,6 @@ use crate::abd::invariants::logatom::*;
 verus! {
 
 pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
-    // TODO: we need to establish that the op here
-    // has a one-to-one correspondence to the token map
-    // values in the linearization queue
     Linearizer {
         lin: ML,
         ghost op: RegisterWrite,
@@ -294,7 +291,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             r.1.id() == register.id(),
     {
         if timestamp > self.watermark@.timestamp() {
-            // TODO: verus proof fn tracked_map_values
+            // TODO(verus): verus proof fn tracked_map_values
             // self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
             self.watermark.advance(timestamp);
             // TODO(assume): requires proof fn enabled tracked_map_values

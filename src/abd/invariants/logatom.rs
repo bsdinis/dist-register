@@ -66,7 +66,7 @@ impl MutLinearizer<RegisterWrite> for WritePerm {
 
     open spec fn namespaces(self) -> Set<int> { Set::empty() }
 
-    // TODO: do I not need some better like \exists v: r -> v
+    // TODO(meeting): do I not need some better like \exists v: r -> v
     open spec fn pre(self, op: RegisterWrite) -> bool {
         op.id == self.register.id()
     }

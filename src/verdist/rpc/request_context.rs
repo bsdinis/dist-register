@@ -13,10 +13,11 @@ verus! {
 pub struct RequestContext<'a, Pool: ConnectionPool, T> {
     pub pool: &'a Pool,
     pub request_tag: u64,
-    // TODO: add ghost<request>
     pub replies: Vec<(usize, T)>,
     pub invalid_replies: Vec<(usize, <Pool::C as Channel>::R)>,
     pub errors: Vec<(usize, TryRecvError)>,
+
+    // TODO(network): add Ghost<Request>?
 }
 
 impl<'a, Pool: ConnectionPool, T> RequestContext<'a, Pool, T> {

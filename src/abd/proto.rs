@@ -73,7 +73,6 @@ impl Timestamp {
     }
 }
 
-// TODO: add type invariant
 #[derive(Debug, Clone, Copy)]
 pub enum Request {
     Get,
@@ -84,7 +83,6 @@ pub enum Request {
     },
 }
 
-// TODO: add type invariant
 pub enum Response {
     Get {
         val: Option<u64>,

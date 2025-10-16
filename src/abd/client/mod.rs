@@ -44,7 +44,7 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
         requires
             lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
-            !lin@.namespaces().contains(1)
+            !lin@.namespaces().contains(invariants::state_inv_id())
         ensures
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;

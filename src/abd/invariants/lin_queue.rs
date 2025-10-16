@@ -171,11 +171,10 @@ impl<ML: MutLinearizer<RegisterWrite>> LinToken<ML> {
         assert(self.submap@.dom().contains(timestamp));
         assert(target_dom.contains(timestamp));
 
-        assert(target_dom <= self.submap@.dom());
-        // assert(self.submap@.dom() <= target_dom);
+        assert(self.submap@.dom().remove(timestamp).len() == 0);
+        assert(target_dom.remove(timestamp).len() == 0);
 
-        // TODO(assume): sets
-        assume(self.submap@.dom() == target_dom);
+        assert(self.submap@.dom() =~= target_dom);
     }
 }
 

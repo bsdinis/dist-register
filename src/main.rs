@@ -22,6 +22,7 @@ mod verdist;
 
 use abd::client::AbdPool;
 use abd::client::AbdRegisterClient;
+use abd::invariants::logatom::ReadPerm;
 use abd::invariants::logatom::RegisterRead;
 use abd::invariants::logatom::WritePerm;
 use abd::proto::Timestamp;
@@ -58,9 +59,9 @@ impl From<ConnectError> for Error {
     }
 }
 
-impl From<abd::client::error::ReadError<ReadPerm>> for Error {
-    fn from(value: abd::client::error::ReadError<ReadPerm>) -> Self {
-        Error::AbdRead(value)
+impl From<abd::client::error::ReadError<ReadPerm<'_>>> for Error {
+    fn from(value: abd::client::error::ReadError<ReadPerm<'_>>) -> Self {
+        Error::AbdRead(format!("{:?}", value))
     }
 }
 
@@ -74,7 +75,7 @@ impl std::error::Error for Error {
     fn cause(&self) -> Option<&dyn std::error::Error> {
         match self {
             Error::Connection(e) => Some(e),
-            Error::AbdRead(e) => Some(e),
+            Error::AbdRead(e) => None,
             Error::AbdWrite(e) => Some(e),
         }
     }
@@ -104,7 +105,7 @@ verus! {
 
 enum Error {
     Connection(ConnectError),
-    AbdRead(abd::client::error::ReadError<ReadPerm>),
+    AbdRead(String),
     AbdWrite(abd::client::error::WriteError),
 }
 
@@ -139,7 +140,7 @@ fn report_read(client_id: u64, r: (Option<u64>, Timestamp)) {
 }
 
 #[verifier::external_body]
-fn report_err<E: std::error::Error>(client_id: u64, e: E) {
+fn report_err<E: std::error::Error>(client_id: u64, e: &E) {
     eprintln!("client {client_id:3} failed: {e:20?}");
 }
 
@@ -331,41 +332,6 @@ where
 */
 
 
-pub struct ReadPerm {
-    pub register: Arc<Tracked<GhostVar<Option<u64>>>>,
-}
-
-impl ReadLinearizer<RegisterRead> for ReadPerm {
-    type Completion = Arc<Tracked<GhostVar<Option<u64>>>>;
-
-    open spec fn namespaces(self) -> Set<int> { Set::empty() }
-
-    open spec fn pre(self, op: RegisterRead) -> bool {
-        &&& op.id == self.register@.id()
-    }
-
-    open spec fn post(self, op: RegisterRead, exec_res: Option<u64>, completion: Self::Completion) -> bool {
-        &&& op.id == self.register@.id()
-        &&& op.id == completion@.id()
-        &&& self.register == completion
-        &&& exec_res == completion@@
-    }
-
-    proof fn apply(
-        tracked self,
-        op: RegisterRead,
-        tracked resource: &GhostVarAuth<Option<u64>>,
-        exec_res: &Option<u64>
-    ) -> (tracked result: Self::Completion)
-    {
-        resource.agree(self.register.borrow());
-        self.register
-    }
-
-    proof fn peek(tracked &self, op: RegisterRead, tracked resource: &GhostVarAuth<Option<u64>>) {}
-}
-
-
 fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error>
 where
     Conn: Connector<C> + Send + Sync,
@@ -374,40 +340,44 @@ where
 {
     let pool = connect_all(&args, connectors, 0)?;
     let (mut client, view) = AbdPool::<_, _, WritePerm>::new(FlawlessPool::new(pool, 0));
+    let tracked view = view.get();
     report_quorum_size(client.quorum_size());
 
-    let tracked read_perm = ReadPerm { register: view.clone() };
+    let tracked read_perm = ReadPerm { register: &view };
     assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
     match client.read::<ReadPerm>(Tracked(read_perm)) {
         Ok((v, ts, _comp)) => {
             report_read(0, (v, ts));
         },
         Err(e) => {
-            report_err(0, e);
+            report_err(0, &e);
+            return Err(e)?;
         }
     };
 
-    /* TODO(typechecking): figure this out (Arc<Tracked<GhostVar<_>>> vs GhostVar)
-    let tracked write_perm = WritePerm { register: view.clone(), val: Some(42u64) };
-    match client.write(Some(42), Tracked(write_perm)) {
-        Ok(_comp) => {
+    let tracked write_perm = WritePerm { register: view, val: Some(42u64) };
+    let view = match client.write(Some(42), Tracked(write_perm)) {
+        Ok(comp) => {
             report_write(0, Some(42));
+            comp
         },
         Err(e) => {
-            report_err(0, e);
+            report_err(0, &e);
+            return Err(e)?;
         }
     };
+    let tracked view = view.get();
     assert(view@@ == Some(42u64));
-    */
 
-    let tracked read_perm = ReadPerm { register: view.clone() };
-    assume(read_perm.pre(RegisterRead { id: Ghost(view@.id()) }));
+    let tracked read_perm = ReadPerm { register: &view };
+    assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
     match client.read::<ReadPerm>(Tracked(read_perm)) {
         Ok((v, ts, _comp)) => {
             report_read(0, (v, ts));
         },
         Err(e) => {
-            report_err(0, e);
+            report_err(0, &e);
+            return Err(e)?;
         }
     };
 

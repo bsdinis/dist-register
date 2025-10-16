@@ -75,12 +75,10 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
             lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val })
         ensures
             old(self).named_locs() == self.named_locs(),
-            // TODO(meeting): does this condition make sense? probably yes
-            //
-            // r is Ok ==> ({
-            //     let compl = r->Ok_0;
-            //     lin@.post(RegisterWrite { id: Ghost(self.register_loc()), new_value: val }, (), compl@)
-            // }),
+            r is Ok ==> ({
+                let compl = r->Ok_0;
+                lin@.post(RegisterWrite { id: Ghost(self.register_loc()), new_value: val }, (), compl@)
+            }),
         ;
 }
 
@@ -447,7 +445,8 @@ where
                 assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
             });
 
-
+            // TODO(assume): write lin post condition -- needs to come from extract_completion
+            assume(lin.post(RegisterWrite { id: Ghost(self.register_loc()), new_value: val }, (), comp@));
             Ok(comp)
         }
     }

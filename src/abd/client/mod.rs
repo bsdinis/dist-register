@@ -108,7 +108,7 @@ where
     ML: MutLinearizer<RegisterWrite>
 {
     #[verifier::external_body]
-    pub fn new(pool: Pool) -> (Self, Arc<Tracked<RegisterView>>) {
+    pub fn new(pool: Pool) -> (Self, Tracked<RegisterView>) {
         let tracked state_inv;
         let tracked view;
         proof {
@@ -141,7 +141,7 @@ where
             register_id: Ghost(register_id),
         };
 
-        (pool, Arc::new(Tracked(view)))
+        (pool, Tracked(view))
     }
 
     #[verifier::type_invariant]

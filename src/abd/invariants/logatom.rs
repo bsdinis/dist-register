@@ -30,6 +30,41 @@ impl ReadOperation for RegisterRead {
     }
 }
 
+pub struct ReadPerm<'a> {
+    pub tracked register: &'a GhostVar<Option<u64>>,
+}
+
+impl<'a> ReadLinearizer<RegisterRead> for ReadPerm<'a> {
+    type Completion = &'a GhostVar<Option<u64>>;
+
+    open spec fn namespaces(self) -> Set<int> { Set::empty() }
+
+    open spec fn pre(self, op: RegisterRead) -> bool {
+        &&& op.id == self.register.id()
+    }
+
+    open spec fn post(self, op: RegisterRead, exec_res: Option<u64>, completion: Self::Completion) -> bool {
+        &&& op.id == self.register.id()
+        &&& op.id == completion.id()
+        &&& self.register == completion
+        &&& exec_res == completion@
+    }
+
+    proof fn apply(
+        tracked self,
+        op: RegisterRead,
+        tracked resource: &GhostVarAuth<Option<u64>>,
+        exec_res: &Option<u64>
+    ) -> (tracked result: Self::Completion)
+    {
+        resource.agree(self.register);
+        self.register
+    }
+
+    proof fn peek(tracked &self, op: RegisterRead, tracked resource: &GhostVarAuth<Option<u64>>) {}
+}
+
+
 impl MutOperation for RegisterWrite {
     type Resource = GhostVarAuth<Option<u64>>;
     type ExecResult = ();

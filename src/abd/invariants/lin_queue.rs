@@ -289,16 +289,31 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             r.0@ is LowerBound,
             r.1.id() == register.id(),
     {
+        /* TODO(apply): apply_linearizer this is wrong
+         *
+         * map does not guarantee order of map
+         *
+         * what we need is something like
+         *
+         * while self.watermark@.timestamp() < timestamp {
+         *     let ts = self.queue.dom().filter(|ts| ts > self.watermark@.timestamp()).min();
+         *     self.queue[ts].apply_linearizer(&mut register, ts);
+         * }
         if timestamp > self.watermark@.timestamp() {
             // TODO(verus): verus proof fn tracked_map_values
             // self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
             self.watermark.advance(timestamp);
             // TODO(assume): requires proof fn enabled tracked_map_values
-            assume(forall |timestamp: Timestamp| {
-                timestamp <= self.watermark@.timestamp() && self.queue.contains_key(timestamp) ==> self.queue[timestamp] is Comp
-            });
+        }
+        */
+
+        if timestamp > self.watermark@.timestamp() {
+            self.watermark.advance(timestamp);
         }
 
+        assume(forall |timestamp: Timestamp| {
+            timestamp <= self.watermark@.timestamp() && self.queue.contains_key(timestamp) ==> self.queue[timestamp] is Comp
+        });
         (self.watermark.extract_lower_bound(), register)
     }
 

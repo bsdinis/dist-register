@@ -229,9 +229,7 @@ where
                 }
 
                 let op = RegisterRead { id: Ghost(self.register_loc()) };
-                // TODO(assume): read linearizer op requirement
-                // This probably comes from an element of the global invariant
-                // TODO(meeting): this is probably an interesting part to spec out
+                // TODO(assume): read linearizer op requirement -- see TODO(read_lin)
                 assume(state.register@ == &max_val);
                 comp = Tracked(lin.apply(op, &state.register, &max_val));
 
@@ -294,9 +292,7 @@ where
             }
 
             let op = RegisterRead { id: Ghost(self.register_loc()) };
-            // TODO(assume): read linearizer op requirement
-            // This probably comes from an element of the global invariant
-            // TODO(meeting): this is probably an interesting part to spec out
+            // TODO(assume): read linearizer op requirement -- see TODO(read_lin)
             assume(state.register@ == &max_val);
             comp = Tracked(lin.apply(op, &state.register, &max_val));
 

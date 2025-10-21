@@ -1,105 +1,24 @@
+use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
-use vstd::logatom::*;
-use vstd::map::*;
-use vstd::prelude::*;
-use vstd::set::*;
-use vstd::tokens::frac::GhostVarAuth;
-use vstd::tokens::map::GhostMapAuth;
-use vstd::tokens::map::GhostSubmap;
 
-use crate::abd::invariants::logatom::*;
+use vstd::logatom::MutLinearizer;
+#[allow(unused_imports)]
+use vstd::tokens::frac::GhostVarAuth;
+#[allow(unused_imports)]
+use vstd::tokens::map::GhostMapAuth;
+
+use vstd::prelude::*;
+
+mod maybe_lin;
+mod token;
+
+use maybe_lin::MaybeLinearized;
+#[allow(unused_imports)]
+use token::LinToken;
 
 verus! {
 
-pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
-    Linearizer {
-        lin: ML,
-        ghost op: RegisterWrite,
-        ghost timestamp: Timestamp,
-    },
-    Comp {
-        // is GhostVar<Option<u64>>
-        completion: ML::Completion,
-        ghost op: RegisterWrite,
-        ghost timestamp: Timestamp,
-        ghost lin: ML,
-    }
-}
-
-
-impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
-    pub proof fn linearizer(tracked lin: ML, op: RegisterWrite, timestamp: Timestamp) -> (tracked result: Self)
-        ensures
-            result == (MaybeLinearized::Linearizer { lin, op, timestamp, })
-    {
-        MaybeLinearized::Linearizer {
-            lin,
-            op,
-            timestamp,
-        }
-    }
-
-    pub proof fn apply_linearizer(tracked self,
-        tracked register: &mut GhostVarAuth<Option<u64>>,
-        resolved_timestamp: Timestamp
-    ) -> (tracked r: Self)
-        requires
-            self is Linearizer ==> self.lin().pre(self.op()),
-            old(register).id() == self.op().id,
-        ensures
-            old(register).id() == register.id(),
-        opens_invariants
-            self.namespaces()
-    {
-        match self {
-             MaybeLinearized::Linearizer { lin, op, timestamp, .. } if timestamp < resolved_timestamp => {
-                    let ghost lin_copy = lin;
-                    let tracked completion = lin.apply(op, register, (), &());
-                    MaybeLinearized::Comp { completion, timestamp, lin: lin_copy, op }
-            } ,
-            other => other
-        }
-    }
-
-    pub closed spec fn lin(self) -> ML {
-        match self {
-            MaybeLinearized::Linearizer { lin, .. } => lin,
-            MaybeLinearized::Comp { lin, .. } => lin,
-        }
-    }
-
-    pub closed spec fn op(self) -> RegisterWrite {
-        match self {
-            MaybeLinearized::Linearizer { op, .. } => op,
-            MaybeLinearized::Comp { op, .. } => op,
-        }
-    }
-
-    pub closed spec fn timestamp(self) -> Timestamp {
-        match self {
-            MaybeLinearized::Linearizer { timestamp, .. } => timestamp,
-            MaybeLinearized::Comp { timestamp, .. } => timestamp,
-        }
-    }
-
-    pub closed spec fn namespaces(self) -> Set<int> {
-        match self {
-            MaybeLinearized::Linearizer { lin, .. } => lin.namespaces(),
-            MaybeLinearized::Comp { .. } => Set::empty(),
-        }
-    }
-
-    pub proof fn tracked_get_completion(tracked self) -> (tracked r: ML::Completion)
-        requires self is Comp,
-        ensures self->completion == r
-    {
-        match self {
-            MaybeLinearized::Comp { completion, .. } => completion,
-            _ => proof_from_false()
-        }
-    }
-}
 
 pub tracked enum InsertError {
     WatermarkContradiction {
@@ -160,63 +79,6 @@ pub struct LinearizationQueue<ML: MutLinearizer<RegisterWrite>> {
     pub watermark: MonotonicTimestampResource,
 }
 
-pub struct LinToken<ML: MutLinearizer<RegisterWrite>> {
-    pub submap: GhostSubmap<Timestamp, (ML, RegisterWrite)>,
-}
-
-impl<ML: MutLinearizer<RegisterWrite>> LinToken<ML> {
-    pub open spec fn inv(self) -> bool {
-        &&& self.submap@.len() == 1
-        &&& self.submap@.dom().finite()
-    }
-
-    pub open spec fn id(self) -> int {
-        self.submap.id()
-    }
-
-    pub open spec fn timestamp(self) -> Timestamp
-        recommends self.inv()
-    {
-        self.submap@.dom().choose()
-    }
-
-    pub open spec fn lin(self) -> ML
-        recommends self.inv()
-    {
-        self.submap@[self.timestamp()].0
-    }
-
-    pub open spec fn op(self) -> RegisterWrite
-        recommends self.inv()
-    {
-        self.submap@[self.timestamp()].1
-    }
-
-    pub proof fn lemma_dom(self)
-        requires
-            self.inv(),
-        ensures
-            self.submap@.dom() == set![self.timestamp()]
-    {
-        let timestamp = self.timestamp();
-        let target_dom = set![timestamp];
-
-        assert(self.submap@.dom().len() == 1);
-        assert(target_dom.len() == 1);
-
-        assert(self.submap@.dom().finite());
-        assert(target_dom.finite());
-
-        assert(self.submap@.dom().contains(timestamp));
-        assert(target_dom.contains(timestamp));
-
-        assert(self.submap@.dom().remove(timestamp).len() == 0);
-        assert(target_dom.remove(timestamp).len() == 0);
-
-        assert(self.submap@.dom() =~= target_dom);
-    }
-}
-
 impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     pub proof fn dummy() -> (tracked result: Self)
         ensures result.inv()
@@ -254,7 +116,6 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         }
     }
 
-    // TODO(nickolai): there must be a better way
     pub open spec fn named_ids(self) -> Map<&'static str, int> {
         map![
             "token_map" => self.token_map.id(),

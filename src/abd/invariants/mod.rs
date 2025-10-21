@@ -51,8 +51,6 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
         &&& p.server_map_locs == state.server_map.locs()
         &&& state.linearization_queue.inv()
         &&& state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()
-        // TODO(invariant): add invariant that says that the register value
-        // is whatever is the op value of what is at the top of the queue
     }
 }
 
@@ -77,7 +75,7 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
 
     let tracked state = State { linearization_queue, register, server_map };
     // TODO(assume): min quorum invariant
-    assume(linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()); // TODO
+    assume(linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
     let tracked state_inv = AtomicInvariant::new(pred, state, state_inv_id());
 

@@ -1,21 +1,7 @@
 use clap::Parser;
 
-#[allow(unused_imports)]
-use vstd::logatom::MutLinearizer;
-use vstd::logatom::ReadLinearizer;
-use vstd::prelude::*;
-use vstd::tokens::frac::GhostVar;
-#[allow(unused_imports)]
-use vstd::tokens::frac::GhostVarAuth;
-
 use std::collections::BTreeSet;
 use std::collections::HashMap;
-#[allow(unused_imports)]
-use std::sync::Arc;
-#[allow(unused_imports)]
-use std::sync::Condvar;
-#[allow(unused_imports)]
-use std::sync::Mutex;
 
 mod abd;
 mod verdist;
@@ -23,6 +9,7 @@ mod verdist;
 use abd::client::AbdPool;
 use abd::client::AbdRegisterClient;
 use abd::invariants::logatom::ReadPerm;
+#[allow(unused_imports)]
 use abd::invariants::logatom::RegisterRead;
 use abd::invariants::logatom::WritePerm;
 use abd::proto::Timestamp;
@@ -33,6 +20,10 @@ use verdist::network::channel::Connector;
 use verdist::network::error::ConnectError;
 use verdist::pool::FlawlessPool;
 use verdist::rpc::proto::Tagged;
+
+#[allow(unused_imports)]
+use vstd::logatom::ReadLinearizer;
+use vstd::prelude::*;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
@@ -210,6 +201,10 @@ where
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
     C: Sync + Send,
 {
+    use std::sync::Arc;
+    use std::sync::Condvar;
+    use std::sync::Mutex;
+
     let mut n_reads = args.n_reads.saturating_sub(1);
     let mut n_writes = args.n_writes;
     let unconnected_clients = Arc::new((Mutex::new(n_reads + n_writes), Condvar::new()));

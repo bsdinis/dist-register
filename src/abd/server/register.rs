@@ -1,4 +1,3 @@
-#[allow(unused_imports)]
 use vstd::prelude::*;
 use vstd::rwlock::RwLock;
 

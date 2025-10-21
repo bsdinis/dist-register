@@ -1,7 +1,8 @@
+#[allow(unused_imports)]
 use crate::abd::invariants;
 use crate::abd::invariants::client_id_map::ClientOwns;
-use crate::abd::invariants::lin_queue::*;
-use crate::abd::invariants::logatom::*;
+use crate::abd::invariants::logatom::RegisterRead;
+use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::invariants::ClientIdInvariant;
 use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
@@ -17,17 +18,13 @@ use crate::verdist::rpc::proto::Tagged;
 pub mod error;
 mod utils;
 
-use std::sync::Arc;
-
-use vstd::invariant::InvariantPredicate;
 #[allow(unused_imports)]
-use vstd::logatom::*;
-use vstd::modes::tracked_swap;
+use vstd::logatom::MutLinearizer;
+use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::proph::Prophecy;
-use vstd::tokens::frac::GhostVar;
+#[allow(unused_imports)]
 use vstd::tokens::frac::GhostVarAuth;
-use vstd::tokens::map::GhostSubmap;
 
 use utils::*;
 

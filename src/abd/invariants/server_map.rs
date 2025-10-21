@@ -1,10 +1,8 @@
-use vstd::tokens::map::GhostMapAuth;
-use vstd::tokens::map::GhostSubmap;
-
-use vstd::prelude::*;
-
+#[allow(unused_imports)]
 use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
+
+use vstd::prelude::*;
 
 verus! {
 

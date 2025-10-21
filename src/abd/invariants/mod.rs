@@ -1,7 +1,7 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
-use vstd::invariant::*;
-use vstd::logatom::*;
-use vstd::prelude::*;
+use vstd::invariant::AtomicInvariant;
+use vstd::invariant::InvariantPredicate;
+use vstd::logatom::MutLinearizer;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 
@@ -14,6 +14,8 @@ use client_id_map::*;
 use lin_queue::*;
 use logatom::*;
 use server_map::*;
+
+use vstd::prelude::*;
 
 verus! {
 

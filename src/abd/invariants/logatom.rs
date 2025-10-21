@@ -1,10 +1,11 @@
-#[allow(unused_imports)]
-use vstd::logatom::*;
-use vstd::prelude::*;
+use vstd::logatom::MutLinearizer;
+use vstd::logatom::MutOperation;
+use vstd::logatom::ReadLinearizer;
+use vstd::logatom::ReadOperation;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 
-use std::sync::Arc;
+use vstd::prelude::*;
 
 verus! {
 

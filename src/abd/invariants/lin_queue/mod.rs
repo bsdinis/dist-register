@@ -8,6 +8,8 @@ use vstd::tokens::frac::GhostVarAuth;
 #[allow(unused_imports)]
 use vstd::tokens::map::GhostMapAuth;
 
+#[allow(unused_imports)]
+use vstd::assert_by_contradiction;
 use vstd::prelude::*;
 
 mod maybe_lin;
@@ -77,11 +79,22 @@ pub struct LinearizationQueue<ML: MutLinearizer<RegisterWrite>> {
 
     // everything up to the watermark is guaranteed to be applied
     pub watermark: MonotonicTimestampResource,
+
+    // This is the register this lin queue refers to
+    pub ghost register_id: int,
+}
+
+pub struct LinQueueIds {
+    pub token_map_id: int,
+    pub watermark_id: int,
+    pub register_id: int,
 }
 
 impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
-    pub proof fn dummy() -> (tracked result: Self)
-        ensures result.inv()
+    pub proof fn dummy(register_id: int) -> (tracked result: Self)
+        ensures
+            result.inv(),
+            result.register_id == register_id,
     {
         let tracked queue = Map::tracked_empty();
         let tracked token_map = GhostMapAuth::new(Map::empty()).0;
@@ -90,6 +103,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             queue,
             token_map,
             watermark,
+            register_id,
         }
     }
 
@@ -98,29 +112,28 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         &&& self.token_map@.dom().finite()
         &&& self.queue.dom().finite()
         &&& self.token_map@.dom() == self.queue.dom()
-        &&& forall |timestamp: Timestamp| {
-            &&& timestamp <= self.watermark@.timestamp() && self.queue.contains_key(timestamp) ==> {
-                let comp = self.queue[timestamp];
-                &&& comp is Comp
-                &&& comp.lin().post(comp.op(), (), comp->completion)
-            }
-            &&& timestamp > self.watermark@.timestamp() && self.queue.contains_key(timestamp) ==> {
-                let lin = self.queue[timestamp];
-                &&& lin is Linearizer
-                &&& lin.lin().pre(lin.op())
-            }
-            &&& self.token_map@.contains_key(timestamp) ==> {
-                let maybe_lin = self.queue[timestamp];
-                self.token_map@[timestamp] == (maybe_lin.lin(), maybe_lin.op())
+        &&& forall |ts: Timestamp| {
+            &&& self.queue.contains_key(ts) ==> {
+                &&& self.queue[ts].inv()
+                &&& self.queue[ts].timestamp() == ts
+                &&& self.queue[ts].op().id == self.register_id
+                &&& !self.queue[ts].namespaces().contains(super::state_inv_id())
+                &&& ts <= self.watermark@.timestamp() ==> self.queue[ts] is Comp
+                &&& ts > self.watermark@.timestamp() ==> self.queue[ts] is Linearizer
+                &&& self.token_map@.contains_key(ts) ==> {
+                    let maybe_lin = self.queue[ts];
+                    self.token_map@[ts] == (maybe_lin.lin(), maybe_lin.op())
+                }
             }
         }
     }
 
-    pub open spec fn named_ids(self) -> Map<&'static str, int> {
-        map![
-            "token_map" => self.token_map.id(),
-            "watermark" => self.watermark.loc(),
-        ]
+    pub open spec fn ids(self) -> LinQueueIds {
+        LinQueueIds {
+            token_map_id: self.token_map.id(),
+            watermark_id: self.watermark.loc(),
+            register_id: self.register_id,
+        }
     }
 
     /// Inserts the linearizer into the linearization queue
@@ -132,9 +145,13 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         requires
             old(self).inv(),
             lin.pre(op),
+            lin.namespaces().finite(),
+            !lin.namespaces().contains(super::state_inv_id()),
+            op.id == old(self).register_id,
         ensures
             self.inv(),
-            self.named_ids() == old(self).named_ids(),
+            self.ids() == old(self).ids(),
+            old(self).queue.dom() <= self.queue.dom(),
             r is Ok ==> ({
                 let token = r->Ok_0;
                 &&& token.inv()
@@ -156,7 +173,6 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         // TODO(assume): get client lease on timestamp to prove uniqueness
         assume(!self.token_map@.contains_key(timestamp));
 
-
         let m = map![timestamp => (lin, op)];
         // contains key is a load bearing assert here, allows verus to understand that
         // m.contains_value(...) and that is enough to prove the rest
@@ -172,49 +188,82 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         Ok(LinToken { submap })
     }
 
+    pub open spec fn pending_lins_up_to(self,
+        max_timestamp: Timestamp
+    ) -> (r: Set<Timestamp>)
+        recommends self.inv()
+    {
+        self.queue.dom().filter(|ts: Timestamp| self.watermark@.timestamp() < ts && ts <= max_timestamp)
+    }
 
     /// Applies the linearizer for all writes prophecized to <= timestamp
-    pub proof fn apply_linearizer(tracked &mut self,
-        tracked register: GhostVarAuth<Option<u64>>,
-        timestamp: Timestamp
+    pub proof fn apply_linearizers_up_to(tracked &mut self,
+        tracked mut register: GhostVarAuth<Option<u64>>,
+        max_timestamp: Timestamp
     ) -> (tracked r: (MonotonicTimestampResource, GhostVarAuth<Option<u64>>))
         requires
             old(self).inv(),
+            register.id() == old(self).register_id,
         ensures
             self.inv(),
-            self.named_ids() == old(self).named_ids(),
-            self.watermark@.timestamp() >= timestamp,
+            self.ids() == old(self).ids(),
+            old(self).queue.dom() == self.queue.dom(),
+            register.id() == r.1.id(),
+            self.queue.contains_key(max_timestamp) ==> self.watermark@.timestamp() >= max_timestamp,
             self.watermark.loc() == r.0.loc(),
             r.0@.timestamp() == self.watermark@.timestamp(),
             r.0@ is LowerBound,
             r.1.id() == register.id(),
+            self.pending_lins_up_to(max_timestamp).len() == 0,
+        decreases
+            old(self).pending_lins_up_to(max_timestamp).len()
+        opens_invariants
+            Set::new(|id: int| id != super::state_inv_id())
     {
-        /* TODO(apply): apply_linearizer this is wrong
-         *
-         * map does not guarantee order of map
-         *
-         * what we need is something like
-         *
-         * while self.watermark@.timestamp() < timestamp {
-         *     let ts = self.queue.dom().filter(|ts| ts > self.watermark@.timestamp()).min();
-         *     self.queue[ts].apply_linearizer(&mut register, ts);
-         * }
-        if timestamp > self.watermark@.timestamp() {
-            // TODO(verus): verus proof fn tracked_map_values
-            // self.queue = self.queue.map_values(|v: MaybeLinearized<ML>| v.apply_linearizer(&mut register, timestamp));
-            self.watermark.advance(timestamp);
-            // TODO(assume): requires proof fn enabled tracked_map_values
-        }
-        */
+        let pending_lins = self.pending_lins_up_to(max_timestamp);
 
-        if timestamp > self.watermark@.timestamp() {
-            self.watermark.advance(timestamp);
+        if pending_lins.is_empty() {
+            if self.queue.contains_key(max_timestamp) {
+                assert_by_contradiction!(self.watermark@.timestamp() >= max_timestamp,
+                {
+                    if self.watermark@.timestamp() < max_timestamp {
+                        assert(self.pending_lins_up_to(max_timestamp).contains(max_timestamp)); // trigger
+                    }
+                });
+            }
+            return (self.watermark.extract_lower_bound(), register);
         }
 
-        assume(forall |timestamp: Timestamp| {
-            timestamp <= self.watermark@.timestamp() && self.queue.contains_key(timestamp) ==> self.queue[timestamp] is Comp
-        });
-        (self.watermark.extract_lower_bound(), register)
+        let ts_leq = |a: Timestamp, b: Timestamp| a <= b;
+        let next_ts = pending_lins.find_unique_minimal(ts_leq);
+        pending_lins.find_unique_minimal_ensures(ts_leq);
+
+        let tracked lin = self.queue.tracked_remove(next_ts);
+
+        let tracked comp = lin.apply_linearizer(&mut register, next_ts);
+
+        let ghost old_watermark = self.watermark@.timestamp();
+        self.watermark.advance(next_ts);
+        self.queue.tracked_insert(next_ts, comp);
+
+        assert forall |ts: Timestamp|
+        {
+            &&& self.queue.contains_key(ts)
+            && ts <= self.watermark@.timestamp()
+        }
+            implies self.queue[ts] is Comp by {
+            assert_by_contradiction!(self.queue[ts] is Comp,
+            {
+                if ts > old_watermark && ts < next_ts {
+                    pending_lins.lemma_minimal_equivalent_least(ts_leq, next_ts);
+                    assert(ts_leq(next_ts, ts)); // CONTRADICTION
+                }
+            });
+        }
+
+        // XXX: load bearing assert
+        assert(self.pending_lins_up_to(max_timestamp) == old(self).pending_lins_up_to(max_timestamp).remove(next_ts));
+        self.apply_linearizers_up_to(register, max_timestamp)
     }
 
     /// Return the completion of the write at timestamp - removing it from the sequence
@@ -230,7 +279,8 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             resource@.timestamp() >= token.timestamp(),
         ensures
             self.inv(),
-            self.named_ids() == old(self).named_ids()
+            self.ids() == old(self).ids(),
+            self.queue.dom() <= old(self).queue.dom(),
     {
         token.submap.agree(&self.token_map);
         // load bearing asserts

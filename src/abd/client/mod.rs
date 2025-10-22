@@ -41,7 +41,8 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
         requires
             lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
-            !lin@.namespaces().contains(invariants::state_inv_id())
+            !lin@.namespaces().contains(invariants::state_inv_id()),
+            lin@.namespaces().finite(),
         ensures
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
@@ -69,7 +70,9 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     // - They write to (seqno + 1, c_id, c_seqno1) and (seqno + 1, c_id, c_seqno2) respectively
     fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
         requires
-            lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val })
+            lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val }),
+            !lin@.namespaces().contains(invariants::state_inv_id()),
+            lin@.namespaces().finite(),
         ensures
             old(self).named_locs() == self.named_locs(),
             r is Ok ==> ({
@@ -221,7 +224,7 @@ where
                 proof {
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
-                    let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizer(register, max_ts);
+                    let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
 
@@ -232,6 +235,9 @@ where
 
                 // TODO(assume): min quorum invariant
                 assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
+
+                // XXX: not load bearing but good for debugging
+                assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
             });
             return Ok((max_val, max_ts, comp));
         }
@@ -284,7 +290,7 @@ where
             proof {
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
-                let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizer(register, max_ts);
+                let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
             }
 
@@ -332,9 +338,6 @@ where
                     proph_ts@
                 );
             }
-
-            // XXX(nickolai): this is a load-bearing assert
-            assert(token_res is Ok ==> token_res.unwrap().id() == self.state_inv@.constant().lin_queue_named_ids["token_map"]);
 
             // TODO(assume): min quorum invariant
             assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
@@ -420,17 +423,18 @@ where
 
             let comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
-                assert(token.id() == state.linearization_queue.token_map.id());
+                proof {
+                    token.agree(&state.linearization_queue);
+                }
+
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 proof {
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
-                let tracked (resource, mut register) = state.linearization_queue.apply_linearizer(register, exec_ts);
+                let tracked (resource, mut register) = state.linearization_queue.apply_linearizers_up_to(register, exec_ts);
                 proof {
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
-
-                assert(resource@.timestamp() >= exec_ts);
 
                 comp = Tracked(state.linearization_queue.extract_completion(token, resource));
 

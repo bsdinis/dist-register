@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use crate::abd::invariants::lin_queue::LinearizationQueue;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::proto::Timestamp;
 
@@ -62,6 +64,19 @@ impl<ML: MutLinearizer<RegisterWrite>> LinToken<ML> {
         assert(target_dom.remove(timestamp).len() == 0);
 
         assert(self.submap@.dom() =~= target_dom);
+    }
+
+    pub proof fn agree(tracked &self, tracked lin_queue: &LinearizationQueue<ML>)
+        requires
+            self.id() == lin_queue.token_map.id(),
+            self.inv(),
+            lin_queue.inv(),
+        ensures
+            lin_queue.queue.contains_key(self.timestamp())
+    {
+        self.submap.agree(&lin_queue.token_map);
+        // XXX: load bearing assert
+        assert(self.submap@.dom() <= lin_queue.token_map@.dom());
     }
 }
 

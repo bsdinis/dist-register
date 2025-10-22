@@ -27,8 +27,12 @@ pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
 
 impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
     pub proof fn linearizer(tracked lin: ML, op: RegisterWrite, timestamp: Timestamp) -> (tracked result: Self)
+        requires
+            lin.namespaces().finite(),
+            lin.pre(op),
         ensures
-            result == (MaybeLinearized::Linearizer { lin, op, timestamp, })
+            result == (MaybeLinearized::Linearizer { lin, op, timestamp, }),
+            result.inv()
     {
         MaybeLinearized::Linearizer {
             lin,
@@ -37,20 +41,31 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
         }
     }
 
+    pub open spec fn inv(self) -> bool {
+        &&& self.namespaces().finite()
+        &&& self is Linearizer ==> self.lin().pre(self.op())
+        &&& self is Comp ==> self.lin().post(self.op(), (), self->completion)
+    }
+
     pub proof fn apply_linearizer(tracked self,
         tracked register: &mut GhostVarAuth<Option<u64>>,
         resolved_timestamp: Timestamp
     ) -> (tracked r: Self)
         requires
-            self is Linearizer ==> self.lin().pre(self.op()),
+            self.inv(),
             old(register).id() == self.op().id,
         ensures
+            r.inv(),
+            self.op() == r.op(),
+            self.timestamp() == r.timestamp(),
+            self.lin() == r.lin(),
             old(register).id() == register.id(),
+            resolved_timestamp >= self.timestamp() ==> r is Comp,
         opens_invariants
             self.namespaces()
     {
         match self {
-             MaybeLinearized::Linearizer { lin, op, timestamp, .. } if timestamp < resolved_timestamp => {
+             MaybeLinearized::Linearizer { lin, op, timestamp, .. } if timestamp <= resolved_timestamp => {
                     let ghost lin_copy = lin;
                     let tracked completion = lin.apply(op, register, (), &());
                     MaybeLinearized::Comp { completion, timestamp, lin: lin_copy, op }

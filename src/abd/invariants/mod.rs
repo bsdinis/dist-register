@@ -33,7 +33,7 @@ pub open spec fn state_inv_id() -> int { 1int }
 pub open spec fn client_map_inv_id() -> int { 2int }
 
 pub struct StatePredicate {
-    pub lin_queue_named_ids: Map<&'static str, int>,
+    pub lin_queue_ids: LinQueueIds,
     pub register_id: int,
     pub server_map_locs: Map<u64, int>,
 }
@@ -48,9 +48,10 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
     where ML: MutLinearizer<RegisterWrite>
 {
     open spec fn inv(p: StatePredicate, state: State<ML>) -> bool {
-        &&& p.lin_queue_named_ids == state.linearization_queue.named_ids()
+        &&& p.lin_queue_ids == state.linearization_queue.ids()
         &&& p.register_id == state.register.id()
         &&& p.server_map_locs == state.server_map.locs()
+        &&& state.linearization_queue.register_id == state.register.id()
         &&& state.linearization_queue.inv()
         &&& state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()
     }
@@ -66,10 +67,10 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
         r.0.constant().register_id == r.1.id(),
 {
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
-    let tracked linearization_queue = LinearizationQueue::dummy();
+    let tracked linearization_queue = LinearizationQueue::dummy(register.id());
     let tracked server_map = ServerMap::dummy();
     let pred = StatePredicate {
-        lin_queue_named_ids: linearization_queue.named_ids(),
+        lin_queue_ids: linearization_queue.ids(),
         register_id: register.id(),
         server_map_locs: server_map.locs(),
     };

@@ -281,6 +281,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             self.inv(),
             self.ids() == old(self).ids(),
             self.queue.dom() <= old(self).queue.dom(),
+            token.lin().post(token.op(), (), r),
     {
         token.submap.agree(&self.token_map);
         // load bearing asserts

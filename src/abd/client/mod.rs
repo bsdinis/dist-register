@@ -329,14 +329,11 @@ where
         // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
         // variable.
         let proph_ts = Prophecy::<Timestamp>::new();
+        let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
         let tracked token_res;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                token_res = state.linearization_queue.insert_linearizer(
-                    lin,
-                    RegisterWrite { id: Ghost(self.register_loc()), new_value: val },
-                    proph_ts@
-                );
+                token_res = state.linearization_queue.insert_linearizer( lin, op, proph_ts@);
             }
 
             // TODO(assume): min quorum invariant
@@ -442,8 +439,6 @@ where
                 assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
             });
 
-            // TODO(assume): write lin post condition -- needs to come from extract_completion
-            assume(lin.post(RegisterWrite { id: Ghost(self.register_loc()), new_value: val }, (), comp@));
             Ok(comp)
         }
     }

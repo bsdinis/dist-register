@@ -1,6 +1,7 @@
 #[allow(unused_imports)]
 use crate::abd::invariants;
 use crate::abd::invariants::client_id_map::ClientOwns;
+use crate::abd::invariants::client_token::ClientToken;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::invariants::ClientIdInvariant;
@@ -35,14 +36,19 @@ verus! {
 // - Type problem: the linearization queue is parametrized by the linearizer type
 // - Polymorphism is hard
 pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
-    spec fn register_loc(&self) -> int;
-    spec fn named_locs(&self) -> Map<&'static str, int>;
+    spec fn register_loc(self) -> int;
+    spec fn client_id(self) -> u64;
+    spec fn named_locs(self) -> Map<&'static str, int>;
+    // TODO(meeting): invariant hack
+    spec fn inv(self) -> bool;
+
 
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
         requires
             lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
+            self.inv()
         ensures
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
@@ -50,7 +56,7 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
             }),
             r is Err ==> ({
                 r->Err_0.lin() == lin
-            })
+            }),
         ;
 
     // NOTE: to make writes behind a shared ref we need to restructure the timestamp
@@ -70,10 +76,12 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     // - They write to (seqno + 1, c_id, c_seqno1) and (seqno + 1, c_id, c_seqno2) respectively
     fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
         requires
+            old(self).inv(),
             lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val }),
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
         ensures
+            self.inv(),
             old(self).named_locs() == self.named_locs(),
             r is Ok ==> ({
                 let compl = r->Ok_0;
@@ -93,6 +101,9 @@ pub struct AbdPool<Pool: ConnectionPool<C = C>, C, ML: MutLinearizer<RegisterWri
     // map from pool.id() -> max seqno allocated
     client_owns: Tracked<ClientOwns>,
 
+    // assert ownership on timestamps with a particular client_id
+    client_token: Tracked<ClientToken>,
+
     state_inv: Tracked<StateInvariant<ML>>,
 
     client_map: Tracked<ClientIdInvariant>,
@@ -103,10 +114,13 @@ pub struct AbdPool<Pool: ConnectionPool<C = C>, C, ML: MutLinearizer<RegisterWri
 impl<Pool, C, ML> AbdPool<Pool, C, ML>
 where
     Pool: ConnectionPool<C = C>,
+    C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>
 {
     #[verifier::external_body]
-    pub fn new(pool: Pool) -> (Self, Tracked<RegisterView>) {
+    pub fn new(pool: Pool) -> (r: (Self, Tracked<RegisterView>))
+        ensures r.0._inv()
+    {
         let tracked state_inv;
         let tracked view;
         proof {
@@ -119,9 +133,8 @@ where
         let Tracked(client_map) = Tracked(invariants::get_client_map());
 
         // XXX: we could derive this with a sign-in procedure to create ids
+        // TODO(client_id): make this a caller obligation
         let tracked client_owns;
-        let ghost register_id = state_inv.constant().register_id;
-
         vstd::open_atomic_invariant!(&client_map => map => {
             proof {
                 // XXX(assume): removing this invariant requires an ID service
@@ -130,10 +143,22 @@ where
             }
         });
 
+        let tracked client_token;
+        vstd::open_atomic_invariant!(&state_inv => state => {
+            proof {
+                // XXX(assume): removing this invariant requires an ID service
+                assume(!state.client_token_auth@.contains_key(pool.id()));
+                let tracked submap = state.client_token_auth.insert(map![pool.id() => ()]);
+                client_token = ClientToken { submap };
+            }
+        });
+
+        let ghost register_id = state_inv.constant().register_id;
         let pool = AbdPool {
             pool,
             max_seqno: 0,
             client_owns: Tracked(client_owns),
+            client_token: Tracked(client_token),
             state_inv: Tracked(state_inv),
             client_map: Tracked(client_map),
             register_id: Ghost(register_id),
@@ -142,12 +167,19 @@ where
         (pool, Tracked(view))
     }
 
-    #[verifier::type_invariant]
-    pub closed spec fn inv(self) -> bool {
+    closed spec fn id(self) -> u64 {
+        self.pool.pool_id()
+    }
+
+    // TODO(meeting): invariant hack
+    pub closed spec fn _inv(self) -> bool {
         &&& self.max_seqno == self.client_owns@@.1
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.client_map@.namespace() == invariants::client_map_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
+        &&& self.state_inv@.constant().client_token_auth_id == self.client_token@.id()
+        &&& self.client_token@.client_id() == self.id()
+        &&& self.client_token@.inv()
     }
 
     pub fn quorum_size(&self) -> usize {
@@ -155,18 +187,21 @@ where
     }
 }
 
-
 impl<Pool, C, ML> AbdRegisterClient<C, ML> for AbdPool<Pool, C, ML>
 where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>
 {
-    closed spec fn register_loc(&self) -> int {
+    closed spec fn client_id(self) -> u64 {
+        self.id()
+    }
+
+    closed spec fn register_loc(self) -> int {
         self.register_id@
     }
 
-    closed spec fn named_locs(&self) -> Map<&'static str, int> {
+    closed spec fn named_locs(self) -> Map<&'static str, int> {
         map![
             "register" => self.register_id@,
             "state_inv" => self.state_inv@.namespace(),
@@ -174,11 +209,13 @@ where
         ]
     }
 
+    // TODO(meeting): invariant hack
+    closed spec fn inv(self) -> bool {
+        self._inv()
+    }
+
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
     {
-        proof {
-            use_type_invariant(self);
-        }
         let bpool = BroadcastPool::new(&self.pool);
         let quorum_res = bpool
             .broadcast(Request::Get)
@@ -307,8 +344,7 @@ where
 
     fn write(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
     {
-        // XXX(assume): this is required because of mut restrictions
-        assume(self.inv());
+        let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
         //
         // Imagine if we added this after the read quorum is achieved
@@ -328,12 +364,18 @@ where
         // The way we go about this is by prophecizing the timestamp a write will get and put it in
         // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
         // variable.
-        let proph_ts = Prophecy::<Timestamp>::new();
-        let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
+        let proph_seqno = Prophecy::<u64>::new();
         let tracked token_res;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                token_res = state.linearization_queue.insert_linearizer( lin, op, proph_ts@);
+                let tracked mut tok = ClientToken::empty(self.client_token@.id());
+                vstd::modes::tracked_swap(&mut tok, self.client_token.borrow_mut());
+                token_res = state.linearization_queue.insert_linearizer(
+                    lin,
+                    op,
+                    Timestamp { seqno: proph_seqno@, client_id: self.client_id(), },
+                    tok
+                );
             }
 
             // TODO(assume): min quorum invariant
@@ -356,6 +398,9 @@ where
             let quorum = match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
+                    // TODO(meeting): we lose the token here, so we must assume the invariant
+                    assume(self.client_token@.client_id() == self.client_id());
+                    assume(self.client_token@.inv());
                     return Err(error::WriteError::FailedFirstQuorum {
                         obtained: e.replies().len(),
                         required: self.pool.quorum_size(),
@@ -384,8 +429,9 @@ where
         // XXX(assume): integer overflow
         // XXX: timestamp recycling would be interesting
         assume(max_ts.seqno < u64::MAX - 1);
-        let exec_ts = Timestamp { seqno: max_ts.seqno + 1, client_id: self.pool.id(), };
-        proph_ts.resolve(&exec_ts);
+        let exec_seqno = max_ts.seqno + 1;
+        proph_seqno.resolve(&exec_seqno);
+        let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id(), };
 
         // TODO(assume): comes from contradiction above
         assume(token_res is Ok);
@@ -411,6 +457,9 @@ where
             let _quorum = match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
+                    // TODO(meeting): we lose the token here, so we must assume the invariant
+                    assume(self.client_token@.client_id() == self.client_id());
+                    assume(self.client_token@.inv());
                     return Err(error::WriteError::FailedSecondQuorum {
                         obtained: e.replies().len(),
                         required: self.pool.quorum_size(),
@@ -433,7 +482,12 @@ where
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
 
-                comp = Tracked(state.linearization_queue.extract_completion(token, resource));
+                let tracked (c, mut tok) = state.linearization_queue.extract_completion(token, resource);
+                proof {
+                    vstd::modes::tracked_swap(&mut tok, self.client_token.borrow_mut());
+                }
+                comp = Tracked(c);
+
 
                 // TODO(assume): min quorum invariant
                 assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
@@ -443,5 +497,16 @@ where
         }
     }
 }
+
+// TODO(meeting): invariant hack
+pub proof fn lemma_inv<Pool, C, ML>(c: AbdPool<Pool, C, ML>)
+    where
+        Pool: ConnectionPool<C = C>,
+        C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
+        ML: MutLinearizer<RegisterWrite>
+    ensures c._inv() <==> c.inv()
+{
+}
+
 
 }

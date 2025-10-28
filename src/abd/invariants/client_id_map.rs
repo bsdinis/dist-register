@@ -38,6 +38,7 @@ impl ClientMap {
         let map_to_insert = map![client_id => 0];
         let tracked singleton = self.map.insert(map_to_insert);
         assert(singleton@ =~= map_to_insert);
+        // TODO(assume): singleton in client map
         assume(singleton@.kv_pairs().finite());
         assume(singleton@.kv_pairs().len() == 1);
         assume(singleton@.kv_pairs().choose().0 == client_id);

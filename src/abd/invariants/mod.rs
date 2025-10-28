@@ -4,13 +4,16 @@ use vstd::invariant::InvariantPredicate;
 use vstd::logatom::MutLinearizer;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
+use vstd::tokens::map::GhostMapAuth;
 
 pub mod client_id_map;
+pub mod client_token;
 pub mod lin_queue;
 pub mod logatom;
 pub mod server_map;
 
 use client_id_map::*;
+use client_token::*;
 use lin_queue::*;
 use logatom::*;
 use server_map::*;
@@ -35,12 +38,14 @@ pub open spec fn client_map_inv_id() -> int { 2int }
 pub struct StatePredicate {
     pub lin_queue_ids: LinQueueIds,
     pub register_id: int,
+    pub client_token_auth_id: int,
     pub server_map_locs: Map<u64, int>,
 }
 
 pub struct State<ML: MutLinearizer<RegisterWrite>> {
     pub tracked register: GhostVarAuth<Option<u64>>,
     pub tracked linearization_queue: LinearizationQueue<ML>,
+    pub tracked client_token_auth: ClientTokenAuth,
     pub tracked server_map: ServerMap,
 }
 
@@ -50,8 +55,10 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
     open spec fn inv(p: StatePredicate, state: State<ML>) -> bool {
         &&& p.lin_queue_ids == state.linearization_queue.ids()
         &&& p.register_id == state.register.id()
+        &&& p.client_token_auth_id == state.client_token_auth.id()
         &&& p.server_map_locs == state.server_map.locs()
         &&& state.linearization_queue.register_id == state.register.id()
+        &&& state.linearization_queue.client_token_auth_id == state.client_token_auth.id()
         &&& state.linearization_queue.inv()
         &&& state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()
     }
@@ -67,16 +74,19 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
         r.0.constant().register_id == r.1.id(),
 {
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
-    let tracked linearization_queue = LinearizationQueue::dummy(register.id());
     let tracked server_map = ServerMap::dummy();
+    let tracked client_token_auth = GhostMapAuth::new(Map::empty()).0;
+    let tracked linearization_queue = LinearizationQueue::dummy(register.id(), client_token_auth.id());
+
     let pred = StatePredicate {
         lin_queue_ids: linearization_queue.ids(),
         register_id: register.id(),
+        client_token_auth_id: client_token_auth.id(),
         server_map_locs: server_map.locs(),
     };
 
 
-    let tracked state = State { linearization_queue, register, server_map };
+    let tracked state = State { register, linearization_queue, client_token_auth, server_map };
     // TODO(assume): min quorum invariant
     assume(linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
@@ -95,7 +105,6 @@ pub axiom fn get_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterView))
 pub struct ClientMapPredicate {
     pub map_id: int
 }
-
 
 impl InvariantPredicate<ClientMapPredicate, ClientMap> for ClientMapPredicate {
     open spec fn inv(p: ClientMapPredicate, map: ClientMap) -> bool {

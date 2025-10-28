@@ -1,3 +1,4 @@
+use crate::abd::invariants::client_token::ClientToken;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
@@ -82,19 +83,24 @@ pub struct LinearizationQueue<ML: MutLinearizer<RegisterWrite>> {
 
     // This is the register this lin queue refers to
     pub ghost register_id: int,
+
+    // Id for the client token auth
+    pub ghost client_token_auth_id: int,
 }
 
 pub struct LinQueueIds {
     pub token_map_id: int,
     pub watermark_id: int,
     pub register_id: int,
+    pub client_token_auth_id: int,
 }
 
 impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
-    pub proof fn dummy(register_id: int) -> (tracked result: Self)
+    pub proof fn dummy(register_id: int, client_token_auth_id: int) -> (tracked result: Self)
         ensures
             result.inv(),
             result.register_id == register_id,
+            result.client_token_auth_id == client_token_auth_id,
     {
         let tracked queue = Map::tracked_empty();
         let tracked token_map = GhostMapAuth::new(Map::empty()).0;
@@ -104,6 +110,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             token_map,
             watermark,
             register_id,
+            client_token_auth_id,
         }
     }
 
@@ -113,17 +120,16 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         &&& self.queue.dom().finite()
         &&& self.token_map@.dom() == self.queue.dom()
         &&& forall |ts: Timestamp| {
-            &&& self.queue.contains_key(ts) ==> {
-                &&& self.queue[ts].inv()
-                &&& self.queue[ts].timestamp() == ts
-                &&& self.queue[ts].op().id == self.register_id
-                &&& !self.queue[ts].namespaces().contains(super::state_inv_id())
-                &&& ts <= self.watermark@.timestamp() ==> self.queue[ts] is Comp
-                &&& ts > self.watermark@.timestamp() ==> self.queue[ts] is Linearizer
-                &&& self.token_map@.contains_key(ts) ==> {
-                    let maybe_lin = self.queue[ts];
-                    self.token_map@[ts] == (maybe_lin.lin(), maybe_lin.op())
-                }
+            self.queue.contains_key(ts) ==> {
+                let maybe_lin = self.queue[ts];
+                &&& maybe_lin.inv()
+                &&& maybe_lin.timestamp() == ts
+                &&& maybe_lin.client_token().id() == self.client_token_auth_id
+                &&& maybe_lin.op().id == self.register_id
+                &&& !maybe_lin.namespaces().contains(super::state_inv_id())
+                &&& ts <= self.watermark@.timestamp() ==> maybe_lin is Comp
+                &&& ts > self.watermark@.timestamp() ==> maybe_lin is Linearizer
+                &&& self.token_map@.contains_key(ts) ==> self.token_map@[ts] == (maybe_lin.lin(), maybe_lin.op())
             }
         }
     }
@@ -133,6 +139,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             token_map_id: self.token_map.id(),
             watermark_id: self.watermark.loc(),
             register_id: self.register_id,
+            client_token_auth_id: self.client_token_auth_id,
         }
     }
 
@@ -140,7 +147,8 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     pub proof fn insert_linearizer(tracked &mut self,
         tracked lin: ML,
         op: RegisterWrite,
-        timestamp: Timestamp
+        timestamp: Timestamp,
+        tracked mut client_token: ClientToken,
     ) -> (tracked r: Result<LinToken<ML>, InsertError>)
         requires
             old(self).inv(),
@@ -148,6 +156,9 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             lin.namespaces().finite(),
             !lin.namespaces().contains(super::state_inv_id()),
             op.id == old(self).register_id,
+            client_token.inv(),
+            client_token.id() == old(self).client_token_auth_id,
+            timestamp.client_id == client_token.client_id(),
         ensures
             self.inv(),
             self.ids() == old(self).ids(),
@@ -170,15 +181,28 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             });
         }
 
-        // TODO(assume): get client lease on timestamp to prove uniqueness
-        assume(!self.token_map@.contains_key(timestamp));
+        // check uniqueness by deriving contradiction
+        if self.token_map@.contains_key(timestamp) {
+            let tracked dup = self.queue.tracked_remove(timestamp);
+            let tracked tok = dup.tracked_extract_token();
+
+            // This is surprisingly not needed, but I feel it clarifies what the contradiction is
+            assert(client_token.submap@.dom() == tok.submap@.dom()) by {
+                client_token.lemma_dom();
+                tok.lemma_dom();
+            }
+
+            client_token.submap.disjoint(&tok.submap);
+            // CONTRADICTION
+        }
 
         let m = map![timestamp => (lin, op)];
-        // contains key is a load bearing assert here, allows verus to understand that
+        // XXX: load bearing assert
+        // contains key allows verus to understand that
         // m.contains_value(...) and that is enough to prove the rest
         assert(m.contains_key(timestamp));
 
-        let tracked maybe_lin = MaybeLinearized::linearizer(lin, op, timestamp);
+        let tracked maybe_lin = MaybeLinearized::linearizer(lin, op, timestamp, client_token);
 
         self.queue.tracked_insert(timestamp, maybe_lin);
         let tracked submap = self.token_map.insert(m);
@@ -270,7 +294,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
     pub proof fn extract_completion(tracked &mut self,
         tracked token: LinToken<ML>,
         tracked resource: MonotonicTimestampResource
-    ) -> (tracked r: ML::Completion)
+    ) -> (tracked r: (ML::Completion, ClientToken))
         requires
             old(self).inv(),
             old(self).watermark@.timestamp() >= resource@.timestamp(),
@@ -281,7 +305,10 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             self.inv(),
             self.ids() == old(self).ids(),
             self.queue.dom() <= old(self).queue.dom(),
-            token.lin().post(token.op(), (), r),
+            token.lin().post(token.op(), (), r.0),
+            r.1.inv(),
+            r.1.client_id() == token.timestamp().client_id,
+            r.1.id() == self.client_token_auth_id,
     {
         token.submap.agree(&self.token_map);
         // load bearing asserts
@@ -297,7 +324,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         // load bearing assert
         assert(self.queue.dom() == self.token_map@.dom());
 
-        comp.tracked_get_completion()
+        comp.tracked_destruct()
     }
 }
 

@@ -24,7 +24,10 @@ pub trait ConnectionPool {
             Result<Option<Resp<Self>>, crate::verdist::network::error::TryRecvError>,
         )>;
 
-    fn id(&self) -> u64;
+    fn id(&self) -> (r: u64)
+        ensures r == self.pool_id();
+
+    spec fn pool_id(self) -> u64;
 
     fn conns(&self) -> &[Self::C];
 }
@@ -81,6 +84,10 @@ where
     }
 
     fn id(&self) -> u64 {
+        self.id
+    }
+
+    closed spec fn pool_id(self) -> u64 {
         self.id
     }
 }

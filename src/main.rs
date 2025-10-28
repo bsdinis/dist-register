@@ -335,6 +335,7 @@ where
 {
     let pool = connect_all(&args, connectors, 0)?;
     let (mut client, view) = AbdPool::<_, _, WritePerm>::new(FlawlessPool::new(pool, 0));
+    assert(client.inv()) by { abd::client::lemma_inv(client) };
     let tracked view = view.get();
     report_quorum_size(client.quorum_size());
 

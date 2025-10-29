@@ -2,9 +2,13 @@
 use crate::abd::invariants;
 use crate::abd::invariants::client_id_map::ClientOwns;
 use crate::abd::invariants::client_token::ClientToken;
+use crate::abd::invariants::lin_queue::InsertError;
+use crate::abd::invariants::lin_queue::LinToken;
 use crate::abd::invariants::lin_queue::MaybeLinearized;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
+use crate::abd::invariants::server_map::Quorum;
+use crate::abd::invariants::server_map::ServerMap;
 use crate::abd::invariants::ClientIdInvariant;
 use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
@@ -18,8 +22,10 @@ use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
 
 pub mod error;
+mod net_axioms;
 mod utils;
 
+use vstd::invariant::InvariantPredicate;
 #[allow(unused_imports)]
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
@@ -28,6 +34,7 @@ use vstd::proph::Prophecy;
 #[allow(unused_imports)]
 use vstd::tokens::frac::GhostVarAuth;
 
+use net_axioms::*;
 use utils::*;
 
 verus! {
@@ -40,7 +47,6 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     spec fn register_loc(self) -> int;
     spec fn client_id(self) -> u64;
     spec fn named_locs(self) -> Map<&'static str, int>;
-    // TODO(meeting): invariant hack
     spec fn inv(self) -> bool;
 
 
@@ -120,6 +126,7 @@ where
 {
     #[verifier::external_body]
     pub fn new(pool: Pool) -> (r: (Self, Tracked<RegisterView>))
+        requires pool.n() > 0,
         ensures r.0._inv()
     {
         let tracked state_inv;
@@ -172,8 +179,8 @@ where
         self.pool.pool_id()
     }
 
-    // TODO(meeting): invariant hack
     pub closed spec fn _inv(self) -> bool {
+        &&& self.pool.n() > 0
         &&& self.max_seqno == self.client_owns@@.1
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.client_map@.namespace() == invariants::client_map_inv_id()
@@ -185,6 +192,17 @@ where
 
     pub fn quorum_size(&self) -> usize {
         self.pool.quorum_size()
+    }
+
+    spec fn qsize(self) -> nat {
+        self.pool.qsize()
+    }
+
+    proof fn lemma_qsize_nonempty(self)
+        requires self.pool.n() > 0
+        ensures self.qsize() > 0
+    {
+        self.pool.lemma_quorum_nonzero();
     }
 }
 
@@ -210,7 +228,6 @@ where
         ]
     }
 
-    // TODO(meeting): invariant hack
     closed spec fn inv(self) -> bool {
         self._inv()
     }
@@ -242,12 +259,14 @@ where
         // check early return
         let replies = quorum.replies();
         // TODO(assume): network axiomatization invariant -- comes from spec'ing network layer
-        assume(replies.len() > 0);
+        assume(replies.len() == self.qsize());
+        proof {
+            self.lemma_qsize_nonempty();
+        }
         let opt = max_from_get_replies(replies);
-        assert(opt is Some);
         let (max_ts, max_val) = opt.expect("there should be at least one reply");
         let mut n_max_ts = 0usize;
-        let q_iter = quorum.replies().iter();
+        let q_iter = replies.iter();
         for (_idx, (ts, _val)) in q_iter {
             if ts.seqno == max_ts.seqno && ts.client_id == max_ts.client_id {
                 // XXX(assume): integer overflow assume
@@ -256,10 +275,17 @@ where
             }
         }
 
+
         if n_max_ts >= self.pool.quorum_size() {
             let comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
+                    let tracked mut server_map = ServerMap::dummy();
+                    vstd::modes::tracked_swap(&mut server_map, &mut state.server_map);
+                    let tracked mut new_server_map = axiom_get_replies(replies, server_map);
+                    vstd::modes::tracked_swap(&mut new_server_map, &mut state.server_map);
+
+
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                     let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
@@ -271,8 +297,8 @@ where
                 assume(state.register@ == &max_val);
                 comp = Tracked(lin.apply(op, &state.register, &max_val));
 
-                // TODO(assume): min quorum invariant
-                assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
+                // TODO(quorum): quorums lower bounded by watermark
+                assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
 
                 // XXX: not load bearing but good for debugging
                 assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
@@ -337,8 +363,8 @@ where
             assume(state.register@ == &max_val);
             comp = Tracked(lin.apply(op, &state.register, &max_val));
 
-            // TODO(assume): min quorum invariant
-            assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
+            // TODO(quorum): quorums lower bounded by watermark
+            assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
         });
         Ok((max_val, max_ts, comp))
     }
@@ -375,19 +401,14 @@ where
             proof {
                 let tracked mut tok = ClientToken::empty(self.client_token@.id());
                 vstd::modes::tracked_swap(&mut tok, self.client_token.borrow_mut());
-                token_res = state.linearization_queue.insert_linearizer(
-                    lin,
-                    op,
-                    proph_ts,
-                    tok
-                );
+                token_res = state.linearization_queue.insert_linearizer(lin, op, proph_ts, tok);
             }
 
-            // TODO(assume): min quorum invariant
-            assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
+            // TODO(quorum): quorums lower bounded by watermark
+            assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
         });
 
-        let max_ts = {
+        let quorum = {
             let bpool = BroadcastPool::new(&self.pool);
 
             let quorum_res = bpool
@@ -400,7 +421,7 @@ where
                     },
                 );
 
-            let quorum = match quorum_res {
+            match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
                     let tracked lincomp;
@@ -421,8 +442,8 @@ where
 
                             vstd::modes::tracked_swap(&mut client_token, self.client_token.borrow_mut());
 
-                            // TODO(assume): min quorum invariant
-                            assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
+                            // TODO(quorum): quorums lower bounded by watermark
+                            assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
                         }
                     });
 
@@ -432,38 +453,50 @@ where
                         lincomp: Tracked(lincomp),
                     });
                 }
-            };
+            }
+        };
 
-            let replies = quorum.replies();
-            // TODO(assume): network axiomatization invariant -- comes from spec'ing network layer
-            assume(replies.len() > 0);
-            let max_ts = max_from_get_ts_replies(replies);
-            assert(max_ts is Some);
-            let max_ts = max_ts.expect("the quorum should never be empty");
-
-            Ok(max_ts)
-        }?;
-
-        // TODO(contradiction): if the token_res is a Watermark contradiction
-        //
-        // this implies: proph_ts <= old(watermark)
-        // watermark invariant implies: old(watermark) <= min(quorum)
-        // min definition: min(quorum) <= exec quorum
-        // construction: exec quorum < exec_ts
-        // resolution: exec_ts == proph_ts
+        let replies = quorum.replies();
+        // TODO(assume): network axiomatization invariant -- comes from spec'ing network layer
+        assume(replies.len() == self.qsize());
+        proof {
+            self.lemma_qsize_nonempty();
+        }
+        let max_ts = max_from_get_ts_replies(replies);
+        assert(max_ts is Some);
+        let max_ts = max_ts.expect("the quorum should never be empty");
 
         // XXX(assume): integer overflow
         // XXX: timestamp recycling would be interesting
         assume(max_ts.seqno < u64::MAX - 1);
         let exec_seqno = max_ts.seqno + 1;
-        proph_seqno.resolve(&exec_seqno);
         let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id(), };
+        proph_seqno.resolve(&exec_seqno);
+        assert(proph_ts == exec_ts);
 
-        // TODO(assume): comes from contradiction above
-        assume(token_res is Ok);
         let tracked token;
-        proof { token = token_res.tracked_unwrap() };
-        assert(token.timestamp() == exec_ts);
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            proof {
+                let tracked mut server_map = ServerMap::dummy();
+                vstd::modes::tracked_swap(&mut server_map, &mut state.server_map);
+                let tracked (mut new_server_map, quorum) = axiom_get_ts_replies(replies, server_map, max_ts);
+                vstd::modes::tracked_swap(&mut new_server_map, &mut state.server_map);
+
+
+                // TODO(quorum): quorums lower bounded by watermark
+                assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
+
+                token = lemma_watermark_contradiction(
+                    token_res,
+                    proph_ts,
+                    lin,
+                    op,
+                    self.state_inv@.constant(),
+                    &state,
+                    quorum
+                );
+            }
+        });
 
         {
             let bpool = BroadcastPool::new(&self.pool);
@@ -483,7 +516,10 @@ where
             let _quorum = match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
-                    // TODO(meeting): we lose the token here, so we must assume the invariant
+                    // TODO(error): we lose the token here, so we must assume the invariant
+                    // Possible solution:
+                    //  - have a weaker invariant that is not satisfied here
+                    //  - client must recover the error explicitely after
                     assume(self.client_token@.client_id() == self.client_id());
                     assume(self.client_token@.inv());
                     return Err(error::WriteError::FailedSecondQuorum {
@@ -497,8 +533,8 @@ where
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
                     token.agree(&state.linearization_queue);
+                    state.linearization_queue.lemma_token_is_in_queue(&token);
                 }
-
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 proof {
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
@@ -515,8 +551,8 @@ where
                 comp = Tracked(c);
 
 
-                // TODO(assume): min quorum invariant
-                assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
+                // TODO(quorum): quorums lower bounded by watermark
+                assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
             });
 
             Ok(comp)
@@ -524,7 +560,6 @@ where
     }
 }
 
-// TODO(meeting): invariant hack
 pub proof fn lemma_inv<Pool, C, ML>(c: AbdPool<Pool, C, ML>)
     where
         Pool: ConnectionPool<C = C>,
@@ -534,5 +569,65 @@ pub proof fn lemma_inv<Pool, C, ML>(c: AbdPool<Pool, C, ML>)
 {
 }
 
+pub proof fn lemma_watermark_contradiction<ML>(
+    tracked token_res: Result<LinToken<ML>, InsertError<ML>>,
+    timestamp: Timestamp,
+    lin: ML,
+    op: RegisterWrite,
+    pred: invariants::StatePredicate,
+    tracked state: &invariants::State<ML>,
+    tracked quorum: Quorum,
+) -> (tracked tok: LinToken<ML>)
+    where ML: MutLinearizer<RegisterWrite>,
+    requires
+        <invariants::StatePredicate as InvariantPredicate<_, _>>::inv(pred, *state),
+        state.server_map.valid_quorum(quorum),
+        quorum.timestamp() < timestamp,
+        token_res is Ok ==> {
+            let tok = token_res->Ok_0;
+            &&& tok.inv()
+            &&& tok.timestamp() == timestamp
+            &&& tok.lin() == lin
+            &&& tok.op() == op
+            &&& tok.id() == state.linearization_queue.token_map.id()
+        },
+        token_res is Err ==> ({
+            let watermark_lb = token_res->Err_0->watermark_lb;
+            &&& timestamp <= watermark_lb@.timestamp()
+            &&& watermark_lb.loc() == state.linearization_queue.watermark.loc()
+            &&& watermark_lb@ is LowerBound
+        }),
+    ensures
+        tok == token_res->Ok_0,
+        tok.inv(),
+        tok.timestamp() == timestamp,
+        tok.lin() == lin,
+        tok.op() == op,
+        tok.id() == state.linearization_queue.token_map.id(),
+{
+    if &token_res is Err {
+        let tracked mut watermark_lb = token_res.tracked_unwrap_err().lower_bound();
+
+        // derive the contradiction
+        // NOTE: only the lemma invocation is needed but this is key part of the proof
+        // leaving the asserts helps document it
+        //
+        // proph_ts <= watermark_old
+        assert(timestamp <= watermark_lb@.timestamp());
+        // watermark_old <= curr_watermark
+        watermark_lb.lemma_lower_bound(&state.linearization_queue.watermark);
+        assert(watermark_lb@.timestamp() <= state.linearization_queue.watermark@.timestamp());
+        // curr_watermark <= quorum.timestamp() (forall valid quorums)
+        assert(state.linearization_queue.watermark@.timestamp() <= quorum.timestamp());
+        // quorum.timestamp() < proph_ts (by construction)
+        assert(quorum.timestamp() < timestamp);
+        // CONTRADICTION
+        assert(timestamp < timestamp);
+        proof_from_false()
+    } else {
+        let tracked token = token_res.tracked_unwrap();
+        token
+    }
+}
 
 }

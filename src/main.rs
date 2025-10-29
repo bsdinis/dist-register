@@ -19,6 +19,8 @@ use verdist::network::channel::BufChannel;
 use verdist::network::channel::Channel;
 use verdist::network::channel::Connector;
 use verdist::network::error::ConnectError;
+use verdist::pool::connection_pool::lemma_pool_len;
+use verdist::pool::ConnectionPool;
 use verdist::pool::FlawlessPool;
 use verdist::rpc::proto::Tagged;
 
@@ -168,10 +170,12 @@ fn connect_all<C, Conn>(
     args: &Args,
     connectors: &[Conn],
     client_id: u64,
-) -> Result<Vec<BufChannel<C>>, ConnectError>
+) -> (r: Result<Vec<BufChannel<C>>, ConnectError>)
 where
     Conn: Connector<C>,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+    ensures
+        r is Ok ==> connectors.len() == r->Ok_0.len()
 {
     let mut v = Vec::with_capacity(connectors.len());
     for connector in connectors.iter() {
@@ -179,6 +183,8 @@ where
         v.push(conn)
     }
 
+    // XXX(assume): this is trivial but seems like something should be able to get
+    assume(v.len() == connectors.len());
     Ok(v)
 }
 
@@ -336,9 +342,14 @@ where
     Conn: Connector<C> + Send + Sync,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
     C: Sync + Send,
+    requires connectors.len() > 0
 {
     let pool = connect_all(&args, connectors, 0)?;
-    let (mut client, view) = AbdPool::<_, _, WritePerm>::new(FlawlessPool::new(pool, 0));
+    let pool = FlawlessPool::new(pool, 0);
+    assert(pool.n() == connectors.len()) by {
+        lemma_pool_len(pool);
+    }
+    let (mut client, view) = AbdPool::<_, _, WritePerm>::new(pool);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     let tracked view = view.get();
     report_quorum_size(client.quorum_size());
@@ -520,6 +531,11 @@ fn main() -> Result<(), Error<WritePerm>> {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
+
+    if args.n_servers == 0 {
+        eprintln!("need at least one server");
+        return Ok(());
+    }
 
     let connectors: Vec<_> = (0..args.n_servers).map(run_modelled_server).collect();
 

@@ -38,15 +38,15 @@ pub open spec fn client_map_inv_id() -> int { 2int }
 pub struct StatePredicate {
     pub lin_queue_ids: LinQueueIds,
     pub register_id: int,
+    pub server_map_locs: Map<nat, int>,
     pub client_token_auth_id: int,
-    pub server_map_locs: Map<u64, int>,
 }
 
 pub struct State<ML: MutLinearizer<RegisterWrite>> {
     pub tracked register: GhostVarAuth<Option<u64>>,
     pub tracked linearization_queue: LinearizationQueue<ML>,
-    pub tracked client_token_auth: ClientTokenAuth,
     pub tracked server_map: ServerMap,
+    pub tracked client_token_auth: ClientTokenAuth,
 }
 
 impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
@@ -60,7 +60,10 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
         &&& state.linearization_queue.register_id == state.register.id()
         &&& state.linearization_queue.client_token_auth_id == state.client_token_auth.id()
         &&& state.linearization_queue.inv()
-        &&& state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts()
+        &&& state.server_map.inv()
+        &&& forall |q: Quorum| state.server_map.valid_quorum(q) ==> {
+            state.linearization_queue.watermark@.timestamp() <= q.timestamp()
+        }
     }
 }
 
@@ -87,8 +90,6 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
 
 
     let tracked state = State { register, linearization_queue, client_token_auth, server_map };
-    // TODO(assume): min quorum invariant
-    assume(linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
     let tracked state_inv = AtomicInvariant::new(pred, state, state_inv_id());
 

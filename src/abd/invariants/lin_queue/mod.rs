@@ -18,7 +18,7 @@ mod token;
 
 pub use maybe_lin::MaybeLinearized;
 #[allow(unused_imports)]
-use token::LinToken;
+pub use token::LinToken;
 
 verus! {
 
@@ -36,10 +36,20 @@ pub tracked enum InsertError<ML: MutLinearizer<RegisterWrite>> {
 
 impl<ML: MutLinearizer<RegisterWrite>> InsertError<ML> {
     pub proof fn tracked_destruct(tracked self) -> (tracked r: (ML, ClientToken))
+        requires self is WatermarkContradiction
         ensures (self->lin, self->client_token) == r
     {
         match self {
             InsertError::WatermarkContradiction { lin, client_token, .. } => (lin, client_token)
+        }
+    }
+
+    pub proof fn lower_bound(tracked self) -> (tracked r: MonotonicTimestampResource)
+        requires self is WatermarkContradiction,
+        ensures r == self->watermark_lb
+    {
+        match self {
+            InsertError::WatermarkContradiction { watermark_lb, .. } => watermark_lb
         }
     }
 }
@@ -115,6 +125,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             result.inv(),
             result.register_id == register_id,
             result.client_token_auth_id == client_token_auth_id,
+            result.watermark@.timestamp() == (Timestamp { seqno: 0, client_id: 0 })
     {
         let tracked queue = Map::tracked_empty();
         let tracked token_map = GhostMapAuth::new(Map::empty()).0;
@@ -159,6 +170,10 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         }
     }
 
+    pub proof fn tracked_watermark(tracked &self) -> (tracked r: &MonotonicTimestampResource) {
+        &self.watermark
+    }
+
     /// Inserts the linearizer into the linearization queue
     pub proof fn insert_linearizer(tracked &mut self,
         tracked lin: ML,
@@ -191,10 +206,14 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             }),
             r is Err ==> ({
                 let err = r->Err_0;
+                let watermark_lb = r->Err_0->watermark_lb;
                 &&& old(self) == self
                 &&& err is WatermarkContradiction
                 &&& err->lin == lin
                 &&& err->client_token == client_token
+                &&& watermark_lb@.timestamp() >= timestamp
+                &&& watermark_lb.loc() == self.watermark.loc()
+                &&& watermark_lb@ is LowerBound
             })
     {
         if self.watermark@.timestamp() >= timestamp {
@@ -295,8 +314,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         {
             &&& self.queue.contains_key(ts)
             && ts <= self.watermark@.timestamp()
-        }
-            implies self.queue[ts].0 is Comp by {
+        } implies self.queue[ts].0 is Comp by {
             assert_by_contradiction!(self.queue[ts].0 is Comp,
             {
                 if ts > old_watermark && ts < next_ts {
@@ -377,6 +395,18 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         assert(self.queue.dom() == self.token_map@.dom());
 
         (lincomp, client_token)
+    }
+
+    /// Show that if we have a token for a key, then it exists
+    pub proof fn lemma_token_is_in_queue(tracked &self, tracked token: &LinToken<ML>)
+        requires
+            self.inv(),
+            token.inv(),
+            token.id() == self.token_map.id(),
+        ensures
+            self.queue.contains_key(token.timestamp())
+    {
+        token.agree(self);
     }
 }
 

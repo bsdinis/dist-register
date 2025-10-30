@@ -1,3 +1,7 @@
+use crate::abd::invariants::lin_queue::MaybeLinearized;
+use crate::abd::invariants::logatom::RegisterWrite;
+
+use vstd::logatom::MutLinearizer;
 use vstd::prelude::*;
 
 verus! {
@@ -40,42 +44,28 @@ impl<RL> ReadError<RL> {
 // TODO(failed-write): handling a provably failed write (multiple channels were closed at
 // send time) is hard.
 //
-// The crux is that the linearizer may be applied by either a subsequent write or read (in both cases).
-// If the second round failed, we can return the token for the linearizer:
-// - Offer a call to wait on the linearization token (from the timestamp)
-// - Extract the completion
-//
-// For the first round, it's harder, because the timestamp at this point is prophecized, with no
-// good way to be resolved.
-//
-// - nits:
-//      - the token has no way to relate to the watermark
-//      - in the case of a failed first quorum we never actually resolve the timestamp of the call
-//      - maybe the prophecy timestamp needs to be returned too?
-//      - sounds complicated and of dubious usefulness -- but this would be the place to put it
-#[derive(Debug)]
-pub enum WriteError {
+// A write that fails on the first round can safely recover either the linearizer or the completion
+// A write that fails on the second round is more complicated:
+//  - on the one hand it has not returned
+//  - however, it must remain in the queue
+pub enum WriteError<ML: MutLinearizer<RegisterWrite>> {
     // The first phase of the write failed
     FailedFirstQuorum {
         obtained: usize,
         required: usize,
-        /* linearizer: Tracked<ML> */
-        /* completion: Tracked<ML::Completion> */
-        /* token: Tracked<int> */
+        lincomp: Tracked<MaybeLinearized<ML>>,
     },
 
     // The second phase of the write failed
     FailedSecondQuorum {
         obtained: usize,
         required: usize,
-        /* linearizer: Tracked<ML> */
-        /* completion: Tracked<ML::Completion> */
-        /* token: Tracked<int> */
+        /* token: Tracked<LinToken> */
     },
 }
 
 impl<RL> std::error::Error for ReadError<RL> {}
-impl std::error::Error for WriteError {}
+impl<ML: MutLinearizer<RegisterWrite>> std::error::Error for WriteError<ML> {}
 }
 
 impl<RL> std::fmt::Debug for ReadError<RL> {
@@ -112,7 +102,28 @@ impl<RL> std::fmt::Display for ReadError<RL> {
     }
 }
 
-impl std::fmt::Display for WriteError {
+impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Debug for WriteError<ML> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WriteError::FailedFirstQuorum {
+                obtained, required, ..
+            } => f
+                .debug_struct("FailedFirstQuorum")
+                .field("obtained", &obtained)
+                .field("required", &required)
+                .finish(),
+            WriteError::FailedSecondQuorum {
+                obtained, required, ..
+            } => f
+                .debug_struct("FailedSecondQuorum")
+                .field("obtained", &obtained)
+                .field("required", &required)
+                .finish(),
+        }
+    }
+}
+
+impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Display for WriteError<ML> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WriteError::FailedFirstQuorum { obtained, required, .. } => {

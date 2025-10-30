@@ -2,6 +2,7 @@
 use crate::abd::invariants;
 use crate::abd::invariants::client_id_map::ClientOwns;
 use crate::abd::invariants::client_token::ClientToken;
+use crate::abd::invariants::lin_queue::MaybeLinearized;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::invariants::ClientIdInvariant;
@@ -74,7 +75,7 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     // - They both observe a read at (seqno, c_id', c_seqno')
     // - They race to increment an atomic internal c_seqno (one gets c_seqno1 and the other c_seqno2)
     // - They write to (seqno + 1, c_id, c_seqno1) and (seqno + 1, c_id, c_seqno2) respectively
-    fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
+    fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML>>)
         requires
             old(self).inv(),
             lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val }),
@@ -342,7 +343,7 @@ where
         Ok((max_val, max_ts, comp))
     }
 
-    fn write(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError>)
+    fn write(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML>>)
     {
         let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
@@ -365,6 +366,10 @@ where
         // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
         // variable.
         let proph_seqno = Prophecy::<u64>::new();
+        let ghost proph_ts = Timestamp {
+            seqno: proph_seqno@,
+            client_id: self.client_id(),
+        };
         let tracked token_res;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
@@ -373,7 +378,7 @@ where
                 token_res = state.linearization_queue.insert_linearizer(
                     lin,
                     op,
-                    Timestamp { seqno: proph_seqno@, client_id: self.client_id(), },
+                    proph_ts,
                     tok
                 );
             }
@@ -398,12 +403,33 @@ where
             let quorum = match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
-                    // TODO(meeting): we lose the token here, so we must assume the invariant
-                    assume(self.client_token@.client_id() == self.client_id());
-                    assume(self.client_token@.inv());
+                    let tracked lincomp;
+                    vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+                        proof {
+                            let tracked mut client_token;
+                            if &token_res is Ok {
+                                let tracked token = token_res.tracked_unwrap();
+                                let tracked x = state.linearization_queue.remove_lin(token);
+                                lincomp = x.0;
+                                client_token = x.1;
+                            } else {
+                                let tracked err = token_res.tracked_unwrap_err();
+                                let tracked (lin, tok) = err.tracked_destruct();
+                                lincomp = MaybeLinearized::linearizer(lin, op, proph_ts);
+                                client_token = tok;
+                            }
+
+                            vstd::modes::tracked_swap(&mut client_token, self.client_token.borrow_mut());
+
+                            // TODO(assume): min quorum invariant
+                            assume(state.linearization_queue.watermark@.timestamp() <= state.server_map.min_quorum_ts());
+                        }
+                    });
+
                     return Err(error::WriteError::FailedFirstQuorum {
                         obtained: e.replies().len(),
                         required: self.pool.quorum_size(),
+                        lincomp: Tracked(lincomp),
                     });
                 }
             };

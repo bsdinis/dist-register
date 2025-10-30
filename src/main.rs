@@ -11,6 +11,7 @@ use abd::client::AbdRegisterClient;
 use abd::invariants::logatom::ReadPerm;
 #[allow(unused_imports)]
 use abd::invariants::logatom::RegisterRead;
+use abd::invariants::logatom::RegisterWrite;
 use abd::invariants::logatom::WritePerm;
 use abd::proto::Timestamp;
 use abd::server::run_modelled_server;
@@ -21,6 +22,7 @@ use verdist::network::error::ConnectError;
 use verdist::pool::FlawlessPool;
 use verdist::rpc::proto::Tagged;
 
+use vstd::logatom::MutLinearizer;
 #[allow(unused_imports)]
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
@@ -44,25 +46,27 @@ struct Args {
     client_id: u64,
 }
 
-impl From<ConnectError> for Error {
+impl<ML: MutLinearizer<RegisterWrite>> From<ConnectError> for Error<ML> {
     fn from(value: ConnectError) -> Self {
         Error::Connection(value)
     }
 }
 
-impl From<abd::client::error::ReadError<ReadPerm<'_>>> for Error {
+impl<ML: MutLinearizer<RegisterWrite>> From<abd::client::error::ReadError<ReadPerm<'_>>>
+    for Error<ML>
+{
     fn from(value: abd::client::error::ReadError<ReadPerm<'_>>) -> Self {
         Error::AbdRead(format!("{:?}", value))
     }
 }
 
-impl From<abd::client::error::WriteError> for Error {
-    fn from(value: abd::client::error::WriteError) -> Self {
+impl<ML: MutLinearizer<RegisterWrite>> From<abd::client::error::WriteError<ML>> for Error<ML> {
+    fn from(value: abd::client::error::WriteError<ML>) -> Self {
         Error::AbdWrite(value)
     }
 }
 
-impl std::error::Error for Error {
+impl<ML: MutLinearizer<RegisterWrite>> std::error::Error for Error<ML> {
     fn cause(&self) -> Option<&dyn std::error::Error> {
         match self {
             Error::Connection(e) => Some(e),
@@ -72,7 +76,7 @@ impl std::error::Error for Error {
     }
 }
 
-impl std::fmt::Display for Error {
+impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Display for Error<ML> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Connection(e) => e.fmt(f),
@@ -82,7 +86,7 @@ impl std::fmt::Display for Error {
     }
 }
 
-impl std::fmt::Debug for Error {
+impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Debug for Error<ML> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Connection(e) => e.fmt(f),
@@ -94,10 +98,10 @@ impl std::fmt::Debug for Error {
 
 verus! {
 
-enum Error {
+enum Error<ML: MutLinearizer<RegisterWrite>> {
     Connection(ConnectError),
     AbdRead(String),
-    AbdWrite(abd::client::error::WriteError),
+    AbdWrite(abd::client::error::WriteError<ML>),
 }
 
 #[verifier::external_trait_specification]
@@ -327,7 +331,7 @@ where
 */
 
 
-fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error>
+fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error<WritePerm>>
 where
     Conn: Connector<C> + Send + Sync,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
@@ -512,7 +516,7 @@ fn orders_agree(o1: &PartialOrder, o2: &PartialOrder) -> bool {
     true
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), Error<WritePerm>> {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();

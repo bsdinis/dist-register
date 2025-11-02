@@ -124,7 +124,6 @@ where
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>
 {
-    #[verifier::external_body]
     pub fn new(pool: Pool) -> (r: (Self, Tracked<RegisterView>))
         requires pool.n() > 0,
         ensures r.0._inv()
@@ -146,8 +145,8 @@ where
         vstd::open_atomic_invariant!(&client_map => map => {
             proof {
                 // XXX(assume): removing this invariant requires an ID service
-                assume(!map@.contains_key(pool.id()));
-                client_owns = map.reserve(pool.id());
+                assume(!map@.contains_key(pool.pool_id()));
+                client_owns = map.reserve(pool.pool_id());
             }
         });
 
@@ -155,9 +154,10 @@ where
         vstd::open_atomic_invariant!(&state_inv => state => {
             proof {
                 // XXX(assume): removing this invariant requires an ID service
-                assume(!state.client_token_auth@.contains_key(pool.id()));
-                let tracked submap = state.client_token_auth.insert(map![pool.id() => ()]);
+                assume(!state.client_token_auth@.contains_key(pool.pool_id()));
+                let tracked submap = state.client_token_auth.insert(map![pool.pool_id() => ()]);
                 client_token = ClientToken { submap };
+                client_token.lemma_dom();
             }
         });
 

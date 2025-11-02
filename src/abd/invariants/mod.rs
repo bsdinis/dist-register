@@ -70,7 +70,7 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
 pub type StateInvariant<ML> = AtomicInvariant<StatePredicate, State<ML>, StatePredicate>;
 pub type RegisterView = GhostVar<Option<u64>>;
 
-pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterView))
+pub proof fn initialize_system_state<ML>() -> (tracked r: (StateInvariant<ML>, RegisterView))
     where ML: MutLinearizer<RegisterWrite>
     ensures
         r.0.namespace() == state_inv_id(),
@@ -96,7 +96,7 @@ pub proof fn initialize_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterV
     (state_inv, view)
 }
 
-pub axiom fn get_system_state<ML>() -> (r: (StateInvariant<ML>, RegisterView))
+pub axiom fn get_system_state<ML>() -> (tracked r: (StateInvariant<ML>, RegisterView))
     where ML: MutLinearizer<RegisterWrite>
     ensures
         r.0.namespace() == state_inv_id(),
@@ -115,7 +115,7 @@ impl InvariantPredicate<ClientMapPredicate, ClientMap> for ClientMapPredicate {
 
 pub type ClientIdInvariant = AtomicInvariant<ClientMapPredicate, ClientMap, ClientMapPredicate>;
 
-pub proof fn initialize_client_map() -> (r: ClientIdInvariant)
+pub proof fn initialize_client_map() -> (tracked r: ClientIdInvariant)
     ensures r.namespace() == client_map_inv_id()
 {
     let tracked map = ClientMap::dummy();
@@ -126,7 +126,7 @@ pub proof fn initialize_client_map() -> (r: ClientIdInvariant)
     inv
 }
 
-pub axiom fn get_client_map() -> (r: ClientIdInvariant)
+pub axiom fn get_client_map() -> (tracked r: ClientIdInvariant)
     ensures r.namespace() == client_map_inv_id()
 ;
 

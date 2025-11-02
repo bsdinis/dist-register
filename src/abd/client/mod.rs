@@ -1,6 +1,5 @@
 #[allow(unused_imports)]
 use crate::abd::invariants;
-use crate::abd::invariants::client_id_map::ClientOwns;
 use crate::abd::invariants::client_token::ClientToken;
 use crate::abd::invariants::lin_queue::InsertError;
 use crate::abd::invariants::lin_queue::LinToken;
@@ -9,7 +8,6 @@ use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::invariants::server_map::Quorum;
 use crate::abd::invariants::server_map::ServerMap;
-use crate::abd::invariants::ClientIdInvariant;
 use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
 use crate::abd::proto::Request;
@@ -101,19 +99,12 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
 pub struct AbdPool<Pool: ConnectionPool<C = C>, C, ML: MutLinearizer<RegisterWrite>> {
     pool: Pool,
 
-    max_seqno: u64,
-
     register_id: Ghost<int>,
-
-    // map from pool.id() -> max seqno allocated
-    client_owns: Tracked<ClientOwns>,
 
     // assert ownership on timestamps with a particular client_id
     client_token: Tracked<ClientToken>,
 
     state_inv: Tracked<StateInvariant<ML>>,
-
-    client_map: Tracked<ClientIdInvariant>,
 }
 
 
@@ -136,20 +127,8 @@ where
             view = v;
         }
 
-
-        let Tracked(client_map) = Tracked(invariants::get_client_map());
-
         // XXX: we could derive this with a sign-in procedure to create ids
         // TODO(client_id): make this a caller obligation
-        let tracked client_owns;
-        vstd::open_atomic_invariant!(&client_map => map => {
-            proof {
-                // XXX(assume): removing this invariant requires an ID service
-                assume(!map@.contains_key(pool.pool_id()));
-                client_owns = map.reserve(pool.pool_id());
-            }
-        });
-
         let tracked client_token;
         vstd::open_atomic_invariant!(&state_inv => state => {
             proof {
@@ -157,18 +136,15 @@ where
                 assume(!state.client_token_auth@.contains_key(pool.pool_id()));
                 let tracked submap = state.client_token_auth.insert(map![pool.pool_id() => ()]);
                 client_token = ClientToken { submap };
-                client_token.lemma_dom();
+                assert(client_token.inv());
             }
         });
 
         let ghost register_id = state_inv.constant().register_id;
         let pool = AbdPool {
             pool,
-            max_seqno: 0,
-            client_owns: Tracked(client_owns),
             client_token: Tracked(client_token),
             state_inv: Tracked(state_inv),
-            client_map: Tracked(client_map),
             register_id: Ghost(register_id),
         };
 
@@ -181,9 +157,7 @@ where
 
     pub closed spec fn _inv(self) -> bool {
         &&& self.pool.n() > 0
-        &&& self.max_seqno == self.client_owns@@.1
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
-        &&& self.client_map@.namespace() == invariants::client_map_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
         &&& self.state_inv@.constant().client_token_auth_id == self.client_token@.id()
         &&& self.client_token@.client_id() == self.id()
@@ -224,7 +198,6 @@ where
         map![
             "register" => self.register_id@,
             "state_inv" => self.state_inv@.namespace(),
-            "client_map" => self.client_map@.namespace(),
         ]
     }
 

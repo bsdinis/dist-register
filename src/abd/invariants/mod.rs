@@ -6,13 +6,11 @@ use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 use vstd::tokens::map::GhostMapAuth;
 
-pub mod client_id_map;
 pub mod client_token;
 pub mod lin_queue;
 pub mod logatom;
 pub mod server_map;
 
-use client_id_map::*;
 use client_token::*;
 use lin_queue::*;
 use logatom::*;
@@ -33,7 +31,6 @@ verus! {
 //
 // Question: how to handle collisions?
 pub open spec fn state_inv_id() -> int { 1int }
-pub open spec fn client_map_inv_id() -> int { 2int }
 
 pub struct StatePredicate {
     pub lin_queue_ids: LinQueueIds,
@@ -101,33 +98,6 @@ pub axiom fn get_system_state<ML>() -> (tracked r: (StateInvariant<ML>, Register
     ensures
         r.0.namespace() == state_inv_id(),
         r.0.constant().register_id == r.1.id(),
-;
-
-pub struct ClientMapPredicate {
-    pub map_id: int
-}
-
-impl InvariantPredicate<ClientMapPredicate, ClientMap> for ClientMapPredicate {
-    open spec fn inv(p: ClientMapPredicate, map: ClientMap) -> bool {
-        p.map_id == map.map.id()
-    }
-}
-
-pub type ClientIdInvariant = AtomicInvariant<ClientMapPredicate, ClientMap, ClientMapPredicate>;
-
-pub proof fn initialize_client_map() -> (tracked r: ClientIdInvariant)
-    ensures r.namespace() == client_map_inv_id()
-{
-    let tracked map = ClientMap::dummy();
-    let pred = ClientMapPredicate { map_id: map.id() };
-
-    let tracked inv = AtomicInvariant::new(pred, map, client_map_inv_id());
-
-    inv
-}
-
-pub axiom fn get_client_map() -> (tracked r: ClientIdInvariant)
-    ensures r.namespace() == client_map_inv_id()
 ;
 
 }

@@ -26,6 +26,8 @@ pub axiom fn axiom_get_replies(
         r.locs() == old_map.locs(),
         r.inv(),
         forall |k: nat| r.map.contains_key(k) ==> {
+            // this is derivable if replies come with lower bounds
+            &&& old_map.map[k]@@.timestamp() <= r.map[k]@@.timestamp()
             &&& exists |idx: nat| 0 <= idx < replies.len() && replies[idx as int].0 == k ==> {
                 r.map[k]@@.timestamp() == replies[idx as int].1.0
             }
@@ -51,6 +53,8 @@ pub axiom fn axiom_get_ts_replies(
         r.1.inv(),
         r.0.valid_quorum(r.1),
         forall |k: nat| r.0.map.contains_key(k) ==> {
+            // this is derivable if replies come with lower bounds
+            &&& old_map.map[k]@@.timestamp() <= r.0.map[k]@@.timestamp()
             &&& exists |idx: int| 0 <= idx < replies.len() && replies[idx].0 == k ==> {
                 &&& r.0.map[k]@@.timestamp() == replies[idx as int].1
                 &&& r.1.submap.contains_key(k)

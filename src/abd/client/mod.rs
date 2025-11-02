@@ -271,6 +271,7 @@ where
                 comp = Tracked(lin.apply(op, &state.register, &max_val));
 
                 // TODO(quorum): quorums lower bounded by watermark
+                // this case seems to be a question of quorum intersection
                 assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
 
                 // XXX: not load bearing but good for debugging
@@ -337,6 +338,8 @@ where
             comp = Tracked(lin.apply(op, &state.register, &max_val));
 
             // TODO(quorum): quorums lower bounded by watermark
+            // here is probably a mix of writeback axiomatization and quorum intersection
+            // (contradiction?)
             assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
         });
         Ok((max_val, max_ts, comp))
@@ -376,9 +379,6 @@ where
                 vstd::modes::tracked_swap(&mut tok, self.client_token.borrow_mut());
                 token_res = state.linearization_queue.insert_linearizer(lin, op, proph_ts, tok);
             }
-
-            // TODO(quorum): quorums lower bounded by watermark
-            assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
         });
 
         let quorum = {
@@ -414,9 +414,6 @@ where
                             }
 
                             vstd::modes::tracked_swap(&mut client_token, self.client_token.borrow_mut());
-
-                            // TODO(quorum): quorums lower bounded by watermark
-                            assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
                         }
                     });
 
@@ -453,11 +450,8 @@ where
                 let tracked mut server_map = ServerMap::dummy();
                 vstd::modes::tracked_swap(&mut server_map, &mut state.server_map);
                 let tracked (mut new_server_map, quorum) = axiom_get_ts_replies(replies, server_map, max_ts);
+                server_map.lemma_leq_quorums(new_server_map, state.linearization_queue.watermark@.timestamp());
                 vstd::modes::tracked_swap(&mut new_server_map, &mut state.server_map);
-
-
-                // TODO(quorum): quorums lower bounded by watermark
-                assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
 
                 token = lemma_watermark_contradiction(
                     token_res,
@@ -525,6 +519,7 @@ where
 
 
                 // TODO(quorum): quorums lower bounded by watermark
+                // here we have write quorum axiomatization missing
                 assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
             });
 

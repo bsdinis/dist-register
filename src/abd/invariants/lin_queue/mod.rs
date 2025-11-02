@@ -194,6 +194,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             self.inv(),
             self.ids() == old(self).ids(),
             old(self).queue.dom() <= self.queue.dom(),
+            old(self).watermark == self.watermark,
             r is Ok ==> ({
                 let token = r->Ok_0;
                 &&& token.inv()
@@ -343,6 +344,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         ensures
             self.inv(),
             self.ids() == old(self).ids(),
+            old(self).watermark == self.watermark,
             self.queue.dom() <= old(self).queue.dom(),
             token.lin().post(token.op(), (), r.0),
             r.1.inv(),
@@ -376,6 +378,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         ensures
             self.inv(),
             self.ids() == old(self).ids(),
+            old(self).watermark == self.watermark,
             self.queue.dom() <= old(self).queue.dom(),
             r.1.inv(),
             r.1.client_id() == token.timestamp().client_id,

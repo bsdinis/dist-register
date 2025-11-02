@@ -45,6 +45,28 @@ impl ServerMap {
         &&& q.locs() <= self.locs()
         &&& q.n == self.map.len()
     }
+
+    pub open spec fn leq(self, other: ServerMap) -> bool
+        recommends
+            self.inv(),
+            other.inv(),
+            self.locs() == other.locs()
+    {
+        forall |k: nat| self.map.contains_key(k) ==> self.map[k]@@.timestamp() <= other.map[k]@@.timestamp()
+    }
+
+    pub proof fn lemma_leq_quorums(self, other: ServerMap, min: Timestamp)
+        requires
+            self.inv(),
+            other.inv(),
+            self.locs() == other.locs(),
+            self.leq(other),
+            forall |q: Quorum| self.valid_quorum(q) ==> min <= q.timestamp(),
+        ensures
+            forall |q: Quorum| other.valid_quorum(q) ==> min <= q.timestamp(),
+    {
+        assume(forall |q: Quorum| other.valid_quorum(q) ==> min <= q.timestamp())
+    }
 }
 
 pub struct Quorum {

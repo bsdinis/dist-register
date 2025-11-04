@@ -1,6 +1,5 @@
 #[allow(unused_imports)]
 use crate::abd::invariants;
-use crate::abd::invariants::client_token::ClientToken;
 use crate::abd::invariants::lin_queue::InsertError;
 use crate::abd::invariants::lin_queue::LinToken;
 use crate::abd::invariants::lin_queue::MaybeLinearized;
@@ -8,6 +7,7 @@ use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::invariants::server_map::Quorum;
 use crate::abd::invariants::server_map::ServerMap;
+use crate::abd::invariants::ClientToken;
 use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
 use crate::abd::proto::Request;
@@ -34,6 +34,7 @@ use vstd::tokens::frac::GhostVarAuth;
 
 use net_axioms::*;
 use utils::*;
+use vstd::tokens::set::GhostSubset;
 
 verus! {
 
@@ -102,7 +103,7 @@ pub struct AbdPool<Pool: ConnectionPool<C = C>, C, ML: MutLinearizer<RegisterWri
     register_id: Ghost<int>,
 
     // assert ownership on timestamps with a particular client_id
-    client_token: Tracked<ClientToken>,
+    client_tok_subset: Tracked<GhostSubset<u64>>,
 
     state_inv: Tracked<StateInvariant<ML>>,
 }
@@ -133,17 +134,15 @@ where
         vstd::open_atomic_invariant!(&state_inv => state => {
             proof {
                 // XXX(assume): removing this invariant requires an ID service
-                assume(!state.client_token_auth@.contains_key(pool.pool_id()));
-                let tracked submap = state.client_token_auth.insert(map![pool.pool_id() => ()]);
-                client_token = ClientToken { submap };
-                assert(client_token.inv());
+                assume(!state.client_token_auth@.contains(pool.pool_id()));
+                client_token = state.client_token_auth.insert(pool.pool_id());
             }
         });
 
         let ghost register_id = state_inv.constant().register_id;
         let pool = AbdPool {
             pool,
-            client_token: Tracked(client_token),
+            client_tok_subset: Tracked(client_token.subset()),
             state_inv: Tracked(state_inv),
             register_id: Ghost(register_id),
         };
@@ -159,9 +158,9 @@ where
         &&& self.pool.n() > 0
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
-        &&& self.state_inv@.constant().client_token_auth_id == self.client_token@.id()
-        &&& self.client_token@.client_id() == self.id()
-        &&& self.client_token@.inv()
+        &&& self.state_inv@.constant().client_token_auth_id == self.client_tok_subset@.id()
+        &&& self.client_tok_subset@@ == set![self.id()]
+        &&& self.client_tok_subset@.is_singleton()
     }
 
     pub fn quorum_size(&self) -> usize {
@@ -375,8 +374,7 @@ where
         let tracked token_res;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                let tracked mut tok = ClientToken::empty(self.client_token@.id());
-                vstd::modes::tracked_swap(&mut tok, self.client_token.borrow_mut());
+                let tracked tok = self.client_tok_subset.borrow_mut().take().singleton();
                 token_res = state.linearization_queue.insert_linearizer(lin, op, proph_ts, tok);
             }
         });
@@ -400,7 +398,7 @@ where
                     let tracked lincomp;
                     vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                         proof {
-                            let tracked mut client_token;
+                            let tracked client_token;
                             if &token_res is Ok {
                                 let tracked token = token_res.tracked_unwrap();
                                 let tracked x = state.linearization_queue.remove_lin(token);
@@ -413,7 +411,8 @@ where
                                 client_token = tok;
                             }
 
-                            vstd::modes::tracked_swap(&mut client_token, self.client_token.borrow_mut());
+                            let tracked mut client_tok_subset = client_token.subset();
+                            vstd::modes::tracked_swap(&mut client_tok_subset, self.client_tok_subset.borrow_mut());
                         }
                     });
 
@@ -487,8 +486,9 @@ where
                     // Possible solution:
                     //  - have a weaker invariant that is not satisfied here
                     //  - client must recover the error explicitely after
-                    assume(self.client_token@.client_id() == self.client_id());
-                    assume(self.client_token@.inv());
+                    assume(self.client_tok_subset@@ == set![self.client_id()]);
+                    assume(self.client_tok_subset@.is_singleton());
+                    assert(self.inv());
                     return Err(error::WriteError::FailedSecondQuorum {
                         obtained: e.replies().len(),
                         required: self.pool.quorum_size(),
@@ -499,7 +499,7 @@ where
             let comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
-                    token.agree(&state.linearization_queue);
+                    token.agree(&state.linearization_queue.token_map);
                     state.linearization_queue.lemma_token_is_in_queue(&token);
                 }
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
@@ -511,9 +511,10 @@ where
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                 }
 
-                let tracked (c, mut tok) = state.linearization_queue.extract_completion(token, resource);
+                let tracked (c, tok) = state.linearization_queue.extract_completion(token, resource);
                 proof {
-                    vstd::modes::tracked_swap(&mut tok, self.client_token.borrow_mut());
+                    let tracked mut subset = tok.subset();
+                    vstd::modes::tracked_swap(&mut subset, self.client_tok_subset.borrow_mut());
                 }
                 comp = Tracked(c);
 
@@ -553,10 +554,8 @@ pub proof fn lemma_watermark_contradiction<ML>(
         quorum.timestamp() < timestamp,
         token_res is Ok ==> {
             let tok = token_res->Ok_0;
-            &&& tok.inv()
-            &&& tok.timestamp() == timestamp
-            &&& tok.lin() == lin
-            &&& tok.op() == op
+            &&& tok.key() == timestamp
+            &&& tok.value() == (lin, op)
             &&& tok.id() == state.linearization_queue.token_map.id()
         },
         token_res is Err ==> ({
@@ -567,10 +566,8 @@ pub proof fn lemma_watermark_contradiction<ML>(
         }),
     ensures
         tok == token_res->Ok_0,
-        tok.inv(),
-        tok.timestamp() == timestamp,
-        tok.lin() == lin,
-        tok.op() == op,
+        tok.key() == timestamp,
+        tok.value() == (lin, op),
         tok.id() == state.linearization_queue.token_map.id(),
 {
     if &token_res is Err {

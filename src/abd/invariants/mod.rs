@@ -4,14 +4,13 @@ use vstd::invariant::InvariantPredicate;
 use vstd::logatom::MutLinearizer;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
-use vstd::tokens::map::GhostMapAuth;
+use vstd::tokens::set::GhostSetAuth;
+use vstd::tokens::set::GhostSingleton;
 
-pub mod client_token;
 pub mod lin_queue;
 pub mod logatom;
 pub mod server_map;
 
-use client_token::*;
 use lin_queue::*;
 use logatom::*;
 use server_map::*;
@@ -31,6 +30,9 @@ verus! {
 //
 // Question: how to handle collisions?
 pub open spec fn state_inv_id() -> int { 1int }
+
+pub type ClientTokenAuth = GhostSetAuth<u64>;
+pub type ClientToken = GhostSingleton<u64>;
 
 pub struct StatePredicate {
     pub lin_queue_ids: LinQueueIds,
@@ -75,7 +77,7 @@ pub proof fn initialize_system_state<ML>() -> (tracked r: (StateInvariant<ML>, R
 {
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked server_map = ServerMap::dummy();
-    let tracked client_token_auth = GhostMapAuth::new(Map::empty()).0;
+    let tracked client_token_auth = GhostSetAuth::dummy();
     let tracked linearization_queue = LinearizationQueue::dummy(register.id(), client_token_auth.id());
 
     let pred = StatePredicate {

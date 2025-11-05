@@ -47,14 +47,21 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     spec fn client_id(self) -> u64;
     spec fn named_locs(self) -> Map<&'static str, int>;
     spec fn inv(self) -> bool;
+    spec fn weak_inv(self) -> bool;
 
+    proof fn lemma_weak_inv(self)
+        requires
+            self.inv(),
+        ensures
+            self.weak_inv()
+    ;
 
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
         requires
             lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
-            self.inv()
+            self.weak_inv()
         ensures
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
@@ -87,12 +94,50 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
         ensures
-            self.inv(),
             old(self).named_locs() == self.named_locs(),
+            self.weak_inv(),
             r is Ok ==> ({
-                let compl = r->Ok_0;
-                lin@.post(RegisterWrite { id: Ghost(self.register_loc()), new_value: val }, (), compl@)
+                let comp = r->Ok_0;
+                &&& self.inv()
+                &&& lin@.post(RegisterWrite { id: Ghost(self.register_loc()), new_value: val }, (), comp@)
             }),
+            r is Err ==> ({
+                let err = r->Err_0;
+                &&& err is FailedFirstQuorum ==> ({
+                    &&& self.inv()
+                    &&& err->lincomp@.lin() == lin
+                    &&& err->lincomp@.op() == RegisterWrite { id: Ghost(self.register_loc()), new_value: val }
+                })
+                &&& err is FailedSecondQuorum ==> ({
+                    let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
+                    &&& err->token@.value() == (lin@, op)
+                    &&& err->token@.key() == err->timestamp
+                })
+            }),
+        ;
+
+    // Wait for register to move past the value written, so we can recover the token and linearizer
+    // in the queue and restore invariants on the client.
+    //
+    // Note that since this is only called when the second phase happens, at least one server has
+    // received the write. This means that recover_client, by reading the register on a loop can
+    // finish its own previous write.
+    fn recover_client(&mut self, err: error::WriteError<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML>>)
+        requires
+            old(self).weak_inv(),
+            err is FailedSecondQuorum,
+            err->token@.key() == err->timestamp,
+        ensures
+            r is Ok ==> ({
+                let (lin, op) = err->token@.value();
+                let comp = r->Ok_0;
+                &&& self.inv()
+                &&& lin.post(op, (), comp@)
+            }),
+            r is Err ==> ({
+                &&& self.weak_inv()
+                &&& r->Err_0 == err
+            })
         ;
 }
 
@@ -155,12 +200,16 @@ where
     }
 
     pub closed spec fn _inv(self) -> bool {
+        &&& self._weak_inv()
+        &&& self.client_tok_subset@@ == set![self.id()]
+        &&& self.client_tok_subset@.is_singleton()
+    }
+
+    pub closed spec fn _weak_inv(self) -> bool {
         &&& self.pool.n() > 0
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
         &&& self.state_inv@.constant().client_token_auth_id == self.client_tok_subset@.id()
-        &&& self.client_tok_subset@@ == set![self.id()]
-        &&& self.client_tok_subset@.is_singleton()
     }
 
     pub fn quorum_size(&self) -> usize {
@@ -203,6 +252,12 @@ where
     closed spec fn inv(self) -> bool {
         self._inv()
     }
+
+    closed spec fn weak_inv(self) -> bool {
+        self._weak_inv()
+    }
+
+    proof fn lemma_weak_inv(self) {}
 
     fn read<RL: ReadLinearizer<RegisterRead>>(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
     {
@@ -406,8 +461,8 @@ where
                                 client_token = x.1;
                             } else {
                                 let tracked err = token_res.tracked_unwrap_err();
-                                let tracked (lin, tok) = err.tracked_destruct();
-                                lincomp = MaybeLinearized::linearizer(lin, op, proph_ts);
+                                let tracked (err_lin, tok) = err.tracked_destruct();
+                                lincomp = MaybeLinearized::linearizer(err_lin, op, proph_ts);
                                 client_token = tok;
                             }
 
@@ -482,16 +537,11 @@ where
             let _quorum = match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
-                    // TODO(error): we lose the token here, so we must assume the invariant
-                    // Possible solution:
-                    //  - have a weaker invariant that is not satisfied here
-                    //  - client must recover the error explicitely after
-                    assume(self.client_tok_subset@@ == set![self.client_id()]);
-                    assume(self.client_tok_subset@.is_singleton());
-                    assert(self.inv());
                     return Err(error::WriteError::FailedSecondQuorum {
                         obtained: e.replies().len(),
                         required: self.pool.quorum_size(),
+                        timestamp: exec_ts,
+                        token: Tracked(token),
                     });
                 }
             };
@@ -527,6 +577,13 @@ where
             Ok(comp)
         }
     }
+
+    fn recover_client(&mut self, error: error::WriteError<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML>>)
+    {
+        // TODO(recover): issue a read and if the timestamp is >= error.timestamp we can return the
+        // completion and restore the invariant
+        Err(error)
+    }
 }
 
 pub proof fn lemma_inv<Pool, C, ML>(c: AbdPool<Pool, C, ML>)
@@ -534,7 +591,9 @@ pub proof fn lemma_inv<Pool, C, ML>(c: AbdPool<Pool, C, ML>)
         Pool: ConnectionPool<C = C>,
         C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
         ML: MutLinearizer<RegisterWrite>
-    ensures c._inv() <==> c.inv()
+    ensures
+        c._inv() <==> c.inv(),
+        c._weak_inv() <==> c.weak_inv(),
 {
 }
 

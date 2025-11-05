@@ -368,6 +368,8 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             self.queue.dom() <= old(self).queue.dom(),
             r.1@ == token.key().client_id,
             r.1.id() == self.client_token_auth_id,
+            token.value().0 == r.0.lin(),
+            token.value().1 == r.0.op(),
     {
         token.agree(&self.token_map);
 

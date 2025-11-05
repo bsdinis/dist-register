@@ -351,6 +351,7 @@ where
     }
     let (mut client, view) = AbdPool::<_, _, WritePerm>::new(pool);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
+    assert(client.weak_inv()) by { client.lemma_weak_inv() };
     let tracked view = view.get();
     report_quorum_size(client.quorum_size());
 

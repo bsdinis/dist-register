@@ -1,5 +1,7 @@
+use crate::abd::invariants::lin_queue::LinToken;
 use crate::abd::invariants::lin_queue::MaybeLinearized;
 use crate::abd::invariants::logatom::RegisterWrite;
+use crate::abd::proto::Timestamp;
 
 use vstd::logatom::MutLinearizer;
 use vstd::prelude::*;
@@ -41,15 +43,10 @@ impl<RL> ReadError<RL> {
 /// The only way an ABD write fails is when a quorum is known to be unatainable
 /// This happens when a connection reset happens
 /// In this case, the error is exposed to the client
-// TODO(failed-write): handling a provably failed write (multiple channels were closed at
-// send time) is hard.
-//
-// A write that fails on the first round can safely recover either the linearizer or the completion
-// A write that fails on the second round is more complicated:
-//  - on the one hand it has not returned
-//  - however, it must remain in the queue
+
 pub enum WriteError<ML: MutLinearizer<RegisterWrite>> {
     // The first phase of the write failed
+    // In this case the write never physicially started, so we can get the MaybeLinearized
     FailedFirstQuorum {
         obtained: usize,
         required: usize,
@@ -57,10 +54,12 @@ pub enum WriteError<ML: MutLinearizer<RegisterWrite>> {
     },
 
     // The second phase of the write failed
+    // In this case the write is physically ongoing, so we can only return a token into the queue
     FailedSecondQuorum {
         obtained: usize,
         required: usize,
-        /* token: Tracked<LinToken> */
+        timestamp: Timestamp,
+        token: Tracked<LinToken<ML>>,
     },
 }
 

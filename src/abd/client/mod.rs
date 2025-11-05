@@ -161,38 +161,21 @@ where
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>
 {
-    pub fn new(pool: Pool) -> (r: (Self, Tracked<RegisterView>))
-        requires pool.n() > 0,
-        ensures r.0._inv()
+    pub fn new(pool: Pool, Tracked(client_token): Tracked<ClientToken>, state_inv: Tracked<StateInvariant<ML>>) -> (r: Self)
+        requires
+            pool.n() > 0,
+            pool.pool_id() == client_token@,
+            state_inv@.constant().client_token_auth_id == client_token.id(),
+            state_inv@.namespace() == invariants::state_inv_id(),
+        ensures
+            r._inv(),
     {
-        let tracked state_inv;
-        let tracked view;
-        proof {
-            let tracked (s, v) = invariants::get_system_state();
-            state_inv = s;
-            view = v;
-        }
-
-        // XXX: we could derive this with a sign-in procedure to create ids
-        // TODO(client_id): make this a caller obligation
-        let tracked client_token;
-        vstd::open_atomic_invariant!(&state_inv => state => {
-            proof {
-                // XXX(assume): removing this invariant requires an ID service
-                assume(!state.client_token_auth@.contains(pool.pool_id()));
-                client_token = state.client_token_auth.insert(pool.pool_id());
-            }
-        });
-
-        let ghost register_id = state_inv.constant().register_id;
-        let pool = AbdPool {
+        AbdPool {
             pool,
             client_tok_subset: Tracked(client_token.subset()),
-            state_inv: Tracked(state_inv),
-            register_id: Ghost(register_id),
-        };
-
-        (pool, Tracked(view))
+            state_inv,
+            register_id: Ghost(state_inv@.constant().register_id),
+        }
     }
 
     closed spec fn id(self) -> u64 {

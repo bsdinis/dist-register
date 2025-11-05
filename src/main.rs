@@ -8,11 +8,15 @@ mod verdist;
 
 use abd::client::AbdPool;
 use abd::client::AbdRegisterClient;
+use abd::invariants;
 use abd::invariants::logatom::ReadPerm;
 #[allow(unused_imports)]
 use abd::invariants::logatom::RegisterRead;
 use abd::invariants::logatom::RegisterWrite;
 use abd::invariants::logatom::WritePerm;
+use abd::invariants::ClientToken;
+use abd::invariants::RegisterView;
+use abd::invariants::StateInvariant;
 use abd::proto::Timestamp;
 use abd::server::run_modelled_server;
 use verdist::network::channel::BufChannel;
@@ -336,6 +340,35 @@ where
 }
 */
 
+fn get_invariant_state<Pool, C, ML>(pool: &Pool) -> (r: (Tracked<ClientToken>, Tracked<StateInvariant<ML>>, Tracked<RegisterView>))
+    where
+        Pool: ConnectionPool<C = C>,
+        C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+        ML: MutLinearizer<RegisterWrite>
+    ensures
+        r.0@@ == pool.pool_id(),
+        r.1@.constant().client_token_auth_id == r.0@.id(),
+        r.1@.namespace() == invariants::state_inv_id(),
+{
+    let tracked state_inv;
+    let tracked view;
+    proof {
+        let tracked (s, v) = invariants::get_system_state::<ML>();
+        state_inv = s;
+        view = v;
+    }
+    // XXX: we could derive this with a sign-in procedure to create ids
+    let tracked client_token;
+    vstd::open_atomic_invariant!(&state_inv => state => {
+        proof {
+            assume(!state.client_token_auth@.contains(pool.pool_id()));
+            client_token = state.client_token_auth.insert(pool.pool_id());
+        }
+    });
+
+    (Tracked(client_token), Tracked(state_inv), Tracked(view))
+}
+
 
 fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error<WritePerm>>
 where
@@ -349,7 +382,9 @@ where
     assert(pool.n() == connectors.len()) by {
         lemma_pool_len(pool);
     }
-    let (mut client, view) = AbdPool::<_, _, WritePerm>::new(pool);
+
+    let (client_token, state_inv, view) = get_invariant_state::<_, _, WritePerm>(&pool);
+    let mut client = AbdPool::<_, _, WritePerm>::new(pool, client_token, state_inv);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     assert(client.weak_inv()) by { client.lemma_weak_inv() };
     let tracked view = view.get();

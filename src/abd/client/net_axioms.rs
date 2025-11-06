@@ -1,6 +1,6 @@
 use crate::abd::client::utils::max_from_get_ts_replies;
-use crate::abd::invariants::server_map::Quorum;
-use crate::abd::invariants::server_map::ServerMap;
+use crate::abd::invariants::quorum::Quorum;
+use crate::abd::invariants::quorum::ServerUniverse;
 use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 
@@ -15,8 +15,8 @@ verus! {
 
 pub axiom fn axiom_get_replies(
     replies: &[(usize, (Timestamp, Option<u64>))],
-    tracked old_map: ServerMap
-) -> (tracked r: ServerMap)
+    tracked old_map: ServerUniverse
+) -> (tracked r: ServerUniverse)
     requires
         old_map.inv(),
         // TODO(network): timestamps in the replies need to be above the lower bounds in old_map
@@ -39,9 +39,9 @@ pub axiom fn axiom_get_replies(
 
 pub axiom fn axiom_get_ts_replies(
     replies: &[(usize, Timestamp)],
-    tracked old_map: ServerMap,
+    tracked old_map: ServerUniverse,
     max_ts: Timestamp,
-) -> (tracked r: (ServerMap, Quorum))
+) -> (tracked r: (ServerUniverse, Quorum))
     requires
         old_map.inv(),
         exists |idx: int| 0 <= idx < replies.len() ==> replies[idx].1 == max_ts,
@@ -57,14 +57,14 @@ pub axiom fn axiom_get_ts_replies(
             &&& old_map.map[k]@@.timestamp() <= r.0.map[k]@@.timestamp()
             &&& exists |idx: int| 0 <= idx < replies.len() && replies[idx].0 == k ==> {
                 &&& r.0.map[k]@@.timestamp() == replies[idx as int].1
-                &&& r.1.submap.contains_key(k)
+                &&& r.1@.contains(k)
             }
             &&& ! (exists |idx: int| 0 <= idx < replies.len() && replies[idx].0 == k ) ==> {
                 &&& r.0.map[k] == old_map.map[k]
-                &&& !r.1.submap.contains_key(k)
+                &&& !r.1@.contains(k)
             }
         },
-        r.1.timestamp() == max_ts
+        r.0.quorum_timestamp(r.1) == max_ts
 ;
 
 }

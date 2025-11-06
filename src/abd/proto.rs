@@ -52,23 +52,23 @@ impl Timestamp {
         Timestamp { seqno: 0, client_id: 0 }
     }
 
-    pub open spec fn spec_lt(&self, other: Self) -> bool  {
+    pub open spec fn spec_lt(self, other: Self) -> bool  {
         self.seqno < other.seqno || (self.seqno == other.seqno && self.client_id < other.client_id)
     }
 
-    pub open spec fn spec_le(&self, other: Self) -> bool  {
+    pub open spec fn spec_le(self, other: Self) -> bool  {
         self < other || self == other
     }
 
-    pub open spec fn spec_gt(&self, other: Self) -> bool  {
+    pub open spec fn spec_gt(self, other: Self) -> bool  {
         !(self <= other)
     }
 
-    pub open spec fn spec_ge(&self, other: Self) -> bool  {
+    pub open spec fn spec_ge(self, other: Self) -> bool  {
         !(self < other)
     }
 
-    pub open spec fn spec_eq(&self, other: Self) -> bool {
+    pub open spec fn spec_eq(self, other: Self) -> bool {
         self.seqno == other.seqno && self.client_id == other.client_id
     }
 }

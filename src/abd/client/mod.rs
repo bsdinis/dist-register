@@ -5,8 +5,8 @@ use crate::abd::invariants::lin_queue::LinToken;
 use crate::abd::invariants::lin_queue::MaybeLinearized;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
-use crate::abd::invariants::server_map::Quorum;
-use crate::abd::invariants::server_map::ServerMap;
+use crate::abd::invariants::quorum::Quorum;
+use crate::abd::invariants::quorum::ServerUniverse;
 use crate::abd::invariants::ClientToken;
 use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
@@ -290,10 +290,10 @@ where
             let comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
-                    let tracked mut server_map = ServerMap::dummy();
-                    vstd::modes::tracked_swap(&mut server_map, &mut state.server_map);
-                    let tracked mut new_server_map = axiom_get_replies(replies, server_map);
-                    vstd::modes::tracked_swap(&mut new_server_map, &mut state.server_map);
+                    let tracked mut servers = ServerUniverse::dummy();
+                    vstd::modes::tracked_swap(&mut servers, &mut state.servers);
+                    let tracked mut new_servers = axiom_get_replies(replies, servers);
+                    vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
@@ -308,8 +308,10 @@ where
                 comp = Tracked(lin.apply(op, &state.register, &max_val));
 
                 // TODO(quorum): quorums lower bounded by watermark
-                // this case seems to be a question of quorum intersection
-                assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
+                // this case seems to be a question of quorum intersection:
+                //
+                // we have a unanimous quorum here
+                assume(forall |q: Quorum| state.servers.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(q));
 
                 // XXX: not load bearing but good for debugging
                 assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
@@ -375,9 +377,10 @@ where
             comp = Tracked(lin.apply(op, &state.register, &max_val));
 
             // TODO(quorum): quorums lower bounded by watermark
+            //
             // here is probably a mix of writeback axiomatization and quorum intersection
             // (contradiction?)
-            assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
+            assume(forall |q: Quorum| state.servers.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(q));
         });
         Ok((max_val, max_ts, comp))
     }
@@ -484,11 +487,11 @@ where
         let tracked token;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                let tracked mut server_map = ServerMap::dummy();
-                vstd::modes::tracked_swap(&mut server_map, &mut state.server_map);
-                let tracked (mut new_server_map, quorum) = axiom_get_ts_replies(replies, server_map, max_ts);
-                server_map.lemma_leq_quorums(new_server_map, state.linearization_queue.watermark@.timestamp());
-                vstd::modes::tracked_swap(&mut new_server_map, &mut state.server_map);
+                let tracked mut servers = ServerUniverse::dummy();
+                vstd::modes::tracked_swap(&mut servers, &mut state.servers);
+                let tracked (mut new_servers, quorum) = axiom_get_ts_replies(replies, servers, max_ts);
+                servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
+                vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
                 token = lemma_watermark_contradiction(
                     token_res,
@@ -553,8 +556,9 @@ where
 
 
                 // TODO(quorum): quorums lower bounded by watermark
+                //
                 // here we have write quorum axiomatization missing
-                assume(forall |q: Quorum| state.server_map.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= q.timestamp());
+                assume(forall |q: Quorum| state.servers.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(q));
             });
 
             Ok(comp)
@@ -592,8 +596,8 @@ pub proof fn lemma_watermark_contradiction<ML>(
     where ML: MutLinearizer<RegisterWrite>,
     requires
         <invariants::StatePredicate as InvariantPredicate<_, _>>::inv(pred, *state),
-        state.server_map.valid_quorum(quorum),
-        quorum.timestamp() < timestamp,
+        state.servers.valid_quorum(quorum),
+        state.servers.quorum_timestamp(quorum) < timestamp,
         token_res is Ok ==> {
             let tok = token_res->Ok_0;
             &&& tok.key() == timestamp
@@ -625,9 +629,9 @@ pub proof fn lemma_watermark_contradiction<ML>(
         watermark_lb.lemma_lower_bound(&state.linearization_queue.watermark);
         assert(watermark_lb@.timestamp() <= state.linearization_queue.watermark@.timestamp());
         // curr_watermark <= quorum.timestamp() (forall valid quorums)
-        assert(state.linearization_queue.watermark@.timestamp() <= quorum.timestamp());
+        assert(state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(quorum));
         // quorum.timestamp() < proph_ts (by construction)
-        assert(quorum.timestamp() < timestamp);
+        assert(state.servers.quorum_timestamp(quorum) < timestamp);
         // CONTRADICTION
         assert(timestamp < timestamp);
         proof_from_false()

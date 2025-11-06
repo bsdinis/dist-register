@@ -292,7 +292,7 @@ where
                 proof {
                     let tracked mut servers = ServerUniverse::dummy();
                     vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                    let tracked mut new_servers = axiom_get_replies(replies, servers);
+                    let tracked (mut new_servers, _quorum) = axiom_get_unanimous_replies(replies, servers, max_ts);
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
 

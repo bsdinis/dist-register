@@ -290,28 +290,34 @@ where
             let comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
+                    let ghost old_watermark = state.linearization_queue.watermark;
+
                     let tracked mut servers = ServerUniverse::dummy();
                     vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                    let tracked (mut new_servers, _quorum) = axiom_get_unanimous_replies(replies, servers, max_ts);
+                    let tracked (mut new_servers, quorum) = axiom_get_unanimous_replies(replies, servers, max_ts);
+                    servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
+                    // TODO(read_lin) -- this should come from the read linearizer token
+                    assume(state.linearization_queue.queue.contains_key(max_ts));
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
-                    let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
+                    let tracked (watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
+
+                    if max_ts > old_watermark@.timestamp() {
+                        state.servers.lemma_quorum_lb(quorum, max_ts);
+                        assert(state.linearization_queue.watermark@.timestamp() == max_ts);
+                    } else {
+                        assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
+                    }
                 }
 
                 let op = RegisterRead { id: Ghost(self.register_loc()) };
                 // TODO(assume): read linearizer op requirement -- see TODO(read_lin)
                 assume(state.register@ == &max_val);
                 comp = Tracked(lin.apply(op, &state.register, &max_val));
-
-                // TODO(quorum): quorums lower bounded by watermark
-                // this case seems to be a question of quorum intersection:
-                //
-                // we have a unanimous quorum here
-                assume(forall |q: Quorum| state.servers.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(q));
 
                 // XXX: not load bearing but good for debugging
                 assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
@@ -354,21 +360,43 @@ where
             );
 
 
-        if let Err(replies) = replies_result {
-            return Err(error::ReadError::FailedSecondQuorum {
-                obtained: replies.replies().len(),
-                required: self.pool.quorum_size(),
-                linearizer: Tracked(lin),
-            });
-        }
+        let wb_rep = match replies_result {
+            Ok(r) => r,
+            Err(replies) => {
+                return Err(error::ReadError::FailedSecondQuorum {
+                    obtained: replies.replies().len(),
+                    required: self.pool.quorum_size(),
+                    linearizer: Tracked(lin),
+                });
+            }
+        };
+        let wb_replies = wb_rep.replies();
 
         let comp;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
+                let ghost old_watermark = state.linearization_queue.watermark;
+
+                let tracked mut servers = ServerUniverse::dummy();
+                vstd::modes::tracked_swap(&mut servers, &mut state.servers);
+                let tracked (mut new_servers, quorum) = axiom_writeback_unanimous_replies(replies, wb_replies, servers, max_ts);
+                servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
+                vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
+
+                // TODO(read_lin) -- this should come from the read linearizer token
+                assume(state.linearization_queue.queue.contains_key(max_ts));
+
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
                 let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
+
+                if max_ts > old_watermark@.timestamp() {
+                    state.servers.lemma_quorum_lb(quorum, max_ts);
+                    assert(state.linearization_queue.watermark@.timestamp() == max_ts);
+                } else {
+                    assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
+                }
             }
 
             let op = RegisterRead { id: Ghost(self.register_loc()) };
@@ -376,11 +404,8 @@ where
             assume(state.register@ == &max_val);
             comp = Tracked(lin.apply(op, &state.register, &max_val));
 
-            // TODO(quorum): quorums lower bounded by watermark
-            //
-            // here is probably a mix of writeback axiomatization and quorum intersection
-            // (contradiction?)
-            assume(forall |q: Quorum| state.servers.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(q));
+            // XXX: not load bearing but good for debugging
+            assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
         });
         Ok((max_val, max_ts, comp))
     }
@@ -520,7 +545,7 @@ where
                     },
                 );
 
-            let _quorum = match quorum_res {
+            let quorum = match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
                     return Err(error::WriteError::FailedSecondQuorum {
@@ -531,37 +556,50 @@ where
                     });
                 }
             };
+            let replies = quorum.replies();
 
-            let comp;
+            let exec_comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+                let tracked comp;
                 proof {
                     token.agree(&state.linearization_queue.token_map);
                     state.linearization_queue.lemma_token_is_in_queue(&token);
-                }
-                let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
-                proof {
-                    vstd::modes::tracked_swap(&mut register, &mut state.register);
-                }
-                let tracked (resource, mut register) = state.linearization_queue.apply_linearizers_up_to(register, exec_ts);
-                proof {
-                    vstd::modes::tracked_swap(&mut register, &mut state.register);
-                }
 
-                let tracked (c, tok) = state.linearization_queue.extract_completion(token, resource);
-                proof {
+                    let ghost old_watermark = state.linearization_queue.watermark;
+
+                    let tracked mut servers = ServerUniverse::dummy();
+                    vstd::modes::tracked_swap(&mut servers, &mut state.servers);
+                    let tracked (mut new_servers, quorum) = axiom_write_replies(replies, servers, exec_ts);
+                    servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
+                    vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
+
+                    let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
+                    vstd::modes::tracked_swap(&mut register, &mut state.register);
+                    let tracked (resource, mut register) = state.linearization_queue.apply_linearizers_up_to(register, exec_ts);
+                    vstd::modes::tracked_swap(&mut register, &mut state.register);
+
+                    if exec_ts > old_watermark@.timestamp() {
+                        state.servers.lemma_quorum_lb(quorum, exec_ts);
+                        assert(state.linearization_queue.watermark@.timestamp() == exec_ts);
+                    } else {
+                        assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
+                    }
+
+                    let tracked (c, tok) = state.linearization_queue.extract_completion(token, resource);
                     let tracked mut subset = tok.subset();
                     vstd::modes::tracked_swap(&mut subset, self.client_tok_subset.borrow_mut());
+
+
+                    comp = c;
                 }
-                comp = Tracked(c);
 
+                exec_comp = Tracked(comp);
 
-                // TODO(quorum): quorums lower bounded by watermark
-                //
-                // here we have write quorum axiomatization missing
-                assume(forall |q: Quorum| state.servers.valid_quorum(q) ==> state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(q));
+                // XXX: not load bearing but good for debugging
+                assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
             });
 
-            Ok(comp)
+            Ok(exec_comp)
         }
     }
 

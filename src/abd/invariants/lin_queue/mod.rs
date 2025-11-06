@@ -53,7 +53,7 @@ impl<ML: MutLinearizer<RegisterWrite>> InsertError<ML> {
     }
 }
 
-/* TODO(read_lin)
+/* TODO(read_lin) - Explanation
  *
  * # Summary
  *
@@ -263,16 +263,22 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
             old(self).inv(),
             register.id() == old(self).register_id,
         ensures
+            // invariants + ids
             self.inv(),
             self.ids() == old(self).ids(),
             old(self).queue.dom() == self.queue.dom(),
             register.id() == r.1.id(),
-            self.queue.contains_key(max_timestamp) ==> self.watermark@.timestamp() >= max_timestamp,
             self.watermark.loc() == r.0.loc(),
+            // post-condition changes
+            self.queue.contains_key(max_timestamp) ==> ({
+                &&& max_timestamp > old(self).watermark@.timestamp() ==> self.watermark@.timestamp() == max_timestamp
+                &&& max_timestamp <= old(self).watermark@.timestamp() ==> self.watermark == old(self).watermark
+            }),
+            self.pending_lins_up_to(max_timestamp).len() == 0,
+            // return values
             r.0@.timestamp() == self.watermark@.timestamp(),
             r.0@ is LowerBound,
             r.1.id() == register.id(),
-            self.pending_lins_up_to(max_timestamp).len() == 0,
         decreases
             old(self).pending_lins_up_to(max_timestamp).len()
         opens_invariants

@@ -609,7 +609,8 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
             old(self).current_value() == old(register)@,
             old(self).known_timestamps().contains(max_timestamp),
         ensures
-            // invariants + ids
+    // invariants + ids
+
             self.inv(),
             self.ids() == old(self).ids(),
             self.watermark.loc() == r.loc(),

@@ -13,6 +13,9 @@ use vstd::tokens::frac::GhostVarAuth;
 #[allow(unused_imports)]
 use crate::abd::proto::Timestamp;
 
+#[allow(unused_imports)]
+use std::sync::Arc;
+
 pub mod committed_to;
 pub mod lin_queue;
 pub mod logatom;
@@ -104,7 +107,7 @@ pub type StateInvariant<ML, RL, MC, RC> = AtomicInvariant<
 pub type RegisterView = GhostVar<Option<u64>>;
 
 pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -> (tracked r: (
-    StateInvariant<ML, RL, ML::Completion, RL::Completion>,
+    Arc<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
     RegisterView,
 )) where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
     requires
@@ -134,11 +137,11 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
     let tracked state_inv = AtomicInvariant::new(pred, state, state_inv_id());
 
-    (state_inv, view)
+    (Arc::new(state_inv), view)
 }
 
 pub axiom fn get_system_state<ML, RL>() -> (tracked r: (
-    StateInvariant<ML, RL, ML::Completion, RL::Completion>,
+    Arc<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
     RegisterView,
 )) where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
     ensures

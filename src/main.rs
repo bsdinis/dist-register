@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::sync::Arc;
 use vstd::atomic::PAtomicU64;
 use vstd::atomic::PermissionU64;
 
@@ -360,7 +361,7 @@ where
 #[allow(unused)]
 fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<PermissionU64>) -> (r: (
     Tracked<ClientCtrToken>,
-    Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
+    Tracked<Arc<StateInvariant<ML, RL, ML::Completion, RL::Completion>>>,
     Tracked<RegisterView>,
 )) where
     Pool: ConnectionPool<C = C>,

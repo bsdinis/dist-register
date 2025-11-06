@@ -40,6 +40,8 @@ use vstd::proph::Prophecy;
 #[allow(unused_imports)]
 use vstd::tokens::frac::GhostVarAuth;
 
+use std::sync::Arc;
+
 #[allow(unused_imports)]
 use net_axioms::*;
 use utils::*;
@@ -142,7 +144,7 @@ pub trait AbdRegisterClient<C, ML, RL> where
 pub struct AbdPool<Pool, ML, RL, WC, RC> {
     pool: Pool,
     register_id: Ghost<int>,
-    state_inv: Tracked<StateInvariant<ML, RL, WC, RC>>,
+    state_inv: Tracked<Arc<StateInvariant<ML, RL, WC, RC>>>,
     client_ctr_token: Tracked<ClientCtrToken>,
     client_ctr: PAtomicU64,
 }
@@ -157,7 +159,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
         pool: Pool,
         client_ctr: PAtomicU64,
         client_ctr_token: Tracked<ClientCtrToken>,
-        state_inv: Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
+        state_inv: Tracked<Arc<StateInvariant<ML, RL, ML::Completion, RL::Completion>>>,
     ) -> (r: Self)
         requires
             pool.n() > 0,
@@ -591,7 +593,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     proph_ts,
                     lin,
                     op,
-                    self.state_inv@.constant(),
                     &state,
                     quorum
                 );
@@ -694,7 +695,6 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
     timestamp: Timestamp,
     lin: ML,
     op: RegisterWrite,
-    pred: invariants::StatePredicate,
     tracked state: &invariants::State<ML, RL, ML::Completion, RL::Completion>,
     tracked quorum: Quorum,
 ) -> (tracked tok: LinWriteToken<ML>) where
@@ -702,7 +702,7 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
     RL: ReadLinearizer<RegisterRead>,
 
     requires
-        <invariants::StatePredicate as InvariantPredicate<_, _>>::inv(pred, *state),
+        state.inv(),
         state.servers.valid_quorum(quorum),
         state.servers.quorum_timestamp(quorum) < timestamp,
         token_res is Ok ==> {

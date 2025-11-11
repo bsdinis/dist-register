@@ -299,7 +299,7 @@ where
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
                     // TODO(read_lin) -- this should come from the read linearizer token
-                    assume(state.linearization_queue.queue.contains_key(max_ts));
+                    assume(state.linearization_queue.token_map@.contains_key(max_ts));
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
@@ -384,7 +384,7 @@ where
                 vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
                 // TODO(read_lin) -- this should come from the read linearizer token
-                assume(state.linearization_queue.queue.contains_key(max_ts));
+                assume(state.linearization_queue.token_map@.contains_key(max_ts));
 
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);

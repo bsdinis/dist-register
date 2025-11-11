@@ -15,9 +15,14 @@ use vstd::tokens::map::GhostPointsTo;
 use vstd::assert_by_contradiction;
 use vstd::prelude::*;
 
+mod completed;
 mod maybe_lin;
+mod pending;
 
 pub use maybe_lin::MaybeLinearized;
+
+use self::completed::Completed;
+use self::pending::Pending;
 
 verus! {
 
@@ -94,10 +99,10 @@ impl<ML: MutLinearizer<RegisterWrite>> InsertError<ML> {
  */
 pub struct LinearizationQueue<ML: MutLinearizer<RegisterWrite>> {
     // completed operations
-    pub completed: Map<Timestamp, (MaybeLinearized<ML>, ClientToken)>,
+    pub completed: Map<Timestamp, (Completed<ML>, ClientToken)>,
 
     // pending operations
-    pub pending: Map<Timestamp, (MaybeLinearized<ML>, ClientToken)>,
+    pub pending: Map<Timestamp, (Pending<ML>, ClientToken)>,
 
     // Why we need a token map in addition to the completed + pending operations
     //
@@ -154,28 +159,25 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         &&& self.pending.dom().finite()
         &&& self.token_map@.dom() == self.completed.dom().union(self.pending.dom())
         &&& forall |ts: Timestamp| self.completed.contains_key(ts) ==> {
-            let (maybe_lin, client_tok) = self.completed[ts];
+            let (comp, client_tok) = self.completed[ts];
             &&& ts <= self.watermark@.timestamp()
-            &&& self.token_map@[ts] == (maybe_lin.lin(), maybe_lin.op())
+            &&& self.token_map@[ts] == (comp.lin, comp.op)
             &&& client_tok@ == ts.client_id
             &&& client_tok.id() == self.client_token_auth_id
-            &&& maybe_lin.inv()
-            &&& maybe_lin.timestamp() == ts
-            &&& maybe_lin.op().id == self.register_id
-            &&& maybe_lin is Comp // TODO: make this type checked
-            &&& !maybe_lin.namespaces().contains(super::state_inv_id())
+            &&& comp.inv()
+            &&& comp.timestamp == ts
+            &&& comp.op.id == self.register_id
         }
         &&& forall |ts: Timestamp| self.pending.contains_key(ts) ==> {
-            let (maybe_lin, client_tok) = self.pending[ts];
+            let (lin, client_tok) = self.pending[ts];
             &&& ts > self.watermark@.timestamp()
-            &&& self.token_map@[ts] == (maybe_lin.lin(), maybe_lin.op())
+            &&& self.token_map@[ts] == (lin.lin, lin.op)
             &&& client_tok@ == ts.client_id
             &&& client_tok.id() == self.client_token_auth_id
-            &&& maybe_lin.inv()
-            &&& maybe_lin.timestamp() == ts
-            &&& maybe_lin.op().id == self.register_id
-            &&& maybe_lin is Linearizer // TODO: make this type checked
-            &&& !maybe_lin.namespaces().contains(super::state_inv_id())
+            &&& lin.inv()
+            &&& lin.timestamp == ts
+            &&& lin.op.id == self.register_id
+            &&& !lin.lin.namespaces().contains(super::state_inv_id())
         }
     }
 
@@ -242,10 +244,10 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
 
         // check uniqueness by deriving contradiction
         if self.token_map@.contains_key(timestamp) {
-            let tracked (lincomp, duptok) = if self.completed.contains_key(timestamp) {
-                self.completed.tracked_remove(timestamp)
+            let tracked duptok = if self.completed.contains_key(timestamp) {
+                self.completed.tracked_remove(timestamp).1
             } else {
-                self.pending.tracked_remove(timestamp)
+                self.pending.tracked_remove(timestamp).1
             };
 
             // This is surprisingly not needed, but clarifies what the contradiction is
@@ -255,9 +257,9 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         }
 
         let ghost v = (lin, op);
-        let tracked maybe_lin = MaybeLinearized::linearizer(lin, op, timestamp);
+        let tracked pending = Pending::new(lin, op, timestamp);
 
-        self.pending.tracked_insert(timestamp, (maybe_lin, client_token));
+        self.pending.tracked_insert(timestamp, (pending, client_token));
         let tracked lin_token = self.token_map.insert(timestamp, v);
         // load bearing assert
         assert(self.token_map@.dom() == self.completed.dom().union(self.pending.dom()));
@@ -352,7 +354,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         assert forall |ts: Timestamp|
         {
             &&& self.pending.contains_key(ts)
-        } implies ts > self.watermark@.timestamp() && self.pending[ts].0 is Linearizer by {
+        } implies ts > self.watermark@.timestamp() by {
             assert_by_contradiction!(ts > self.watermark@.timestamp(), {
                 if ts > old_watermark && ts < next_ts {
                     pending_lins.lemma_minimal_equivalent_least(ts_leq, next_ts);
@@ -398,7 +400,7 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         // load bearing assert
         assert(self.token_map@.dom() == self.completed.dom().union(self.pending.dom()));
 
-        (comp.tracked_extract_completion(), client_token)
+        (comp.completion, client_token)
     }
 
     /// Remove the linearizer/completion from the queue (for error cases)
@@ -421,9 +423,11 @@ impl<ML: MutLinearizer<RegisterWrite>> LinearizationQueue<ML> {
         token.agree(&self.token_map);
 
         let tracked (lincomp, client_token) = if token.key() > self.watermark@.timestamp() {
-            self.pending.tracked_remove(token.key())
+            let tracked (pending, tok) = self.pending.tracked_remove(token.key());
+            (pending.maybe(), tok)
         } else {
-            self.completed.tracked_remove(token.key())
+            let tracked (comp, tok) = self.completed.tracked_remove(token.key());
+            (comp.maybe(), tok)
         };
         self.token_map.delete_points_to(token);
 

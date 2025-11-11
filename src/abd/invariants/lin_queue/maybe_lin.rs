@@ -24,7 +24,6 @@ pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
     }
 }
 
-
 impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
     pub proof fn linearizer(
         tracked lin: ML,

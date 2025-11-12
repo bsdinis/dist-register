@@ -15,7 +15,7 @@ pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
         ghost op: RegisterWrite,
         ghost timestamp: Timestamp,
     },
-    Comp {
+    Completion {
         // is GhostVar<Option<u64>>
         completion: ML::Completion,
         ghost op: RegisterWrite,
@@ -47,7 +47,7 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
     pub open spec fn inv(self) -> bool {
         &&& self.namespaces().finite()
         &&& self is Linearizer ==> self.lin().pre(self.op())
-        &&& self is Comp ==> self.lin().post(self.op(), (), self->completion)
+        &&& self is Completion ==> self.lin().post(self.op(), (), self->completion)
     }
 
     pub proof fn apply_linearizer(tracked self,
@@ -63,7 +63,7 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
             self.timestamp() == r.timestamp(),
             self.lin() == r.lin(),
             old(register).id() == register.id(),
-            resolved_timestamp >= self.timestamp() ==> r is Comp,
+            resolved_timestamp >= self.timestamp() ==> r is Completion,
         opens_invariants
             self.namespaces()
     {
@@ -71,7 +71,7 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
              MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp <= resolved_timestamp => {
                     let ghost lin_copy = lin;
                     let tracked completion = lin.apply(op, register, (), &());
-                    MaybeLinearized::Comp { completion, timestamp, lin: lin_copy, op }
+                    MaybeLinearized::Completion { completion, timestamp, lin: lin_copy, op }
             } ,
             other => other
         }
@@ -80,40 +80,40 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
     pub open spec fn lin(self) -> ML {
         match self {
             MaybeLinearized::Linearizer { lin, .. } => lin,
-            MaybeLinearized::Comp { lin, .. } => lin,
+            MaybeLinearized::Completion { lin, .. } => lin,
         }
     }
 
     pub open spec fn op(self) -> RegisterWrite {
         match self {
             MaybeLinearized::Linearizer { op, .. } => op,
-            MaybeLinearized::Comp { op, .. } => op,
+            MaybeLinearized::Completion { op, .. } => op,
         }
     }
 
     pub open spec fn timestamp(self) -> Timestamp {
         match self {
             MaybeLinearized::Linearizer { timestamp, .. } => timestamp,
-            MaybeLinearized::Comp { timestamp, .. } => timestamp,
+            MaybeLinearized::Completion { timestamp, .. } => timestamp,
         }
     }
 
     pub open spec fn namespaces(self) -> Set<int> {
         match self {
             MaybeLinearized::Linearizer { lin, .. } => lin.namespaces(),
-            MaybeLinearized::Comp { .. } => Set::empty(),
+            MaybeLinearized::Completion { .. } => Set::empty(),
         }
     }
 
     pub proof fn tracked_extract_completion(tracked self) -> (tracked r: ML::Completion)
         requires
-            self is Comp,
+            self is Completion,
             self.inv(),
         ensures
             self->completion == r,
     {
         match self {
-            MaybeLinearized::Comp { completion, .. } => completion,
+            MaybeLinearized::Completion { completion, .. } => completion,
             _ => proof_from_false()
         }
     }

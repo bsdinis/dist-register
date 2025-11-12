@@ -1,6 +1,7 @@
-use crate::abd::invariants::lin_queue::completed::Completed;
-use crate::abd::invariants::lin_queue::maybe_lin::MaybeLinearized;
+use crate::abd::invariants::lin_queue::Completed;
+use crate::abd::invariants::lin_queue::MaybeLinearized;
 use crate::abd::invariants::logatom::RegisterWrite;
+use crate::abd::invariants::ClientToken;
 use crate::abd::proto::Timestamp;
 
 use vstd::prelude::*;
@@ -13,6 +14,7 @@ verus! {
 
 pub struct Pending<ML: MutLinearizer<RegisterWrite>> {
     pub lin: ML,
+    pub client_token: ClientToken,
     pub ghost op: RegisterWrite,
     pub ghost timestamp: Timestamp,
 }
@@ -20,18 +22,21 @@ pub struct Pending<ML: MutLinearizer<RegisterWrite>> {
 impl<ML: MutLinearizer<RegisterWrite>> Pending<ML> {
     pub proof fn new(
         tracked lin: ML,
+        tracked client_token: ClientToken,
         op: RegisterWrite,
         timestamp: Timestamp,
     ) -> (tracked result: Self)
         requires
             lin.namespaces().finite(),
             lin.pre(op),
+            timestamp.client_id == client_token@,
         ensures
-            result == (Pending { lin, op, timestamp }),
+            result == (Pending { lin, client_token, op, timestamp }),
             result.inv()
     {
         Pending {
             lin,
+            client_token,
             op,
             timestamp,
         }
@@ -40,6 +45,7 @@ impl<ML: MutLinearizer<RegisterWrite>> Pending<ML> {
     pub open spec fn inv(self) -> bool {
         &&& self.lin.namespaces().finite()
         &&& self.lin.pre(self.op)
+        &&& self.timestamp.client_id == self.client_token@
     }
 
     pub proof fn apply_linearizer(tracked self,
@@ -55,31 +61,34 @@ impl<ML: MutLinearizer<RegisterWrite>> Pending<ML> {
             self.op == r.op,
             self.timestamp == r.timestamp,
             self.lin == r.lin,
+            self.client_token == r.client_token,
             old(register).id() == register.id(),
         opens_invariants
             self.lin.namespaces()
     {
         let ghost lin_copy = self.lin;
         let tracked completion = self.lin.apply(self.op, register, (), &());
-        Completed::new(completion, lin_copy, self.op, self.timestamp)
+        Completed::new(completion, self.client_token, lin_copy, self.op, self.timestamp)
     }
 
-    pub proof fn maybe(tracked self) -> (tracked r: MaybeLinearized<ML>)
+    pub proof fn maybe(tracked self) -> (tracked r: (MaybeLinearized<ML>, ClientToken))
         requires
             self.inv()
         ensures
-            r.inv(),
-            r == (MaybeLinearized::Linearizer {
+            r.0.inv(),
+            r.0.timestamp().client_id == r.1@,
+            r.0 == (MaybeLinearized::Linearizer {
                 lin: self.lin,
                 op: self.op,
                 timestamp: self.timestamp,
             }),
+            r.1 == self.client_token,
     {
-        MaybeLinearized::Linearizer {
+        (MaybeLinearized::Linearizer {
             lin: self.lin,
             op: self.op,
             timestamp: self.timestamp,
-        }
+        }, self.client_token)
     }
 }
 

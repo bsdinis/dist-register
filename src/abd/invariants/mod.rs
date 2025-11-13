@@ -2,6 +2,7 @@
 use vstd::invariant::AtomicInvariant;
 use vstd::invariant::InvariantPredicate;
 use vstd::logatom::MutLinearizer;
+use vstd::logatom::ReadLinearizer;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 use vstd::tokens::set::GhostSetAuth;
@@ -41,17 +42,19 @@ pub struct StatePredicate {
     pub client_token_auth_id: int,
 }
 
-pub struct State<ML: MutLinearizer<RegisterWrite>> {
+pub struct State<ML, RL, MC, RC> {
     pub tracked register: GhostVarAuth<Option<u64>>,
-    pub tracked linearization_queue: LinearizationQueue<ML>,
+    pub tracked linearization_queue: LinearizationQueue<ML, RL, MC, RC>,
     pub tracked servers: ServerUniverse,
     pub tracked client_token_auth: ClientTokenAuth,
 }
 
-impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
-    where ML: MutLinearizer<RegisterWrite>
+impl<ML, RL> InvariantPredicate<StatePredicate, State<ML, RL, ML::Completion, RL::Completion>> for StatePredicate
+where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
 {
-    open spec fn inv(p: StatePredicate, state: State<ML>) -> bool {
+    open spec fn inv(p: StatePredicate, state: State<ML, RL, ML::Completion, RL::Completion>) -> bool {
         &&& p.lin_queue_ids == state.linearization_queue.ids()
         &&& p.register_id == state.register.id()
         &&& p.client_token_auth_id == state.client_token_auth.id()
@@ -66,11 +69,13 @@ impl<ML> InvariantPredicate<StatePredicate, State<ML>> for StatePredicate
     }
 }
 
-pub type StateInvariant<ML> = AtomicInvariant<StatePredicate, State<ML>, StatePredicate>;
+pub type StateInvariant<ML, RL, MC, RC> = AtomicInvariant<StatePredicate, State<ML, RL, MC, RC>, StatePredicate>;
 pub type RegisterView = GhostVar<Option<u64>>;
 
-pub proof fn initialize_system_state<ML>() -> (tracked r: (StateInvariant<ML>, RegisterView))
-    where ML: MutLinearizer<RegisterWrite>
+pub proof fn initialize_system_state<ML, RL>() -> (tracked r: (StateInvariant<ML, RL, ML::Completion, RL::Completion>, RegisterView))
+    where
+        ML: MutLinearizer<RegisterWrite>,
+        RL: ReadLinearizer<RegisterRead>,
     ensures
         r.0.namespace() == state_inv_id(),
         r.0.constant().register_id == r.1.id(),
@@ -95,8 +100,10 @@ pub proof fn initialize_system_state<ML>() -> (tracked r: (StateInvariant<ML>, R
     (state_inv, view)
 }
 
-pub axiom fn get_system_state<ML>() -> (tracked r: (StateInvariant<ML>, RegisterView))
-    where ML: MutLinearizer<RegisterWrite>
+pub axiom fn get_system_state<ML, RL>() -> (tracked r: (StateInvariant<ML, RL, ML::Completion, RL::Completion>, RegisterView))
+    where
+        ML: MutLinearizer<RegisterWrite>,
+        RL: ReadLinearizer<RegisterRead>,
     ensures
         r.0.namespace() == state_inv_id(),
         r.0.constant().register_id == r.1.id(),

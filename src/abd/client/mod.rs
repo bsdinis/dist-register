@@ -1,7 +1,8 @@
 #[allow(unused_imports)]
 use crate::abd::invariants;
 use crate::abd::invariants::lin_queue::InsertError;
-use crate::abd::invariants::lin_queue::LinToken;
+use crate::abd::invariants::lin_queue::LinReadToken;
+use crate::abd::invariants::lin_queue::LinWriteToken;
 use crate::abd::invariants::lin_queue::MaybeLinearized;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
@@ -42,7 +43,11 @@ verus! {
 // - The MutLinearizer should be specified in the method
 // - Type problem: the linearization queue is parametrized by the linearizer type
 // - Polymorphism is hard
-pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
+pub trait AbdRegisterClient<C, ML, RL>
+where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+{
     spec fn register_loc(self) -> int;
     spec fn client_id(self) -> u64;
     spec fn named_locs(self) -> Map<&'static str, int>;
@@ -56,7 +61,7 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
             self.weak_inv()
     ;
 
-    fn read<RL: ReadLinearizer<RegisterRead>>(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
+    fn read(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
         requires
             lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
             !lin@.namespaces().contains(invariants::state_inv_id()),
@@ -87,7 +92,11 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     // - They both observe a read at (seqno, c_id', c_seqno')
     // - They race to increment an atomic internal c_seqno (one gets c_seqno1 and the other c_seqno2)
     // - They write to (seqno + 1, c_id, c_seqno1) and (seqno + 1, c_id, c_seqno2) respectively
-    fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML>>)
+    fn write(
+        &mut self,
+        val: Option<u64>,
+        lin: Tracked<ML>
+    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion, RegisterWrite>>)
         requires
             old(self).inv(),
             lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val }),
@@ -122,27 +131,29 @@ pub trait AbdRegisterClient<C, ML: MutLinearizer<RegisterWrite>> {
     // Note that since this is only called when the second phase happens, at least one server has
     // received the write. This means that recover_client, by reading the register on a loop can
     // finish its own previous write.
-    fn recover_client(&mut self, err: error::WriteError<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML>>)
+    fn recover_client(
+        &mut self,
+        error: error::WriteError<ML, ML::Completion, RegisterWrite>
+    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion, RegisterWrite>>)
         requires
             old(self).weak_inv(),
-            err is FailedSecondQuorum,
-            err->token@.key() == err->timestamp,
+            error is FailedSecondQuorum,
+            error->token@.key() == error->timestamp,
         ensures
             r is Ok ==> ({
-                let (lin, op) = err->token@.value();
+                let (lin, op) = error->token@.value();
                 let comp = r->Ok_0;
                 &&& self.inv()
                 &&& lin.post(op, (), comp@)
             }),
             r is Err ==> ({
                 &&& self.weak_inv()
-                &&& r->Err_0 == err
+                &&& r->Err_0 == error
             })
         ;
 }
 
-#[verifier::reject_recursive_types(C)]
-pub struct AbdPool<Pool: ConnectionPool<C = C>, C, ML: MutLinearizer<RegisterWrite>> {
+pub struct AbdPool<Pool, ML, RL, WC, RC> {
     pool: Pool,
 
     register_id: Ghost<int>,
@@ -150,18 +161,23 @@ pub struct AbdPool<Pool: ConnectionPool<C = C>, C, ML: MutLinearizer<RegisterWri
     // assert ownership on timestamps with a particular client_id
     client_tok_subset: Tracked<GhostSubset<u64>>,
 
-    state_inv: Tracked<StateInvariant<ML>>,
+    state_inv: Tracked<StateInvariant<ML, RL, WC, RC>>,
 }
 
 
 
-impl<Pool, C, ML> AbdPool<Pool, C, ML>
+impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion>
 where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
-    ML: MutLinearizer<RegisterWrite>
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
 {
-    pub fn new(pool: Pool, Tracked(client_token): Tracked<ClientToken>, state_inv: Tracked<StateInvariant<ML>>) -> (r: Self)
+    pub fn new(
+        pool: Pool,
+        Tracked(client_token): Tracked<ClientToken>,
+        state_inv: Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>
+    ) -> (r: Self)
         requires
             pool.n() > 0,
             pool.pool_id() == client_token@,
@@ -211,11 +227,12 @@ where
     }
 }
 
-impl<Pool, C, ML> AbdRegisterClient<C, ML> for AbdPool<Pool, C, ML>
+impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL, ML::Completion, RL::Completion>
 where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
-    ML: MutLinearizer<RegisterWrite>
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
 {
     closed spec fn client_id(self) -> u64 {
         self.id()
@@ -242,7 +259,7 @@ where
 
     proof fn lemma_weak_inv(self) {}
 
-    fn read<RL: ReadLinearizer<RegisterRead>>(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
+    fn read(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
     {
         let bpool = BroadcastPool::new(&self.pool);
         let quorum_res = bpool
@@ -299,7 +316,7 @@ where
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
                     // TODO(read_lin) -- this should come from the read linearizer token
-                    assume(state.linearization_queue.token_map@.contains_key(max_ts));
+                    assume(state.linearization_queue.write_token_map@.contains_key(max_ts));
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
@@ -384,7 +401,7 @@ where
                 vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
                 // TODO(read_lin) -- this should come from the read linearizer token
-                assume(state.linearization_queue.token_map@.contains_key(max_ts));
+                assume(state.linearization_queue.write_token_map@.contains_key(max_ts));
 
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
@@ -410,7 +427,11 @@ where
         Ok((max_val, max_ts, comp))
     }
 
-    fn write(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML>>)
+    fn write(
+        &mut self,
+        val: Option<u64>,
+        Tracked(lin): Tracked<ML>
+    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion, RegisterWrite>>)
     {
         let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
@@ -562,7 +583,7 @@ where
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 let tracked comp;
                 proof {
-                    token.agree(&state.linearization_queue.token_map);
+                    token.agree(&state.linearization_queue.write_token_map);
                     state.linearization_queue.lemma_token_is_in_queue(&token);
 
                     let ghost old_watermark = state.linearization_queue.watermark;
@@ -603,7 +624,10 @@ where
         }
     }
 
-    fn recover_client(&mut self, error: error::WriteError<ML>) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML>>)
+    fn recover_client(
+        &mut self,
+        error: error::WriteError<ML, ML::Completion, RegisterWrite>
+    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion, RegisterWrite>>)
     {
         // TODO(recover): issue a read and if the timestamp is >= error.timestamp we can return the
         // completion and restore the invariant
@@ -611,27 +635,30 @@ where
     }
 }
 
-pub proof fn lemma_inv<Pool, C, ML>(c: AbdPool<Pool, C, ML>)
+pub proof fn lemma_inv<Pool, C, ML, RL>(c: AbdPool<Pool, ML, RL, ML::Completion, RL::Completion>)
     where
         Pool: ConnectionPool<C = C>,
         C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
-        ML: MutLinearizer<RegisterWrite>
+        ML: MutLinearizer<RegisterWrite>,
+        RL: ReadLinearizer<RegisterRead>,
     ensures
         c._inv() <==> c.inv(),
         c._weak_inv() <==> c.weak_inv(),
 {
 }
 
-pub proof fn lemma_watermark_contradiction<ML>(
-    tracked token_res: Result<LinToken<ML>, InsertError<ML>>,
+pub proof fn lemma_watermark_contradiction<ML, RL>(
+    tracked token_res: Result<LinWriteToken<ML>, InsertError<ML>>,
     timestamp: Timestamp,
     lin: ML,
     op: RegisterWrite,
     pred: invariants::StatePredicate,
-    tracked state: &invariants::State<ML>,
+    tracked state: &invariants::State<ML, RL, ML::Completion, RL::Completion>,
     tracked quorum: Quorum,
-) -> (tracked tok: LinToken<ML>)
-    where ML: MutLinearizer<RegisterWrite>,
+) -> (tracked tok: LinWriteToken<ML>)
+    where
+        ML: MutLinearizer<RegisterWrite>,
+        RL: ReadLinearizer<RegisterRead>,
     requires
         <invariants::StatePredicate as InvariantPredicate<_, _>>::inv(pred, *state),
         state.servers.valid_quorum(quorum),
@@ -640,7 +667,7 @@ pub proof fn lemma_watermark_contradiction<ML>(
             let tok = token_res->Ok_0;
             &&& tok.key() == timestamp
             &&& tok.value() == (lin, op)
-            &&& tok.id() == state.linearization_queue.token_map.id()
+            &&& tok.id() == state.linearization_queue.write_token_map.id()
         },
         token_res is Err ==> ({
             let watermark_lb = token_res->Err_0->watermark_lb;
@@ -652,7 +679,7 @@ pub proof fn lemma_watermark_contradiction<ML>(
         tok == token_res->Ok_0,
         tok.key() == timestamp,
         tok.value() == (lin, op),
-        tok.id() == state.linearization_queue.token_map.id(),
+        tok.id() == state.linearization_queue.write_token_map.id(),
 {
     if &token_res is Err {
         let tracked mut watermark_lb = token_res.tracked_unwrap_err().lower_bound();

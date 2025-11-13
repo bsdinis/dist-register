@@ -9,22 +9,22 @@ use vstd::tokens::frac::GhostVarAuth;
 
 verus! {
 
-pub enum MaybeLinearized<ML: MutLinearizer<RegisterWrite>> {
+pub enum MaybeLinearized<L, C, Op> {
     Linearizer {
-        lin: ML,
-        ghost op: RegisterWrite,
+        lin: L,
+        ghost op: Op,
         ghost timestamp: Timestamp,
     },
     Completion {
         // is GhostVar<Option<u64>>
-        completion: ML::Completion,
-        ghost op: RegisterWrite,
+        completion: C,
+        ghost op: Op,
         ghost timestamp: Timestamp,
-        ghost lin: ML,
+        ghost lin: L,
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
+impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML, ML::Completion, RegisterWrite> {
     pub proof fn linearizer(
         tracked lin: ML,
         op: RegisterWrite,
@@ -34,7 +34,7 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML> {
             lin.namespaces().finite(),
             lin.pre(op),
         ensures
-            result == (MaybeLinearized::Linearizer { lin, op, timestamp }),
+            result == (MaybeLinearized::<ML, ML::Completion, RegisterWrite>::Linearizer { lin, op, timestamp }),
             result.inv()
     {
         MaybeLinearized::Linearizer {

@@ -11,16 +11,18 @@ use vstd::tokens::frac::GhostVarAuth;
 
 verus! {
 
-pub struct Completed<ML: MutLinearizer<RegisterWrite>> {
+pub struct Completed<ML, C, Op>
+{
     // is GhostVar<Option<u64>>
-    pub completion: ML::Completion,
+    pub completion: C,
     pub client_token: ClientToken,
     pub ghost lin: ML,
-    pub ghost op: RegisterWrite,
+    pub ghost op: Op,
     pub ghost timestamp: Timestamp,
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> Completed<ML> {
+impl<ML: MutLinearizer<RegisterWrite>> Completed<ML, ML::Completion, RegisterWrite>
+{
     pub proof fn new(
         tracked completion: ML::Completion,
         tracked client_token: ClientToken,
@@ -49,13 +51,13 @@ impl<ML: MutLinearizer<RegisterWrite>> Completed<ML> {
         &&& self.timestamp.client_id == self.client_token@
     }
 
-    pub proof fn maybe(tracked self) -> (tracked r: (MaybeLinearized<ML>, ClientToken))
+    pub proof fn maybe(tracked self) -> (tracked r: (MaybeLinearized<ML, ML::Completion, RegisterWrite>, ClientToken))
         requires
             self.inv()
         ensures
             r.0.inv(),
             r.0.timestamp().client_id == r.1@,
-            r.0 == (MaybeLinearized::Completion {
+            r.0 == (MaybeLinearized::<ML, ML::Completion, RegisterWrite>::Completion {
                 completion: self.completion,
                 lin: self.lin,
                 op: self.op,

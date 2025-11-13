@@ -12,14 +12,14 @@ use vstd::tokens::frac::GhostVarAuth;
 
 verus! {
 
-pub struct Pending<ML: MutLinearizer<RegisterWrite>> {
+pub struct Pending<ML, Op> {
     pub lin: ML,
     pub client_token: ClientToken,
-    pub ghost op: RegisterWrite,
+    pub ghost op: Op,
     pub ghost timestamp: Timestamp,
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> Pending<ML> {
+impl<ML: MutLinearizer<RegisterWrite>> Pending<ML, RegisterWrite> {
     pub proof fn new(
         tracked lin: ML,
         tracked client_token: ClientToken,
@@ -51,7 +51,7 @@ impl<ML: MutLinearizer<RegisterWrite>> Pending<ML> {
     pub proof fn apply_linearizer(tracked self,
         tracked register: &mut GhostVarAuth<Option<u64>>,
         resolved_timestamp: Timestamp
-    ) -> (tracked r: Completed<ML>)
+    ) -> (tracked r: Completed<ML, ML::Completion, RegisterWrite>)
         requires
             self.inv(),
             old(register).id() == self.op.id,
@@ -71,13 +71,13 @@ impl<ML: MutLinearizer<RegisterWrite>> Pending<ML> {
         Completed::new(completion, self.client_token, lin_copy, self.op, self.timestamp)
     }
 
-    pub proof fn maybe(tracked self) -> (tracked r: (MaybeLinearized<ML>, ClientToken))
+    pub proof fn maybe(tracked self) -> (tracked r: (MaybeLinearized<ML, ML::Completion, RegisterWrite>, ClientToken))
         requires
             self.inv()
         ensures
             r.0.inv(),
             r.0.timestamp().client_id == r.1@,
-            r.0 == (MaybeLinearized::Linearizer {
+            r.0 == (MaybeLinearized::<ML, ML::Completion, RegisterWrite>::Linearizer {
                 lin: self.lin,
                 op: self.op,
                 timestamp: self.timestamp,

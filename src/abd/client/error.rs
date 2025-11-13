@@ -1,9 +1,7 @@
-use crate::abd::invariants::lin_queue::LinToken;
+use crate::abd::invariants::lin_queue::LinWriteToken;
 use crate::abd::invariants::lin_queue::MaybeLinearized;
-use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::proto::Timestamp;
 
-use vstd::logatom::MutLinearizer;
 use vstd::prelude::*;
 
 verus! {
@@ -44,13 +42,13 @@ impl<RL> ReadError<RL> {
 /// This happens when a connection reset happens
 /// In this case, the error is exposed to the client
 
-pub enum WriteError<ML: MutLinearizer<RegisterWrite>> {
+pub enum WriteError<ML, MC, Op> {
     // The first phase of the write failed
     // In this case the write never physicially started, so we can get the MaybeLinearized
     FailedFirstQuorum {
         obtained: usize,
         required: usize,
-        lincomp: Tracked<MaybeLinearized<ML>>,
+        lincomp: Tracked<MaybeLinearized<ML, MC, Op>>,
     },
 
     // The second phase of the write failed
@@ -59,12 +57,12 @@ pub enum WriteError<ML: MutLinearizer<RegisterWrite>> {
         obtained: usize,
         required: usize,
         timestamp: Timestamp,
-        token: Tracked<LinToken<ML>>,
+        token: Tracked<LinWriteToken<ML>>,
     },
 }
 
 impl<RL> std::error::Error for ReadError<RL> {}
-impl<ML: MutLinearizer<RegisterWrite>> std::error::Error for WriteError<ML> {}
+impl<ML, MC, Op> std::error::Error for WriteError<ML, MC, Op> {}
 }
 
 impl<RL> std::fmt::Debug for ReadError<RL> {
@@ -101,7 +99,7 @@ impl<RL> std::fmt::Display for ReadError<RL> {
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Debug for WriteError<ML> {
+impl<ML, MC, Op> std::fmt::Debug for WriteError<ML, MC, Op> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WriteError::FailedFirstQuorum {
@@ -122,7 +120,7 @@ impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Debug for WriteError<ML> {
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Display for WriteError<ML> {
+impl<ML, MC, Op> std::fmt::Display for WriteError<ML, MC, Op> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WriteError::FailedFirstQuorum { obtained, required, .. } => {

@@ -32,6 +32,7 @@ use vstd::logatom::MutLinearizer;
 #[allow(unused_imports)]
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
+use vstd::tokens::frac::GhostVar;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
@@ -52,27 +53,34 @@ struct Args {
     client_id: u64,
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> From<ConnectError> for Error<ML> {
+impl<ML: MutLinearizer<RegisterWrite>> From<ConnectError>
+    for Error<ML, ML::Completion, RegisterWrite>
+{
     fn from(value: ConnectError) -> Self {
         Error::Connection(value)
     }
 }
 
 impl<ML: MutLinearizer<RegisterWrite>> From<abd::client::error::ReadError<ReadPerm<'_>>>
-    for Error<ML>
+    for Error<ML, ML::Completion, RegisterWrite>
 {
     fn from(value: abd::client::error::ReadError<ReadPerm<'_>>) -> Self {
         Error::AbdRead(format!("{:?}", value))
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> From<abd::client::error::WriteError<ML>> for Error<ML> {
-    fn from(value: abd::client::error::WriteError<ML>) -> Self {
+impl<ML: MutLinearizer<RegisterWrite>>
+    From<abd::client::error::WriteError<ML, ML::Completion, RegisterWrite>>
+    for Error<ML, ML::Completion, RegisterWrite>
+{
+    fn from(value: abd::client::error::WriteError<ML, ML::Completion, RegisterWrite>) -> Self {
         Error::AbdWrite(value)
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> std::error::Error for Error<ML> {
+impl<ML: MutLinearizer<RegisterWrite>> std::error::Error
+    for Error<ML, ML::Completion, RegisterWrite>
+{
     fn cause(&self) -> Option<&dyn std::error::Error> {
         match self {
             Error::Connection(e) => Some(e),
@@ -82,7 +90,9 @@ impl<ML: MutLinearizer<RegisterWrite>> std::error::Error for Error<ML> {
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Display for Error<ML> {
+impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Display
+    for Error<ML, ML::Completion, RegisterWrite>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Connection(e) => e.fmt(f),
@@ -92,7 +102,9 @@ impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Display for Error<ML> {
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Debug for Error<ML> {
+impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Debug
+    for Error<ML, ML::Completion, RegisterWrite>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Connection(e) => e.fmt(f),
@@ -104,10 +116,10 @@ impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Debug for Error<ML> {
 
 verus! {
 
-enum Error<ML: MutLinearizer<RegisterWrite>> {
+enum Error<ML, MC, Op> {
     Connection(ConnectError),
     AbdRead(String),
-    AbdWrite(abd::client::error::WriteError<ML>),
+    AbdWrite(abd::client::error::WriteError<ML, MC, Op>),
 }
 
 #[verifier::external_trait_specification]
@@ -340,11 +352,14 @@ where
 }
 */
 
-fn get_invariant_state<Pool, C, ML>(pool: &Pool) -> (r: (Tracked<ClientToken>, Tracked<StateInvariant<ML>>, Tracked<RegisterView>))
+fn get_invariant_state<Pool, C, ML, RL>(
+    pool: &Pool
+    ) -> (r: (Tracked<ClientToken>, Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>, Tracked<RegisterView>))
     where
         Pool: ConnectionPool<C = C>,
         C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
-        ML: MutLinearizer<RegisterWrite>
+        ML: MutLinearizer<RegisterWrite>,
+        RL: ReadLinearizer<RegisterRead>,
     ensures
         r.0@@ == pool.pool_id(),
         r.1@.constant().client_token_auth_id == r.0@.id(),
@@ -353,7 +368,7 @@ fn get_invariant_state<Pool, C, ML>(pool: &Pool) -> (r: (Tracked<ClientToken>, T
     let tracked state_inv;
     let tracked view;
     proof {
-        let tracked (s, v) = invariants::get_system_state::<ML>();
+        let tracked (s, v) = invariants::get_system_state::<ML, RL>();
         state_inv = s;
         view = v;
     }
@@ -370,7 +385,7 @@ fn get_invariant_state<Pool, C, ML>(pool: &Pool) -> (r: (Tracked<ClientToken>, T
 }
 
 
-fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error<WritePerm>>
+fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error<WritePerm, GhostVar<Option<u64>>, RegisterWrite>>
 where
     Conn: Connector<C> + Send + Sync,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
@@ -383,50 +398,50 @@ where
         lemma_pool_len(pool);
     }
 
-    let (client_token, state_inv, view) = get_invariant_state::<_, _, WritePerm>(&pool);
-    let mut client = AbdPool::<_, _, WritePerm>::new(pool, client_token, state_inv);
+    let (client_token, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(&pool);
+    let mut client = AbdPool::<_, WritePerm, ReadPerm<'_>, GhostVar<Option<u64>>, &'_ GhostVar<Option<u64>>>::new(pool, client_token, state_inv);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     assert(client.weak_inv()) by { client.lemma_weak_inv() };
     let tracked view = view.get();
     report_quorum_size(client.quorum_size());
 
-    let tracked read_perm = ReadPerm { register: &view };
-    assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
-    match client.read::<ReadPerm>(Tracked(read_perm)) {
-        Ok((v, ts, _comp)) => {
-            report_read(0, (v, ts));
-        },
-        Err(e) => {
-            report_err(0, &e);
-            return Err(e)?;
-        }
-    };
-
-    let tracked write_perm = WritePerm { register: view, val: Some(42u64) };
-    let view = match client.write(Some(42), Tracked(write_perm)) {
-        Ok(comp) => {
-            report_write(0, Some(42));
-            comp
-        },
-        Err(e) => {
-            report_err(0, &e);
-            return Err(e)?;
-        }
-    };
-    let tracked view = view.get();
-    assert(view@@ == Some(42u64));
-
-    let tracked read_perm = ReadPerm { register: &view };
-    assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
-    match client.read::<ReadPerm>(Tracked(read_perm)) {
-        Ok((v, ts, _comp)) => {
-            report_read(0, (v, ts));
-        },
-        Err(e) => {
-            report_err(0, &e);
-            return Err(e)?;
-        }
-    };
+  // let tracked read_perm = ReadPerm { register: &view };
+  // assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+  // match client.read(Tracked(read_perm)) {
+  //     Ok((v, ts, _comp)) => {
+  //         report_read(0, (v, ts));
+  //     },
+  //     Err(e) => {
+  //         report_err(0, &e);
+  //         return Err(e)?;
+  //     }
+  // };
+  //
+  // let tracked write_perm = WritePerm { register: view, val: Some(42u64) };
+  // let view = match client.write(Some(42), Tracked(write_perm)) {
+  //     Ok(comp) => {
+  //         report_write(0, Some(42));
+  //         comp
+  //     },
+  //     Err(e) => {
+  //         report_err(0, &e);
+  //         return Err(e)?;
+  //     }
+  // };
+  // let tracked view = view.get();
+  // assert(view@@ == Some(42u64));
+  //
+  // let tracked read_perm = ReadPerm { register: &view };
+  // assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+  // match client.read(Tracked(read_perm)) {
+  //     Ok((v, ts, _comp)) => {
+  //         report_read(0, (v, ts));
+  //     },
+  //     Err(e) => {
+  //         report_err(0, &e);
+  //         return Err(e)?;
+  //     }
+  // };
 
     Ok(Trace::new())
 }
@@ -563,7 +578,7 @@ fn orders_agree(o1: &PartialOrder, o2: &PartialOrder) -> bool {
     true
 }
 
-fn main() -> Result<(), Error<WritePerm>> {
+fn main() -> Result<(), Error<WritePerm, GhostVar<Option<u64>>, RegisterWrite>> {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();

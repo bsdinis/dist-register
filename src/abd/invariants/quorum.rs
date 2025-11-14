@@ -334,8 +334,7 @@ impl ServerUniverse {
             lemma_len_subset(u, self.dom());
         });
 
-        // TODO(quorum_lib/verus/assume): add verus lemma around intersections
-        assume(!q1@.intersect(q2@).is_empty());
+        lemma_disjoint_iff_empty_intersection(q1@, q2@);
         let witness_idx = choose |idx: nat| q1@.contains(idx) && q2@.contains(idx);
         witness_idx
     }

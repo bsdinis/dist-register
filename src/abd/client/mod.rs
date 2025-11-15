@@ -4,6 +4,7 @@ use crate::abd::invariants::lin_queue::InsertError;
 use crate::abd::invariants::lin_queue::LinReadToken;
 use crate::abd::invariants::lin_queue::LinWriteToken;
 use crate::abd::invariants::lin_queue::MaybeLinearized;
+use crate::abd::invariants::lin_queue::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::invariants::quorum::Quorum;
@@ -462,7 +463,7 @@ where
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 let tracked tok = self.client_tok_subset.borrow_mut().take().singleton();
-                token_res = state.linearization_queue.insert_linearizer(lin, op, proph_ts, tok);
+                token_res = state.linearization_queue.insert_write_linearizer(lin, op, proph_ts, tok);
             }
         });
 
@@ -488,13 +489,13 @@ where
                             let tracked client_token;
                             if &token_res is Ok {
                                 let tracked token = token_res.tracked_unwrap();
-                                let tracked x = state.linearization_queue.remove_lin(token);
+                                let tracked x = state.linearization_queue.remove_write_lin(token);
                                 lincomp = x.0;
                                 client_token = x.1;
                             } else {
                                 let tracked err = token_res.tracked_unwrap_err();
-                                let tracked (err_lin, tok) = err.tracked_destruct();
-                                lincomp = MaybeLinearized::linearizer(err_lin, op, proph_ts);
+                                let tracked (err_lin, tok) = err.tracked_write_destruct();
+                                lincomp = MaybeWriteLinearized::linearizer(err_lin, op, proph_ts);
                                 client_token = tok;
                             }
 
@@ -584,7 +585,7 @@ where
                 let tracked comp;
                 proof {
                     token.agree(&state.linearization_queue.write_token_map);
-                    state.linearization_queue.lemma_token_is_in_queue(&token);
+                    state.linearization_queue.lemma_write_token_is_in_queue(&token);
 
                     let ghost old_watermark = state.linearization_queue.watermark;
 
@@ -606,7 +607,7 @@ where
                         assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
                     }
 
-                    let tracked (c, tok) = state.linearization_queue.extract_completion(token, resource);
+                    let tracked (c, tok) = state.linearization_queue.extract_write_completion(token, resource);
                     let tracked mut subset = tok.subset();
                     vstd::modes::tracked_swap(&mut subset, self.client_tok_subset.borrow_mut());
 
@@ -648,7 +649,7 @@ pub proof fn lemma_inv<Pool, C, ML, RL>(c: AbdPool<Pool, ML, RL, ML::Completion,
 }
 
 pub proof fn lemma_watermark_contradiction<ML, RL>(
-    tracked token_res: Result<LinWriteToken<ML>, InsertError<ML>>,
+    tracked token_res: Result<LinWriteToken<ML>, InsertError<ML, RL>>,
     timestamp: Timestamp,
     lin: ML,
     op: RegisterWrite,
@@ -670,7 +671,9 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
             &&& tok.id() == state.linearization_queue.write_token_map.id()
         },
         token_res is Err ==> ({
-            let watermark_lb = token_res->Err_0->watermark_lb;
+            let err = token_res->Err_0;
+            let watermark_lb = token_res->Err_0->w_watermark_lb;
+            &&& err is WriteWatermarkContradiction
             &&& timestamp <= watermark_lb@.timestamp()
             &&& watermark_lb.loc() == state.linearization_queue.watermark.loc()
             &&& watermark_lb@ is LowerBound
@@ -682,7 +685,9 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
         tok.id() == state.linearization_queue.write_token_map.id(),
 {
     if &token_res is Err {
-        let tracked mut watermark_lb = token_res.tracked_unwrap_err().lower_bound();
+        let tracked err = token_res.tracked_unwrap_err();
+        assert(err is WriteWatermarkContradiction);
+        let tracked mut watermark_lb = err.lower_bound();
 
         // derive the contradiction
         // NOTE: only the lemma invocation is needed but this is key part of the proof

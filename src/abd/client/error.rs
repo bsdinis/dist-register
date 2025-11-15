@@ -48,7 +48,7 @@ pub enum WriteError<ML, MC, Op> {
     FailedFirstQuorum {
         obtained: usize,
         required: usize,
-        lincomp: Tracked<MaybeLinearized<ML, MC, Op>>,
+        lincomp: Tracked<MaybeLinearized<ML, MC, (), Op>>,
     },
 
     // The second phase of the write failed

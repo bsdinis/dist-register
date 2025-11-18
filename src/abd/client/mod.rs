@@ -3,7 +3,7 @@ use crate::abd::invariants;
 use crate::abd::invariants::lin_queue::InsertError;
 use crate::abd::invariants::lin_queue::LinReadToken;
 use crate::abd::invariants::lin_queue::LinWriteToken;
-use crate::abd::invariants::lin_queue::MaybeLinearized;
+use crate::abd::invariants::lin_queue::MaybeReadLinearized;
 use crate::abd::invariants::lin_queue::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
@@ -62,19 +62,32 @@ where
             self.weak_inv()
     ;
 
-    fn read(&self, lin: Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
+    fn read(
+        &self,
+        lin: Tracked<RL>
+    ) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL, RL::Completion>>)
         requires
             lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
             self.weak_inv()
         ensures
+            self.weak_inv(),
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
                 lin@.post(RegisterRead { id: Ghost(self.register_loc()) }, val, compl@)
             }),
             r is Err ==> ({
-                r->Err_0.lin() == lin
+                let err = r->Err_0;
+                let op = RegisterRead { id: Ghost(self.register_loc()) };
+                &&& err is FailedFirstQuorum ==> ({
+                    &&& err->lincomp@.lin() == lin
+                    &&& err->lincomp@.op() == op
+                })
+                &&& err is FailedSecondQuorum ==> ({
+                    &&& err->token@.value() == (lin@, op)
+                    &&& err->token@.key().0 == err->timestamp
+                })
             }),
         ;
 
@@ -97,7 +110,7 @@ where
         &mut self,
         val: Option<u64>,
         lin: Tracked<ML>
-    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion, RegisterWrite>>)
+    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion>>)
         requires
             old(self).inv(),
             lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val }),
@@ -134,8 +147,8 @@ where
     // finish its own previous write.
     fn recover_client(
         &mut self,
-        error: error::WriteError<ML, ML::Completion, RegisterWrite>
-    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion, RegisterWrite>>)
+        error: error::WriteError<ML, ML::Completion>
+    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion>>)
         requires
             old(self).weak_inv(),
             error is FailedSecondQuorum,
@@ -260,8 +273,22 @@ where
 
     proof fn lemma_weak_inv(self) {}
 
-    fn read(&self, Tracked(lin): Tracked<RL>) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL>>)
+    fn read(
+        &self,
+        Tracked(lin): Tracked<RL>
+    ) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL, RL::Completion>>)
     {
+        let op = RegisterRead { id: Ghost(self.register_loc()) };
+        // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point -- see
+        // discussion on `write`
+        let proph_ts = Prophecy::<Timestamp>::new();
+        let tracked token_res;
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            proof {
+                token_res = state.linearization_queue.insert_read_linearizer(lin, op, proph_ts@, &state.register);
+            }
+        });
+
         let bpool = BroadcastPool::new(&self.pool);
         let quorum_res = bpool
             .broadcast(Request::Get)
@@ -276,10 +303,23 @@ where
         let quorum = match quorum_res {
             Ok(q) => q,
             Err(e) => {
+                let tracked lincomp;
+                vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+                    proof {
+                        if &token_res is Ok {
+                            let tracked token = token_res.tracked_unwrap();
+                            lincomp = state.linearization_queue.remove_read_lin(token);
+                        } else {
+                            let tracked err = token_res.tracked_unwrap_err();
+                            let tracked err_lin = err.tracked_read_destruct();
+                            lincomp = MaybeReadLinearized::linearizer(err_lin, op, proph_ts@);
+                        }
+                    }
+                });
                 return Err(error::ReadError::FailedFirstQuorum {
                     obtained: e.replies().len(),
                     required: self.pool.quorum_size(),
-                    linearizer: Tracked(lin),
+                    lincomp: Tracked(lincomp),
                 });
             }
         };
@@ -303,9 +343,15 @@ where
             }
         }
 
+        let tracked token;
+        proof {
+            // TODO(assume/watermark)
+            assume(token_res is Ok);
+            token = token_res.tracked_unwrap();
+        }
 
         if n_max_ts >= self.pool.quorum_size() {
-            let comp;
+            let tracked comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
                     let ghost old_watermark = state.linearization_queue.watermark;
@@ -316,7 +362,10 @@ where
                     servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
-                    // TODO(read_lin) -- this should come from the read linearizer token
+
+                    // TODO(assume/read_lin): need to show that *at this point* the existence of a
+                    // read token implies the existence of the corresponding write token or that it
+                    // is over?
                     assume(state.linearization_queue.write_token_map@.contains_key(max_ts));
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
@@ -330,17 +379,16 @@ where
                     } else {
                         assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
                     }
-                }
 
-                let op = RegisterRead { id: Ghost(self.register_loc()) };
-                // TODO(assume): read linearizer op requirement -- see TODO(read_lin)
-                assume(state.register@ == &max_val);
-                comp = Tracked(lin.apply(op, &state.register, &max_val));
+                    // TODO(assume/apply): need to establish this relationship in the postcondition
+                    assume(token.key().0 <= watermark@.timestamp());
+                    comp = state.linearization_queue.extract_read_completion(token, &max_val, watermark);
+                }
 
                 // XXX: not load bearing but good for debugging
                 assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
             });
-            return Ok((max_val, max_ts, comp));
+            return Ok((max_val, max_ts, Tracked(comp)));
         }
 
         // non-unanimous read: write-back
@@ -381,16 +429,18 @@ where
         let wb_rep = match replies_result {
             Ok(r) => r,
             Err(replies) => {
+                assume(token.key().0 == max_ts);
                 return Err(error::ReadError::FailedSecondQuorum {
                     obtained: replies.replies().len(),
                     required: self.pool.quorum_size(),
-                    linearizer: Tracked(lin),
+                    timestamp: max_ts,
+                    token: Tracked(token),
                 });
             }
         };
         let wb_replies = wb_rep.replies();
 
-        let comp;
+        let tracked comp;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 let ghost old_watermark = state.linearization_queue.watermark;
@@ -401,12 +451,14 @@ where
                 servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                 vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
-                // TODO(read_lin) -- this should come from the read linearizer token
+                // TODO(assume/read_lin): need to show that *at this point* the existence of a
+                // read token implies the existence of the corresponding write token or that it is
+                // over?
                 assume(state.linearization_queue.write_token_map@.contains_key(max_ts));
 
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
-                let tracked (_watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
+                let tracked (watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
 
                 if max_ts > old_watermark@.timestamp() {
@@ -415,24 +467,23 @@ where
                 } else {
                     assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
                 }
-            }
 
-            let op = RegisterRead { id: Ghost(self.register_loc()) };
-            // TODO(assume): read linearizer op requirement -- see TODO(read_lin)
-            assume(state.register@ == &max_val);
-            comp = Tracked(lin.apply(op, &state.register, &max_val));
+                // TODO(assume/apply): need to establish this relationship in the postcondition
+                assume(token.key().0 <= watermark@.timestamp());
+                comp = state.linearization_queue.extract_read_completion(token, &max_val, watermark);
+            }
 
             // XXX: not load bearing but good for debugging
             assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
         });
-        Ok((max_val, max_ts, comp))
+        Ok((max_val, max_ts, Tracked(comp)))
     }
 
     fn write(
         &mut self,
         val: Option<u64>,
         Tracked(lin): Tracked<ML>
-    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion, RegisterWrite>>)
+    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion>>)
     {
         let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
@@ -627,8 +678,8 @@ where
 
     fn recover_client(
         &mut self,
-        error: error::WriteError<ML, ML::Completion, RegisterWrite>
-    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion, RegisterWrite>>)
+        error: error::WriteError<ML, ML::Completion>
+    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion>>)
     {
         // TODO(recover): issue a read and if the timestamp is >= error.timestamp we can return the
         // completion and restore the invariant

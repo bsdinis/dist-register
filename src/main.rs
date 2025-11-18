@@ -53,45 +53,56 @@ struct Args {
     client_id: u64,
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> From<ConnectError>
-    for Error<ML, ML::Completion, RegisterWrite>
+impl<ML, RL> From<ConnectError> for Error<ML, ML::Completion, RL, RL::Completion>
+where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
 {
     fn from(value: ConnectError) -> Self {
         Error::Connection(value)
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> From<abd::client::error::ReadError<ReadPerm<'_>>>
-    for Error<ML, ML::Completion, RegisterWrite>
+impl<ML, RL> From<abd::client::error::ReadError<RL, RL::Completion>>
+    for Error<ML, ML::Completion, RL, RL::Completion>
+where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
 {
-    fn from(value: abd::client::error::ReadError<ReadPerm<'_>>) -> Self {
-        Error::AbdRead(format!("{:?}", value))
+    fn from(value: abd::client::error::ReadError<RL, RL::Completion>) -> Self {
+        Error::AbdRead(value)
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>>
-    From<abd::client::error::WriteError<ML, ML::Completion, RegisterWrite>>
-    for Error<ML, ML::Completion, RegisterWrite>
+impl<ML, RL> From<abd::client::error::WriteError<ML, ML::Completion>>
+    for Error<ML, ML::Completion, RL, RL::Completion>
+where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
 {
-    fn from(value: abd::client::error::WriteError<ML, ML::Completion, RegisterWrite>) -> Self {
+    fn from(value: abd::client::error::WriteError<ML, ML::Completion>) -> Self {
         Error::AbdWrite(value)
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> std::error::Error
-    for Error<ML, ML::Completion, RegisterWrite>
+impl<ML, RL> std::error::Error for Error<ML, ML::Completion, RL, RL::Completion>
+where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
 {
     fn cause(&self) -> Option<&dyn std::error::Error> {
         match self {
             Error::Connection(e) => Some(e),
-            Error::AbdRead(e) => None,
+            Error::AbdRead(e) => Some(e),
             Error::AbdWrite(e) => Some(e),
         }
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Display
-    for Error<ML, ML::Completion, RegisterWrite>
+impl<ML, RL> std::fmt::Display for Error<ML, ML::Completion, RL, RL::Completion>
+where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -102,8 +113,10 @@ impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Display
     }
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Debug
-    for Error<ML, ML::Completion, RegisterWrite>
+impl<ML, RL> std::fmt::Debug for Error<ML, ML::Completion, RL, RL::Completion>
+where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -116,10 +129,10 @@ impl<ML: MutLinearizer<RegisterWrite>> std::fmt::Debug
 
 verus! {
 
-enum Error<ML, MC, Op> {
+enum Error<ML, MC, RL, RC> {
     Connection(ConnectError),
-    AbdRead(String),
-    AbdWrite(abd::client::error::WriteError<ML, MC, Op>),
+    AbdRead(abd::client::error::ReadError<RL, RC>),
+    AbdWrite(abd::client::error::WriteError<ML, MC>),
 }
 
 #[verifier::external_trait_specification]
@@ -385,7 +398,7 @@ fn get_invariant_state<Pool, C, ML, RL>(
 }
 
 
-fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error<WritePerm, GhostVar<Option<u64>>, RegisterWrite>>
+fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error<WritePerm, GhostVar<Option<u64>>, ReadPerm, &'_ GhostVar<Option<u64>>>>
 where
     Conn: Connector<C> + Send + Sync,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
@@ -578,19 +591,19 @@ fn orders_agree(o1: &PartialOrder, o2: &PartialOrder) -> bool {
     true
 }
 
-fn main() -> Result<(), Error<WritePerm, GhostVar<Option<u64>>, RegisterWrite>> {
+fn main() {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
 
     if args.n_servers == 0 {
         eprintln!("need at least one server");
-        return Ok(());
+        return;
     }
 
     let connectors: Vec<_> = (0..args.n_servers).map(run_modelled_server).collect();
 
-    let trace = run_client(args, &connectors)?;
+    let trace = run_client(args, &connectors).expect("error");
 
     let realtime_order = realtime(&trace);
     println!("realtime ordering:\n{realtime_order:?}");
@@ -602,6 +615,4 @@ fn main() -> Result<(), Error<WritePerm, GhostVar<Option<u64>>, RegisterWrite>> 
     } else {
         println!("partial orderings do not agree");
     }
-
-    Ok(())
 }

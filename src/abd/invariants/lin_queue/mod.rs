@@ -91,47 +91,6 @@ impl<ML, RL> InsertError<ML, RL> {
     }
 }
 
-
-
-/* TODO(read_lin) - Explanation
- *
- * # Summary
- *
- * Read linearizers need to be included in the linearization queue
- *
- * # The problem
- * This is part due to the fact that if there is a read concurrent with a write, it might happen
- * that:
- *  - when the read reaches a quorum, it is unanimous
- *  - before the read returns to the client, the other write comes in and finishes and linearizes
- *  - when the read wants to run the linearizer, the ghost state (top of the queue) does not match
- *    the value the read wants to linearize to.
- *
- * # The solution
- *
- * The queue would map to a TLinearizer<ML, RL>
- *
- * TLinearizer<ML, RL> {
- *      write: MaybeLinearized<ML>,
- *      reads: Seq<MaybeLinearized<RL>>,
- * }
- *
- * Note: maybe we need it to be a set? how to count how many reads have been linearized?
- *
- * The watermark now is of the form (ts: TS, n: int), where
- * ts is the timestamp of the last linearized write and n is the number of reads
- * to that write that have been linearized.
- *
- * Invariants regarding this read linearizer.
- *
- * - watermark.ts > ts ==> write[ts] is applied
- *      watermark.ts > ts ==> all read[ts] are applied
- *
- * - watermark.ts < ts <==> write[ts] is not applied ==> all read[ts] are not applied
- *
- * - watermark.ts == ts ==> write[ts] is applied
- *      watermark.ts ==> some read[ts] may be applied
- */
 pub struct LinearizationQueue<ML, RL, MC, RC> {
     // value history
     pub history: Map<Timestamp, Option<u64>>,

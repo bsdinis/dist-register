@@ -1,5 +1,7 @@
+use crate::abd::invariants::lin_queue::LinReadToken;
 use crate::abd::invariants::lin_queue::LinWriteToken;
-use crate::abd::invariants::lin_queue::MaybeLinearized;
+use crate::abd::invariants::lin_queue::MaybeReadLinearized;
+use crate::abd::invariants::lin_queue::MaybeWriteLinearized;
 use crate::abd::proto::Timestamp;
 
 use vstd::prelude::*;
@@ -11,30 +13,21 @@ verus! {
 /// The only way an ABD read fails is when a quorum is known to be unatainable
 /// This happens when a connection reset happens
 /// In this case, the error is exposed to the client
-pub enum ReadError<RL> {
+pub enum ReadError<RL, RC> {
     // The first read quorum failed
     FailedFirstQuorum {
         obtained: usize,
         required: usize,
-        linearizer: Tracked<RL>
+        lincomp: Tracked<MaybeReadLinearized<RL, RC>>,
     },
     // The writeback phase of the read failed
     FailedSecondQuorum {
         obtained: usize,
         required: usize,
-        linearizer: Tracked<RL>
+        timestamp: Timestamp,
+        token: Tracked<LinReadToken<RL>>,
     },
 }
-
-impl<RL> ReadError<RL> {
-    pub open spec fn lin(self) -> Tracked<RL> {
-        match self {
-            ReadError::FailedFirstQuorum { linearizer, .. } => linearizer,
-            ReadError::FailedSecondQuorum { linearizer, .. } => linearizer,
-        }
-    }
-}
-
 
 /// ABD write related errors
 ///
@@ -42,13 +35,13 @@ impl<RL> ReadError<RL> {
 /// This happens when a connection reset happens
 /// In this case, the error is exposed to the client
 
-pub enum WriteError<ML, MC, Op> {
+pub enum WriteError<ML, MC> {
     // The first phase of the write failed
     // In this case the write never physicially started, so we can get the MaybeLinearized
     FailedFirstQuorum {
         obtained: usize,
         required: usize,
-        lincomp: Tracked<MaybeLinearized<ML, MC, (), Op>>,
+        lincomp: Tracked<MaybeWriteLinearized<ML, MC>>,
     },
 
     // The second phase of the write failed
@@ -61,11 +54,11 @@ pub enum WriteError<ML, MC, Op> {
     },
 }
 
-impl<RL> std::error::Error for ReadError<RL> {}
-impl<ML, MC, Op> std::error::Error for WriteError<ML, MC, Op> {}
+impl<RL, RC> std::error::Error for ReadError<RL, RC> {}
+impl<ML, MC> std::error::Error for WriteError<ML, MC> {}
 }
 
-impl<RL> std::fmt::Debug for ReadError<RL> {
+impl<RL, RC> std::fmt::Debug for ReadError<RL, RC> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReadError::FailedFirstQuorum {
@@ -86,7 +79,7 @@ impl<RL> std::fmt::Debug for ReadError<RL> {
     }
 }
 
-impl<RL> std::fmt::Display for ReadError<RL> {
+impl<RL, RC> std::fmt::Display for ReadError<RL, RC> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ReadError::FailedFirstQuorum { obtained, required, .. } => {
@@ -99,7 +92,7 @@ impl<RL> std::fmt::Display for ReadError<RL> {
     }
 }
 
-impl<ML, MC, Op> std::fmt::Debug for WriteError<ML, MC, Op> {
+impl<ML, MC> std::fmt::Debug for WriteError<ML, MC> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WriteError::FailedFirstQuorum {
@@ -120,7 +113,7 @@ impl<ML, MC, Op> std::fmt::Debug for WriteError<ML, MC, Op> {
     }
 }
 
-impl<ML, MC, Op> std::fmt::Display for WriteError<ML, MC, Op> {
+impl<ML, MC> std::fmt::Display for WriteError<ML, MC> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WriteError::FailedFirstQuorum { obtained, required, .. } => {

@@ -17,12 +17,12 @@ pub struct RegisterRead {
 pub struct RegisterWrite {
     /// resource location
     pub id: Ghost<int>,
-
     pub new_value: Option<u64>,
 }
 
 impl ReadOperation for RegisterRead {
     type Resource = GhostVarAuth<Option<u64>>;
+
     type ExecResult = Option<u64>;
 
     open spec fn requires(self, r: Self::Resource, e: Self::ExecResult) -> bool {
@@ -38,13 +38,20 @@ pub struct ReadPerm<'a> {
 impl<'a> ReadLinearizer<RegisterRead> for ReadPerm<'a> {
     type Completion = &'a GhostVar<Option<u64>>;
 
-    open spec fn namespaces(self) -> Set<int> { Set::empty() }
+    open spec fn namespaces(self) -> Set<int> {
+        Set::empty()
+    }
 
     open spec fn pre(self, op: RegisterRead) -> bool {
         &&& op.id == self.register.id()
     }
 
-    open spec fn post(self, op: RegisterRead, exec_res: Option<u64>, completion: Self::Completion) -> bool {
+    open spec fn post(
+        self,
+        op: RegisterRead,
+        exec_res: Option<u64>,
+        completion: Self::Completion,
+    ) -> bool {
         &&& op.id == self.register.id()
         &&& op.id == completion.id()
         &&& self.register == completion
@@ -55,22 +62,22 @@ impl<'a> ReadLinearizer<RegisterRead> for ReadPerm<'a> {
         tracked self,
         op: RegisterRead,
         tracked resource: &GhostVarAuth<Option<u64>>,
-        exec_res: &Option<u64>
-    ) -> (tracked result: Self::Completion)
-    {
+        exec_res: &Option<u64>,
+    ) -> (tracked result: Self::Completion) {
         resource.agree(self.register);
         self.register
     }
 
-    proof fn peek(tracked &self, op: RegisterRead, tracked resource: &GhostVarAuth<Option<u64>>) {}
+    proof fn peek(tracked &self, op: RegisterRead, tracked resource: &GhostVarAuth<Option<u64>>) {
+    }
 }
-
 
 impl MutOperation for RegisterWrite {
     type Resource = GhostVarAuth<Option<u64>>;
-    type ExecResult = ();
-    type NewState = ();
 
+    type ExecResult = ();
+
+    type NewState = ();
 
     open spec fn requires(
         self,
@@ -100,7 +107,9 @@ pub struct WritePerm {
 impl MutLinearizer<RegisterWrite> for WritePerm {
     type Completion = GhostVar<Option<u64>>;
 
-    open spec fn namespaces(self) -> Set<int> { Set::empty() }
+    open spec fn namespaces(self) -> Set<int> {
+        Set::empty()
+    }
 
     open spec fn pre(self, op: RegisterWrite) -> bool {
         op.id == self.register.id()
@@ -110,23 +119,23 @@ impl MutLinearizer<RegisterWrite> for WritePerm {
         &&& op.id == self.register.id()
         &&& op.id == completion.id()
         &&& op.new_value == completion@
-     }
+    }
 
     proof fn apply(
         tracked self,
         op: RegisterWrite,
         tracked resource: &mut GhostVarAuth<Option<u64>>,
         new_state: (),
-        exec_res: &()
-    ) -> (tracked result: Self::Completion)
-    {
+        exec_res: &(),
+    ) -> (tracked result: Self::Completion) {
         let tracked WritePerm { val, mut register } = self;
 
         resource.update(&mut register, op.new_value);
         register
     }
 
-    proof fn peek(tracked &self, op: RegisterWrite, tracked resource: &GhostVarAuth<Option<u64>>) {}
+    proof fn peek(tracked &self, op: RegisterWrite, tracked resource: &GhostVarAuth<Option<u64>>) {
+    }
 }
 
-}
+} // verus!

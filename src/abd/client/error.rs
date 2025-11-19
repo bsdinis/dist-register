@@ -34,7 +34,6 @@ pub enum ReadError<RL, RC> {
 /// The only way an ABD write fails is when a quorum is known to be unatainable
 /// This happens when a connection reset happens
 /// In this case, the error is exposed to the client
-
 pub enum WriteError<ML, MC> {
     // The first phase of the write failed
     // In this case the write never physicially started, so we can get the MaybeLinearized
@@ -43,7 +42,6 @@ pub enum WriteError<ML, MC> {
         required: usize,
         lincomp: Tracked<MaybeWriteLinearized<ML, MC>>,
     },
-
     // The second phase of the write failed
     // In this case the write is physically ongoing, so we can only return a token into the queue
     FailedSecondQuorum {
@@ -54,10 +52,15 @@ pub enum WriteError<ML, MC> {
     },
 }
 
-impl<RL, RC> std::error::Error for ReadError<RL, RC> {}
-impl<ML, MC> std::error::Error for WriteError<ML, MC> {}
+impl<RL, RC> std::error::Error for ReadError<RL, RC> {
+
 }
 
+impl<ML, MC> std::error::Error for WriteError<ML, MC> {
+
+}
+
+} // verus!
 impl<RL, RC> std::fmt::Debug for ReadError<RL, RC> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

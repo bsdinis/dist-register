@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicU64;
 use vstd::prelude::*;
 
 verus! {
+
 exec static REQUEST_TAG: AtomicU64 = AtomicU64::new(0);
 
 pub trait TaggedMessage {
@@ -19,10 +20,7 @@ pub struct Tagged<R> {
 
 impl<R: Clone> Clone for Tagged<R> {
     fn clone(&self) -> Self {
-        Tagged {
-            tag: self.tag,
-            inner: self.inner.clone()
-        }
+        Tagged { tag: self.tag, inner: self.inner.clone() }
     }
 }
 
@@ -50,4 +48,4 @@ impl<R> TaggedMessage for Tagged<R> {
     }
 }
 
-}
+} // verus!

@@ -122,19 +122,22 @@ impl MonotonicTimestampResource {
     // knowledge that the current value is 0.
     pub proof fn alloc() -> (tracked result: Self)
         ensures
-            result@ == (MonotonicTimestampResourceValue::FullRightToAdvance { value: Timestamp::spec_default() }),
+            result@ == (MonotonicTimestampResourceValue::FullRightToAdvance {
+                value: Timestamp::spec_default(),
+            }),
     {
-        let v = MonotonicTimestampResourceValue::FullRightToAdvance { value: Timestamp::spec_default() };
+        let v = MonotonicTimestampResourceValue::FullRightToAdvance {
+            value: Timestamp::spec_default(),
+        };
         let tracked mut r = Resource::<MonotonicTimestampResourceValue>::alloc(v);
         Self { r }
     }
-
 
     // Join two resources
     pub proof fn join(tracked self: Self, tracked other: Self) -> (tracked r: Self)
         requires
             self.loc() == other.loc(),
-            self@.timestamp() == other@.timestamp()
+            self@.timestamp() == other@.timestamp(),
         ensures
             r.loc() == self.loc(),
             r@.timestamp() == self@.op(other@).timestamp(),
@@ -151,9 +154,7 @@ impl MonotonicTimestampResource {
             new_value > old(self)@.timestamp(),
         ensures
             self.loc() == old(self).loc(),
-            self@ == (MonotonicTimestampResourceValue::FullRightToAdvance {
-                value: new_value
-            }),
+            self@ == (MonotonicTimestampResourceValue::FullRightToAdvance { value: new_value }),
     {
         let r = MonotonicTimestampResourceValue::FullRightToAdvance { value: new_value };
         update_mut(&mut self.r, r);
@@ -163,7 +164,9 @@ impl MonotonicTimestampResource {
         ensures
             out@ is LowerBound,
             out.loc() == self.loc(),
-            out@ == (MonotonicTimestampResourceValue::LowerBound { lower_bound: self@.timestamp() }),
+            out@ == (MonotonicTimestampResourceValue::LowerBound {
+                lower_bound: self@.timestamp(),
+            }),
     {
         self.r.validate();
         let v = MonotonicTimestampResourceValue::LowerBound { lower_bound: self@.timestamp() };
@@ -177,12 +180,13 @@ impl MonotonicTimestampResource {
         ensures
             self@ == old(self)@,
             self.loc() == old(self).loc(),
-            self@ is LowerBound && other@ is FullRightToAdvance ==> self@.timestamp() <= other@.timestamp(),
-            other@ is LowerBound && self@ is FullRightToAdvance ==> other@.timestamp() <= self@.timestamp(),
-
+            self@ is LowerBound && other@ is FullRightToAdvance ==> self@.timestamp()
+                <= other@.timestamp(),
+            other@ is LowerBound && self@ is FullRightToAdvance ==> other@.timestamp()
+                <= self@.timestamp(),
     {
         self.r.validate_2(&other.r)
     }
 }
 
-}
+} // verus!

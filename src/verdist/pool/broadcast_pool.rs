@@ -12,13 +12,12 @@ pub struct BroadcastPool<'a, Pool> {
     pub pool: &'a Pool,
 }
 
-impl<'a, Pool, Request> BroadcastPool<'a, Pool>
-where
+impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     Pool: ConnectionPool,
     Pool::C: Channel<S = Tagged<Request>>,
     <Pool::C as Channel>::R: TaggedMessage + std::fmt::Debug,
     Request: Clone + std::fmt::Debug,
-{
+ {
     pub fn new(pool: &'a Pool) -> BroadcastPool<'a, Pool> {
         BroadcastPool { pool }
     }
@@ -27,8 +26,7 @@ where
         self,
         request: Request,
         filter_fn: F,
-    ) -> RequestContext<'a, Pool, T>
-    {
+    ) -> RequestContext<'a, Pool, T> {
         let tagged = Tagged::tag(request);
         let conns = self.pool.conns();
         for idx in 0..conns.len() {
@@ -49,4 +47,4 @@ where
     }
 }
 
-}
+} // verus!

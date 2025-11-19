@@ -17,11 +17,7 @@ impl<T, R> Replies<T, R> {
         invalid_replies: Vec<(usize, R)>,
         errors: Vec<(usize, TryRecvError)>,
     ) -> Self {
-        Replies {
-            replies,
-            invalid_replies,
-            errors,
-        }
+        Replies { replies, invalid_replies, errors }
     }
 
     pub fn replies(&self) -> &[(usize, T)] {
@@ -49,4 +45,4 @@ impl<T, R> Replies<T, R> {
     }
 }
 
-}
+} // verus!

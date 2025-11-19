@@ -11,27 +11,32 @@ pub struct Timestamp {
 }
 
 impl vstd::std_specs::cmp::PartialOrdSpecImpl for Timestamp {
-    open spec fn obeys_partial_cmp_spec() -> bool { true }
+    open spec fn obeys_partial_cmp_spec() -> bool {
+        true
+    }
 
     open spec fn partial_cmp_spec(&self, other: &Self) -> Option<std::cmp::Ordering> {
         if self.seqno == other.seqno && self.client_id == other.client_id {
             Some(std::cmp::Ordering::Equal)
-        } else if self.seqno < other.seqno || (self.seqno == other.seqno && self.client_id < other.client_id) {
+        } else if self.seqno < other.seqno || (self.seqno == other.seqno && self.client_id
+            < other.client_id) {
             Some(std::cmp::Ordering::Less)
         } else {
             Some(std::cmp::Ordering::Greater)
         }
     }
-
 }
 
 impl vstd::std_specs::cmp::OrdSpecImpl for Timestamp {
-    open spec fn obeys_cmp_spec() -> bool { true }
+    open spec fn obeys_cmp_spec() -> bool {
+        true
+    }
 
     open spec fn cmp_spec(&self, other: &Self) -> std::cmp::Ordering {
         if self.seqno == other.seqno && self.client_id == other.client_id {
             std::cmp::Ordering::Equal
-        } else if self.seqno < other.seqno || (self.seqno == other.seqno && self.client_id < other.client_id) {
+        } else if self.seqno < other.seqno || (self.seqno == other.seqno && self.client_id
+            < other.client_id) {
             std::cmp::Ordering::Less
         } else {
             std::cmp::Ordering::Greater
@@ -43,7 +48,7 @@ impl Timestamp {
     pub fn default() -> (r: Self)
         ensures
             r.seqno == 0,
-            r.client_id == 0
+            r.client_id == 0,
     {
         Timestamp { seqno: 0, client_id: 0 }
     }
@@ -52,19 +57,19 @@ impl Timestamp {
         Timestamp { seqno: 0, client_id: 0 }
     }
 
-    pub open spec fn spec_lt(self, other: Self) -> bool  {
+    pub open spec fn spec_lt(self, other: Self) -> bool {
         self.seqno < other.seqno || (self.seqno == other.seqno && self.client_id < other.client_id)
     }
 
-    pub open spec fn spec_le(self, other: Self) -> bool  {
+    pub open spec fn spec_le(self, other: Self) -> bool {
         self < other || self == other
     }
 
-    pub open spec fn spec_gt(self, other: Self) -> bool  {
+    pub open spec fn spec_gt(self, other: Self) -> bool {
         !(self <= other)
     }
 
-    pub open spec fn spec_ge(self, other: Self) -> bool  {
+    pub open spec fn spec_ge(self, other: Self) -> bool {
         !(self < other)
     }
 
@@ -77,25 +82,13 @@ impl Timestamp {
 pub enum Request {
     Get,
     GetTimestamp,
-    Write {
-        val: Option<u64>,
-        timestamp: Timestamp,
-    },
+    Write { val: Option<u64>, timestamp: Timestamp },
 }
 
 pub enum Response {
-    Get {
-        val: Option<u64>,
-        timestamp: Timestamp,
-        lb: Tracked<MonotonicTimestampResource>
-    },
-    GetTimestamp {
-        timestamp: Timestamp,
-        lb: Tracked<MonotonicTimestampResource>,
-    },
-    Write {
-        lb: Tracked<MonotonicTimestampResource>,
-    },
+    Get { val: Option<u64>, timestamp: Timestamp, lb: Tracked<MonotonicTimestampResource> },
+    GetTimestamp { timestamp: Timestamp, lb: Tracked<MonotonicTimestampResource> },
+    Write { lb: Tracked<MonotonicTimestampResource> },
 }
 
 impl Clone for Response {
@@ -112,23 +105,17 @@ impl Clone for Response {
             },
             Response::GetTimestamp { timestamp, lb } => {
                 let tracked new_lb = lb.borrow().extract_lower_bound();
-                Response::GetTimestamp {
-                    timestamp: timestamp.clone(),
-                    lb: Tracked(new_lb),
-                }
+                Response::GetTimestamp { timestamp: timestamp.clone(), lb: Tracked(new_lb) }
             },
             Response::Write { lb } => {
                 let tracked new_lb = lb.borrow().extract_lower_bound();
-                Response::Write {
-                    lb: Tracked(new_lb),
-                }
+                Response::Write { lb: Tracked(new_lb) }
             },
         }
     }
 }
 
-}
-
+} // verus!
 impl std::fmt::Debug for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

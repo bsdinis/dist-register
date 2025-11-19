@@ -7,34 +7,43 @@ use vstd::prelude::*;
 verus! {
 
 type Resp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
+
 pub trait ConnectionPool {
     type C: Channel;
 
     fn n_nodes(&self) -> (r: usize)
-        ensures r == self.n();
+        ensures
+            r == self.n(),
+    ;
+
     spec fn n(self) -> nat;
 
     fn quorum_size(&self) -> (r: usize)
-        ensures r == self.qsize();
+        ensures
+            r == self.qsize(),
+    ;
+
     spec fn qsize(self) -> nat;
 
-    fn poll(
-        &self,
-        request_id: u64,
-    ) -> Vec<(
-            usize,
-            Result<Option<Resp<Self>>, crate::verdist::network::error::TryRecvError>,
-        )>;
+    fn poll(&self, request_id: u64) -> Vec<
+        (usize, Result<Option<Resp<Self>>, crate::verdist::network::error::TryRecvError>),
+    >;
 
     fn id(&self) -> (r: u64)
-        ensures r == self.pool_id();
+        ensures
+            r == self.pool_id(),
+    ;
+
     spec fn pool_id(self) -> u64;
 
     fn conns(&self) -> &[Self::C];
 
     proof fn lemma_quorum_nonzero(self)
-        requires self.n() > 0
-        ensures self.qsize() > 0;
+        requires
+            self.n() > 0,
+        ensures
+            self.qsize() > 0,
+    ;
 }
 
 pub struct FlawlessPool<C> {
@@ -42,13 +51,10 @@ pub struct FlawlessPool<C> {
     id: u64,
 }
 
-impl<C> FlawlessPool<C>
-where
-    C: Channel,
-    C::S: TaggedMessage,
-{
+impl<C> FlawlessPool<C> where C: Channel, C::S: TaggedMessage {
     pub fn new(pool: Vec<C>, id: u64) -> (r: Self)
-        ensures r._n() == pool.len()
+        ensures
+            r._n() == pool.len(),
     {
         FlawlessPool { pool, id }
     }
@@ -58,19 +64,16 @@ where
     }
 }
 
-pub proof fn lemma_pool_len<C: Channel>(pool: FlawlessPool<BufChannel<C>>)
-where
+pub proof fn lemma_pool_len<C: Channel>(pool: FlawlessPool<BufChannel<C>>) where
     C::S: TaggedMessage,
     C::R: TaggedMessage,
-    ensures pool._n() == pool.n()
+
+    ensures
+        pool._n() == pool.n(),
 {
 }
 
-impl<C> ConnectionPool for FlawlessPool<BufChannel<C>>
-where
-    C: Channel,
-    C::R: TaggedMessage,
-{
+impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where C: Channel, C::R: TaggedMessage {
     type C = BufChannel<C>;
 
     fn conns(&self) -> &[Self::C] {
@@ -80,24 +83,22 @@ where
     fn n_nodes(&self) -> usize {
         self.pool.len()
     }
+
     closed spec fn n(self) -> nat {
         self.pool@.len()
     }
+
     fn quorum_size(&self) -> usize {
         self.n_nodes() / 2 + 1
     }
+
     closed spec fn qsize(self) -> nat {
         self.n() / 2 + 1
     }
 
-    fn poll(
-        &self,
-        request_tag: u64,
-    ) -> Vec<(
-            usize,
-            Result<Option<C::R>, crate::verdist::network::error::TryRecvError>,
-        )>
-    {
+    fn poll(&self, request_tag: u64) -> Vec<
+        (usize, Result<Option<C::R>, crate::verdist::network::error::TryRecvError>),
+    > {
         let conns = self.conns();
 
         let mut v = Vec::new();
@@ -119,7 +120,8 @@ where
         self.id
     }
 
-    proof fn lemma_quorum_nonzero(self) {}
+    proof fn lemma_quorum_nonzero(self) {
+    }
 }
 
-}
+} // verus!

@@ -26,13 +26,10 @@ impl<V> RwLockPredicate<V> for EmptyCond {
 struct ChannelState<Req, Resp> {
     // replies that have not yet been polled
     buffered: HashMap<u64, Resp>,
-
     // requests that have been sent
     pending: Ghost<Map<u64, Req>>,
-
     // resolved req/resp
     history: Ghost<Map<u64, (Req, Resp)>>,
-
     current_tag: u64,
 }
 
@@ -53,17 +50,16 @@ impl<Req, Resp> ChannelState<Req, Resp> {
 
         assert(pending@.dom().intersect(history@.dom()) == Set::<u64>::empty());
 
-        ChannelState {
-            buffered,
-            pending,
-            history,
-            current_tag: 0
-        }
+        ChannelState { buffered, pending, history, current_tag: 0 }
     }
 
     // called on channel.send()
-    fn add_pending(self, request: Req) -> (r: (Self, RequestTicket<Req>))
-        //requires !self.history@.contains_key(self.current_tag),
+    fn add_pending(self, request: Req) -> (r: (
+        Self,
+        RequestTicket<Req>,
+    ))
+    //requires !self.history@.contains_key(self.current_tag),
+
         ensures
             r.0.buffered == self.buffered,
             r.0.pending == self.pending@.insert(self.current_tag, request),
@@ -78,7 +74,6 @@ impl<Req, Resp> ChannelState<Req, Resp> {
         assume(current_tag < u64::MAX);
         assume(!history@.contains_key(current_tag));
 
-
         let old_intersect = Ghost(pending@.dom().intersect(history@.dom()));
         let pending = Ghost(pending@.insert(current_tag, request));
         let new_intersect = Ghost(pending@.dom().intersect(history@.dom()));
@@ -87,7 +82,7 @@ impl<Req, Resp> ChannelState<Req, Resp> {
 
         (
             ChannelState { buffered, pending, history, current_tag: current_tag + 1 },
-            RequestTicket { request_tag: current_tag, request: Tracked(request) }
+            RequestTicket { request_tag: current_tag, request: Tracked(request) },
         )
     }
 
@@ -115,7 +110,10 @@ impl<Req, Resp> ChannelState<Req, Resp> {
         ensures
             r.buffered@ == self.buffered@.remove(request_tag),
             r.pending == self.pending@.remove(request_tag),
-            r.history == self.history@.insert(request_tag, (self.pending@[request_tag], self.buffered@[request_tag])),
+            r.history == self.history@.insert(
+                request_tag,
+                (self.pending@[request_tag], self.buffered@[request_tag]),
+            ),
     {
         proof {
             use_type_invariant(&self);
@@ -173,9 +171,9 @@ impl<C: Channel> RpcChannel<C> {
     }
 
     // non blocking
-    pub fn poll_id(&self, ) -> Option<C::R> {
+    pub fn poll_id(&self) -> Option<C::R> {
         None
     }
 }
 
-}
+} // verus!

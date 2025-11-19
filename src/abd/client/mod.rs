@@ -44,33 +44,36 @@ verus! {
 // - The MutLinearizer should be specified in the method
 // - Type problem: the linearization queue is parametrized by the linearizer type
 // - Polymorphism is hard
-pub trait AbdRegisterClient<C, ML, RL>
-where
+pub trait AbdRegisterClient<C, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-{
+ {
     spec fn register_loc(self) -> int;
+
     spec fn client_id(self) -> u64;
+
     spec fn named_locs(self) -> Map<&'static str, int>;
+
     spec fn inv(self) -> bool;
+
     spec fn weak_inv(self) -> bool;
 
     proof fn lemma_weak_inv(self)
         requires
             self.inv(),
         ensures
-            self.weak_inv()
+            self.weak_inv(),
     ;
 
-    fn read(
-        &self,
-        lin: Tracked<RL>
-    ) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL, RL::Completion>>)
+    fn read(&self, lin: Tracked<RL>) -> (r: Result<
+        (Option<u64>, Timestamp, Tracked<RL::Completion>),
+        error::ReadError<RL, RL::Completion>,
+    >)
         requires
             lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
-            self.weak_inv()
+            self.weak_inv(),
         ensures
             self.weak_inv(),
             r is Ok ==> ({
@@ -89,7 +92,7 @@ where
                     &&& err->token@.key().0 == err->timestamp
                 })
             }),
-        ;
+    ;
 
     // NOTE: to make writes behind a shared ref we need to restructure the timestamp
     // The timestamp requires a field for a per-client seqno that orders the writes on the same
@@ -106,11 +109,10 @@ where
     // - They both observe a read at (seqno, c_id', c_seqno')
     // - They race to increment an atomic internal c_seqno (one gets c_seqno1 and the other c_seqno2)
     // - They write to (seqno + 1, c_id, c_seqno1) and (seqno + 1, c_id, c_seqno2) respectively
-    fn write(
-        &mut self,
-        val: Option<u64>,
-        lin: Tracked<ML>
-    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion>>)
+    fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<
+        Tracked<ML::Completion>,
+        error::WriteError<ML, ML::Completion>,
+    >)
         requires
             old(self).inv(),
             lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val }),
@@ -122,14 +124,21 @@ where
             r is Ok ==> ({
                 let comp = r->Ok_0;
                 &&& self.inv()
-                &&& lin@.post(RegisterWrite { id: Ghost(self.register_loc()), new_value: val }, (), comp@)
+                &&& lin@.post(
+                    RegisterWrite { id: Ghost(self.register_loc()), new_value: val },
+                    (),
+                    comp@,
+                )
             }),
             r is Err ==> ({
                 let err = r->Err_0;
                 &&& err is FailedFirstQuorum ==> ({
                     &&& self.inv()
                     &&& err->lincomp@.lin() == lin
-                    &&& err->lincomp@.op() == RegisterWrite { id: Ghost(self.register_loc()), new_value: val }
+                    &&& err->lincomp@.op() == RegisterWrite {
+                        id: Ghost(self.register_loc()),
+                        new_value: val,
+                    }
                 })
                 &&& err is FailedSecondQuorum ==> ({
                     let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
@@ -137,7 +146,7 @@ where
                     &&& err->token@.key() == err->timestamp
                 })
             }),
-        ;
+    ;
 
     // Wait for register to move past the value written, so we can recover the token and linearizer
     // in the queue and restore invariants on the client.
@@ -145,10 +154,10 @@ where
     // Note that since this is only called when the second phase happens, at least one server has
     // received the write. This means that recover_client, by reading the register on a loop can
     // finish its own previous write.
-    fn recover_client(
-        &mut self,
-        error: error::WriteError<ML, ML::Completion>
-    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion>>)
+    fn recover_client(&mut self, error: error::WriteError<ML, ML::Completion>) -> (r: Result<
+        Tracked<ML::Completion>,
+        error::WriteError<ML, ML::Completion>,
+    >)
         requires
             old(self).weak_inv(),
             error is FailedSecondQuorum,
@@ -163,34 +172,28 @@ where
             r is Err ==> ({
                 &&& self.weak_inv()
                 &&& r->Err_0 == error
-            })
-        ;
+            }),
+    ;
 }
 
 pub struct AbdPool<Pool, ML, RL, WC, RC> {
     pool: Pool,
-
     register_id: Ghost<int>,
-
     // assert ownership on timestamps with a particular client_id
     client_tok_subset: Tracked<GhostSubset<u64>>,
-
     state_inv: Tracked<StateInvariant<ML, RL, WC, RC>>,
 }
 
-
-
-impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion>
-where
+impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-{
+ {
     pub fn new(
         pool: Pool,
         Tracked(client_token): Tracked<ClientToken>,
-        state_inv: Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>
+        state_inv: Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
     ) -> (r: Self)
         requires
             pool.n() > 0,
@@ -234,20 +237,27 @@ where
     }
 
     proof fn lemma_qsize_nonempty(self)
-        requires self.pool.n() > 0
-        ensures self.qsize() > 0
+        requires
+            self.pool.n() > 0,
+        ensures
+            self.qsize() > 0,
     {
         self.pool.lemma_quorum_nonzero();
     }
 }
 
-impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL, ML::Completion, RL::Completion>
-where
+impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
+    Pool,
+    ML,
+    RL,
+    ML::Completion,
+    RL::Completion,
+> where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-{
+ {
     closed spec fn client_id(self) -> u64 {
         self.id()
     }
@@ -271,13 +281,13 @@ where
         self._weak_inv()
     }
 
-    proof fn lemma_weak_inv(self) {}
+    proof fn lemma_weak_inv(self) {
+    }
 
-    fn read(
-        &self,
-        Tracked(lin): Tracked<RL>
-    ) -> (r: Result<(Option<u64>, Timestamp, Tracked<RL::Completion>), error::ReadError<RL, RL::Completion>>)
-    {
+    fn read(&self, Tracked(lin): Tracked<RL>) -> (r: Result<
+        (Option<u64>, Timestamp, Tracked<RL::Completion>),
+        error::ReadError<RL, RL::Completion>,
+    >) {
         let op = RegisterRead { id: Ghost(self.register_loc()) };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point -- see
         // discussion on `write`
@@ -290,15 +300,14 @@ where
         });
 
         let bpool = BroadcastPool::new(&self.pool);
-        let quorum_res = bpool
-            .broadcast(Request::Get)
-            .wait_for(
-                |s| s.replies().len() >= s.quorum_size(),
-                |r| match r.clone().into_inner() {
+        let quorum_res = bpool.broadcast(Request::Get).wait_for(
+            |s| s.replies().len() >= s.quorum_size(),
+            |r|
+                match r.clone().into_inner() {
                     Response::Get { timestamp, val, .. } => Ok((timestamp, val)),
                     _ => Err(r),
                 },
-            );
+        );
 
         let quorum = match quorum_res {
             Ok(q) => q,
@@ -316,12 +325,14 @@ where
                         }
                     }
                 });
-                return Err(error::ReadError::FailedFirstQuorum {
-                    obtained: e.replies().len(),
-                    required: self.pool.quorum_size(),
-                    lincomp: Tracked(lincomp),
-                });
-            }
+                return Err(
+                    error::ReadError::FailedFirstQuorum {
+                        obtained: e.replies().len(),
+                        required: self.pool.quorum_size(),
+                        lincomp: Tracked(lincomp),
+                    },
+                );
+            },
         };
 
         // check early return
@@ -390,53 +401,52 @@ where
             });
             return Ok((max_val, max_ts, Tracked(comp)));
         }
-
         // non-unanimous read: write-back
+
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
-        let replies_result = bpool
-            .broadcast_filter(
-                Request::Write {
-                    val: max_val,
-                    timestamp: max_ts,
-                },
-                // writeback to replicas that did not have the maximum timestamp
-                |idx| {
+        let replies_result = bpool.broadcast_filter(
+            Request::Write { val: max_val, timestamp: max_ts },
+            // writeback to replicas that did not have the maximum timestamp
+            |idx|
+                {
                     let q_iter = quorum.replies().iter();
                     for (nidx, (ts, _val)) in q_iter {
-                        if idx == *nidx && (ts.seqno != max_ts.seqno || ts.client_id != max_ts.client_id) {
+                        if idx == *nidx && (ts.seqno != max_ts.seqno || ts.client_id
+                            != max_ts.client_id) {
                             return true;
                         }
                     }
 
                     false
                 },
-            )
-            // bellow is error handling + type handling + logging stuff
-            .wait_for(
-                (|s|
-                 requires s.replies.len() + n_max_ts < usize::MAX,
-                {
-                    s.replies.len() + n_max_ts >= s.quorum_size()
-                }),
-                |r| match r.deref() {
+        )
+        // bellow is error handling + type handling + logging stuff
+        .wait_for(
+            (|s|
+                requires
+                    s.replies.len() + n_max_ts < usize::MAX,
+                { s.replies.len() + n_max_ts >= s.quorum_size() }),
+            |r|
+                match r.deref() {
                     Response::Write { .. } => Ok(()),
                     _ => Err(r),
                 },
-            );
-
+        );
 
         let wb_rep = match replies_result {
             Ok(r) => r,
             Err(replies) => {
                 assume(token.key().0 == max_ts);
-                return Err(error::ReadError::FailedSecondQuorum {
-                    obtained: replies.replies().len(),
-                    required: self.pool.quorum_size(),
-                    timestamp: max_ts,
-                    token: Tracked(token),
-                });
-            }
+                return Err(
+                    error::ReadError::FailedSecondQuorum {
+                        obtained: replies.replies().len(),
+                        required: self.pool.quorum_size(),
+                        timestamp: max_ts,
+                        token: Tracked(token),
+                    },
+                );
+            },
         };
         let wb_replies = wb_rep.replies();
 
@@ -479,12 +489,10 @@ where
         Ok((max_val, max_ts, Tracked(comp)))
     }
 
-    fn write(
-        &mut self,
-        val: Option<u64>,
-        Tracked(lin): Tracked<ML>
-    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion>>)
-    {
+    fn write(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<
+        Tracked<ML::Completion>,
+        error::WriteError<ML, ML::Completion>,
+    >) {
         let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
         //
@@ -506,10 +514,7 @@ where
         // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
         // variable.
         let proph_seqno = Prophecy::<u64>::new();
-        let ghost proph_ts = Timestamp {
-            seqno: proph_seqno@,
-            client_id: self.client_id(),
-        };
+        let ghost proph_ts = Timestamp { seqno: proph_seqno@, client_id: self.client_id() };
         let tracked token_res;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
@@ -521,15 +526,14 @@ where
         let quorum = {
             let bpool = BroadcastPool::new(&self.pool);
 
-            let quorum_res = bpool
-                .broadcast(Request::GetTimestamp)
-                .wait_for(
-                    |s| s.replies().len() >= s.quorum_size(),
-                    |r| match r.deref() {
+            let quorum_res = bpool.broadcast(Request::GetTimestamp).wait_for(
+                |s| s.replies().len() >= s.quorum_size(),
+                |r|
+                    match r.deref() {
                         Response::GetTimestamp { timestamp, .. } => Ok(*timestamp),
                         _ => Err(r),
                     },
-                );
+            );
 
             match quorum_res {
                 Ok(q) => q,
@@ -555,12 +559,14 @@ where
                         }
                     });
 
-                    return Err(error::WriteError::FailedFirstQuorum {
-                        obtained: e.replies().len(),
-                        required: self.pool.quorum_size(),
-                        lincomp: Tracked(lincomp),
-                    });
-                }
+                    return Err(
+                        error::WriteError::FailedFirstQuorum {
+                            obtained: e.replies().len(),
+                            required: self.pool.quorum_size(),
+                            lincomp: Tracked(lincomp),
+                        },
+                    );
+                },
             }
         };
 
@@ -578,7 +584,7 @@ where
         // XXX: timestamp recycling would be interesting
         assume(max_ts.seqno < u64::MAX - 1);
         let exec_seqno = max_ts.seqno + 1;
-        let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id(), };
+        let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id() };
         proph_seqno.resolve(&exec_seqno);
         assert(proph_ts == exec_ts);
 
@@ -605,29 +611,27 @@ where
 
         {
             let bpool = BroadcastPool::new(&self.pool);
-            let quorum_res = bpool
-                .broadcast(Request::Write {
-                    val,
-                    timestamp: exec_ts,
-                })
-                .wait_for(
-                    |s| s.replies().len() >= s.quorum_size(),
-                    |r| match r.deref() {
+            let quorum_res = bpool.broadcast(Request::Write { val, timestamp: exec_ts }).wait_for(
+                |s| s.replies().len() >= s.quorum_size(),
+                |r|
+                    match r.deref() {
                         Response::Write { .. } => Ok(()),
                         _ => Err(r),
                     },
-                );
+            );
 
             let quorum = match quorum_res {
                 Ok(q) => q,
                 Err(e) => {
-                    return Err(error::WriteError::FailedSecondQuorum {
-                        obtained: e.replies().len(),
-                        required: self.pool.quorum_size(),
-                        timestamp: exec_ts,
-                        token: Tracked(token),
-                    });
-                }
+                    return Err(
+                        error::WriteError::FailedSecondQuorum {
+                            obtained: e.replies().len(),
+                            required: self.pool.quorum_size(),
+                            timestamp: exec_ts,
+                            token: Tracked(token),
+                        },
+                    );
+                },
             };
             let replies = quorum.replies();
 
@@ -676,23 +680,24 @@ where
         }
     }
 
-    fn recover_client(
-        &mut self,
-        error: error::WriteError<ML, ML::Completion>
-    ) -> (r: Result<Tracked<ML::Completion>, error::WriteError<ML, ML::Completion>>)
-    {
+    fn recover_client(&mut self, error: error::WriteError<ML, ML::Completion>) -> (r: Result<
+        Tracked<ML::Completion>,
+        error::WriteError<ML, ML::Completion>,
+    >) {
         // TODO(recover): issue a read and if the timestamp is >= error.timestamp we can return the
         // completion and restore the invariant
         Err(error)
     }
 }
 
-pub proof fn lemma_inv<Pool, C, ML, RL>(c: AbdPool<Pool, ML, RL, ML::Completion, RL::Completion>)
-    where
-        Pool: ConnectionPool<C = C>,
-        C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
-        ML: MutLinearizer<RegisterWrite>,
-        RL: ReadLinearizer<RegisterRead>,
+pub proof fn lemma_inv<Pool, C, ML, RL>(
+    c: AbdPool<Pool, ML, RL, ML::Completion, RL::Completion>,
+) where
+    Pool: ConnectionPool<C = C>,
+    C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+
     ensures
         c._inv() <==> c.inv(),
         c._weak_inv() <==> c.weak_inv(),
@@ -707,10 +712,10 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
     pred: invariants::StatePredicate,
     tracked state: &invariants::State<ML, RL, ML::Completion, RL::Completion>,
     tracked quorum: Quorum,
-) -> (tracked tok: LinWriteToken<ML>)
-    where
-        ML: MutLinearizer<RegisterWrite>,
-        RL: ReadLinearizer<RegisterRead>,
+) -> (tracked tok: LinWriteToken<ML>) where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+
     requires
         <invariants::StatePredicate as InvariantPredicate<_, _>>::inv(pred, *state),
         state.servers.valid_quorum(quorum),
@@ -750,7 +755,9 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
         watermark_lb.lemma_lower_bound(&state.linearization_queue.watermark);
         assert(watermark_lb@.timestamp() <= state.linearization_queue.watermark@.timestamp());
         // curr_watermark <= quorum.timestamp() (forall valid quorums)
-        assert(state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(quorum));
+        assert(state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(
+            quorum,
+        ));
         // quorum.timestamp() < proph_ts (by construction)
         assert(state.servers.quorum_timestamp(quorum) < timestamp);
         // CONTRADICTION
@@ -762,4 +769,4 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
     }
 }
 
-}
+} // verus!

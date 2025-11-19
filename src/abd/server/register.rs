@@ -9,7 +9,7 @@ verus! {
 pub struct MonotonicRegisterInner {
     pub val: Option<u64>,
     pub timestamp: Timestamp,
-    pub resource: Tracked<MonotonicTimestampResource>
+    pub resource: Tracked<MonotonicTimestampResource>,
 }
 
 impl MonotonicRegisterInner {
@@ -24,7 +24,7 @@ impl MonotonicRegisterInner {
         MonotonicRegisterInner {
             val: None,
             timestamp: Timestamp::default(),
-            resource: Tracked(MonotonicTimestampResource::alloc())
+            resource: Tracked(MonotonicTimestampResource::alloc()),
         }
     }
 
@@ -34,11 +34,11 @@ impl MonotonicRegisterInner {
 
     pub fn lower_bound(&self) -> (r: Tracked<MonotonicTimestampResource>)
         requires
-            self.inv()
+            self.inv(),
         ensures
             r@.loc() == self.loc(),
             r@@ is LowerBound,
-            r@@.timestamp() == self.resource@@.timestamp()
+            r@@.timestamp() == self.resource@@.timestamp(),
     {
         Tracked(self.resource.borrow().extract_lower_bound())
     }
@@ -68,11 +68,7 @@ impl MonotonicRegisterInner {
             lb.lemma_lower_bound(r);
         }
 
-        MonotonicRegisterInner {
-            val,
-            timestamp,
-            resource: Tracked(lb),
-        }
+        MonotonicRegisterInner { val, timestamp, resource: Tracked(lb) }
     }
 
     pub fn write(self, val: Option<u64>, timestamp: Timestamp) -> (r: Self)
@@ -84,13 +80,11 @@ impl MonotonicRegisterInner {
             r.loc() == self.loc(),
             r.resource@@ is FullRightToAdvance,
             timestamp > self.timestamp ==> r.timestamp == timestamp && r.val == val,
-            timestamp <= self.timestamp ==> self == r
+            timestamp <= self.timestamp ==> self == r,
     {
         if timestamp > self.timestamp {
             let tracked mut r = self.resource.get();
-            proof {
-                r.advance(timestamp)
-            }
+            proof { r.advance(timestamp) }
 
             MonotonicRegisterInner { val, timestamp, resource: Tracked(r) }
         } else {
@@ -114,7 +108,6 @@ impl vstd::rwlock::RwLockPredicate<MonotonicRegisterInner> for MonotonicRegister
 
 pub struct MonotonicRegister {
     inner: RwLock<MonotonicRegisterInner, MonotonicRegisterInv>,
-
     #[allow(dead_code)]
     resource_loc: Ghost<int>,
 }
@@ -123,7 +116,7 @@ impl MonotonicRegister {
     // return the register and the lower bound
     pub fn default() -> (r: Self)
         ensures
-            r.inv()
+            r.inv(),
     {
         let inner_reg = MonotonicRegisterInner::default();
         let tracked r = inner_reg.resource.borrow();
@@ -133,10 +126,7 @@ impl MonotonicRegister {
         assert(<MonotonicRegisterInv as vstd::rwlock::RwLockPredicate<_>>::inv(pred@, inner_reg));
         let inner = RwLock::new(inner_reg, pred);
 
-        MonotonicRegister {
-            inner,
-            resource_loc,
-        }
+        MonotonicRegister { inner, resource_loc }
     }
 
     #[verifier::type_invariant]
@@ -164,7 +154,9 @@ impl MonotonicRegister {
         res
     }
 
-    pub fn write(&self, val: Option<u64>, timestamp: Timestamp) -> (r: Tracked<MonotonicTimestampResource>)
+    pub fn write(&self, val: Option<u64>, timestamp: Timestamp) -> (r: Tracked<
+        MonotonicTimestampResource,
+    >)
         ensures
             r@@ is LowerBound,
             r@.loc() == self.loc(),
@@ -189,4 +181,4 @@ impl MonotonicRegister {
     }
 }
 
-}
+} // verus!

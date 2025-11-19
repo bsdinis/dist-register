@@ -29,12 +29,12 @@ impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
 
 struct LowerBoundPredicate {
     #[allow(dead_code)]
-    loc: Ghost<int>
+    loc: Ghost<int>,
 }
 
 impl vstd::rwlock::RwLockPredicate<Tracked<MonotonicTimestampResource>> for LowerBoundPredicate {
     closed spec fn inv(self, lb: Tracked<MonotonicTimestampResource>) -> bool {
-           lb@@ is LowerBound && lb@.loc() == self.loc
+        lb@@ is LowerBound && lb@.loc() == self.loc
     }
 }
 
@@ -43,17 +43,16 @@ pub struct RegisterServer<L, C> {
     id: u64,
     listener: L,
     connected: RwLock<HashMap<u64, C>, EmptyCond>,
-
     register: MonotonicRegister,
 }
 
-impl<L, C> RegisterServer<L, C>
-where
+impl<L, C> RegisterServer<L, C> where
     L: Listener<C>,
     C: Channel<R = Tagged<Request>, S = Tagged<Response>>,
-{
+ {
     pub fn new(listener: L, id: u64) -> (r: Self)
-        ensures r.inv()
+        ensures
+            r.inv(),
     {
         let register = MonotonicRegister::default();
         RegisterServer {
@@ -69,7 +68,8 @@ where
     }
 
     fn accept(&self, channel: C)
-        requires self.inv()
+        requires
+            self.inv(),
     {
         let (mut guard, handle) = self.connected.acquire_write();
         guard.insert(channel.id(), channel);
@@ -77,38 +77,26 @@ where
     }
 
     fn handle_get(&self) -> Response
-        requires self.inv()
+        requires
+            self.inv(),
     {
-        let MonotonicRegisterInner {
-            val,
-            timestamp,
-            resource
-        } = self.register.read();
+        let MonotonicRegisterInner { val, timestamp, resource } = self.register.read();
 
-        Response::Get {
-            val,
-            timestamp,
-            lb: resource,
-        }
+        Response::Get { val, timestamp, lb: resource }
     }
 
     fn handle_get_timestamp(&self) -> Response
-        requires self.inv()
+        requires
+            self.inv(),
     {
-        let MonotonicRegisterInner {
-            timestamp,
-            resource,
-            ..
-        } = self.register.read();
+        let MonotonicRegisterInner { timestamp, resource, .. } = self.register.read();
 
-        Response::GetTimestamp {
-            timestamp,
-            lb: resource,
-        }
+        Response::GetTimestamp { timestamp, lb: resource }
     }
 
     fn handle_write(&self, val: Option<u64>, timestamp: Timestamp) -> Response
-        requires self.inv()
+        requires
+            self.inv(),
     {
         let lb = self.register.write(val, timestamp);
 
@@ -116,53 +104,46 @@ where
     }
 
     fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response>
-        requires self.inv()
+        requires
+            self.inv(),
     {
         match request.into_inner() {
             Request::Get => {
                 let inner = self.handle_get();
 
-                Tagged {
-                    tag: request.tag,
-                    inner
-                }
-            }
+                Tagged { tag: request.tag, inner }
+            },
             Request::GetTimestamp => {
                 let inner = self.handle_get_timestamp();
-                Tagged {
-                    tag: request.tag,
-                    inner
-                }
-            }
+                Tagged { tag: request.tag, inner }
+            },
             Request::Write { val, timestamp } => {
                 let inner = self.handle_write(val, timestamp);
-                Tagged {
-                    tag: request.tag,
-                    inner
-                }
-            }
+                Tagged { tag: request.tag, inner }
+            },
         }
     }
 
     fn poll(&self) -> bool
-        requires self.inv()
+        requires
+            self.inv(),
     {
         // verus does not support unbounded loops + streams probably don't/can't have specs
         // so we do this up to 10 times every time
-
         let mut i = 10;
         while i > 0
-            invariant self.inv(),
-            decreases i
+            invariant
+                self.inv(),
+            decreases i,
         {
             match self.listener.try_accept() {
                 Ok(channel) => self.accept(channel),
                 Err(crate::verdist::network::error::TryListenError::Empty) => {
-                    break;
-                }
+                    break ;
+                },
                 Err(crate::verdist::network::error::TryListenError::Disconnected) => {
                     return false;
-                }
+                },
             }
 
             i -= 1;
@@ -173,20 +154,21 @@ where
 
         let it = connected.iter();
         for (id, channel) in it
-            invariant self.inv()
+            invariant
+                self.inv(),
         {
             match channel.try_recv() {
-                    Ok(req) => {
-                        let response = self.handle(req, *id);
-                        if channel.send(&response).is_err() {
-                            drop.push(*id);
-                        }
-                    }
-                    Err(crate::verdist::network::error::TryRecvError::Empty) => {}
-                    Err(crate::verdist::network::error::TryRecvError::Disconnected) => {
+                Ok(req) => {
+                    let response = self.handle(req, *id);
+                    if channel.send(&response).is_err() {
                         drop.push(*id);
                     }
-                }
+                },
+                Err(crate::verdist::network::error::TryRecvError::Empty) => {},
+                Err(crate::verdist::network::error::TryRecvError::Disconnected) => {
+                    drop.push(*id);
+                },
+            }
         }
 
         for id in drop {
@@ -199,8 +181,7 @@ where
     }
 }
 
-}
-
+} // verus!
 pub fn run_modelled_server(id: u64) -> ModelledConnector<Tagged<Response>, Tagged<Request>> {
     let (listener, connector) = crate::verdist::network::modelled::listen_channel(id);
     std::thread::spawn(move || {

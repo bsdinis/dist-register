@@ -48,45 +48,40 @@ impl<'a, Pool: ConnectionPool, T> RequestContext<'a, Pool, T> {
     pub fn n_nodes(&self) -> usize {
         self.pool.n_nodes()
     }
+
     pub fn quorum_size(&self) -> usize {
         self.pool.quorum_size()
     }
 
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn wait_for<F, V>(
-        self,
-        termination_cond: F,
-        extractor_fn: V,
-    ) -> Result<Replies<T, Resp<Pool>>, Replies<T, Resp<Pool>>>
-    where
+    pub fn wait_for<F, V>(self, termination_cond: F, extractor_fn: V) -> Result<
+        Replies<T, Resp<Pool>>,
+        Replies<T, Resp<Pool>>,
+    > where
         F: Fn(&Self) -> bool,
         V: Fn(<Pool::C as Channel>::R) -> Result<T, <Pool::C as Channel>::R>,
-    {
+     {
         let mut self_mut = self;
-        assume(self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len() < usize::MAX);
+        assume(self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len()
+            < usize::MAX);
         loop
-            invariant self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len() < usize::MAX
+            invariant
+                self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len()
+                    < usize::MAX,
         {
             assume(termination_cond.requires((&self_mut,)));
             if termination_cond(&self_mut) {
-                return Ok(Replies::new(
-                    self_mut.replies,
-                    self_mut.invalid_replies,
-                    self_mut.errors,
-                ));
+                return Ok(
+                    Replies::new(self_mut.replies, self_mut.invalid_replies, self_mut.errors),
+                );
             }
-
-            if self_mut.replies().len() >= self_mut.pool.quorum_size()
-                || self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len()
-                    >= self_mut.pool.n_nodes()
-            {
-                return Err(Replies::new(
-                    self_mut.replies,
-                    self_mut.invalid_replies,
-                    self_mut.errors,
-                ));
+            if self_mut.replies().len() >= self_mut.pool.quorum_size() || self_mut.replies.len()
+                + self_mut.errors.len() + self_mut.invalid_replies.len()
+                >= self_mut.pool.n_nodes() {
+                return Err(
+                    Replies::new(self_mut.replies, self_mut.invalid_replies, self_mut.errors),
+                );
             }
-
             let mut replies = vec![];
             let mut invalid_replies = vec![];
             let mut errors = vec![];
@@ -96,22 +91,24 @@ impl<'a, Pool: ConnectionPool, T> RequestContext<'a, Pool, T> {
                     Ok(Some(r)) => {
                         assume(extractor_fn.requires((r,)));
                         match extractor_fn(r) {
-                        Ok(v) => replies.push((idx, v)),
-                        Err(resp) => invalid_replies.push((idx, resp)),
-                    }},
-                    Ok(None) => {}
+                            Ok(v) => replies.push((idx, v)),
+                            Err(resp) => invalid_replies.push((idx, resp)),
+                        }
+                    },
+                    Ok(None) => {},
                     Err(e) => {
                         errors.push((idx, e));
-                    }
+                    },
                 }
             }
 
             self_mut.replies.append(&mut replies);
             self_mut.invalid_replies.append(&mut invalid_replies);
             self_mut.errors.append(&mut errors);
-            assume(self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len() < usize::MAX);
+            assume(self_mut.replies.len() + self_mut.errors.len() + self_mut.invalid_replies.len()
+                < usize::MAX);
         }
     }
 }
 
-}
+} // verus!

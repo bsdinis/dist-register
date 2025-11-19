@@ -35,18 +35,26 @@ impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
     }
 }
 
-pub assume_specification[park_thread](mean: Duration, std_dev: Duration);
-pub assume_specification[default_delay]() -> (a: (Duration, Duration));
+pub assume_specification[ park_thread ](mean: Duration, std_dev: Duration)
+;
+
+pub assume_specification[ default_delay ]() -> (a: (Duration, Duration))
+;
 
 pub trait Channel {
     type R;
+
     type S: Clone;
 
     fn try_recv(&self) -> Result<Self::R, TryRecvError>;
+
     fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>>;
+
     fn id(&self) -> u64;
 
-    fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {}
+    fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {
+    }
+
     fn delay(&self) -> (Duration, Duration) {
         default_delay()
     }
@@ -57,17 +65,11 @@ pub trait Channel {
     }
 }
 
-pub trait Listener<C>
-where
-    C: Channel,
-{
+pub trait Listener<C> where C: Channel {
     fn try_accept(&self) -> Result<C, TryListenError>;
 }
 
-pub trait Connector<C>
-where
-    C: Channel,
-{
+pub trait Connector<C> where C: Channel {
     fn connect(&self, id: u64) -> Result<C, ConnectError>;
 }
 
@@ -78,18 +80,11 @@ pub struct BufChannel<C: Channel> {
 
 impl<C: Channel> BufChannel<C> {
     pub fn new(channel: C) -> Self {
-        BufChannel {
-            channel,
-            buffered: RwLock::new(HashMap::new(), Ghost(EmptyCond)),
-        }
+        BufChannel { channel, buffered: RwLock::new(HashMap::new(), Ghost(EmptyCond)) }
     }
 }
 
-impl<C> BufChannel<C>
-where
-    C: Channel,
-    C::R: TaggedMessage,
-{
+impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
     pub fn try_recv_tag(&self, tag: u64) -> Result<Option<C::R>, TryRecvError> {
         let (mut guard, handle) = self.buffered.acquire_write();
         if let Some(r) = guard.remove(&tag) {
@@ -105,8 +100,10 @@ where
                 guard.insert(r.tag(), r);
                 handle.release_write(guard);
                 Ok(None)
-            }
-            Err(crate::verdist::network::error::TryRecvError::Disconnected) => Err(TryRecvError::Disconnected),
+            },
+            Err(crate::verdist::network::error::TryRecvError::Disconnected) => Err(
+                TryRecvError::Disconnected,
+            ),
             Err(crate::verdist::network::error::TryRecvError::Empty) => Ok(None),
         }
     }
@@ -114,26 +111,32 @@ where
 
 impl<C: Channel> Channel for BufChannel<C> {
     type R = C::R;
+
     type S = C::S;
 
     fn id(&self) -> u64 {
         self.channel.id()
     }
+
     fn try_recv(&self) -> Result<Self::R, TryRecvError> {
         self.channel.try_recv()
     }
+
     fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>> {
         self.channel.send(v)
     }
+
     fn wait(&self) {
         self.channel.wait();
     }
+
     fn delay(&self) -> (Duration, Duration) {
         self.channel.delay()
     }
+
     fn add_latency(&mut self, avg: Duration, stddev: Duration) {
         self.channel.add_latency(avg, stddev);
     }
 }
 
-}
+} // verus!

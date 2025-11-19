@@ -140,13 +140,16 @@ pub trait ExError: std::fmt::Debug + std::fmt::Display {
     type ExternalTraitSpecificationFor: std::error::Error;
 }
 
-pub assume_specification[std::time::Duration::from_millis](millis: u64) -> std::time::Duration;
+pub assume_specification[ std::time::Duration::from_millis ](millis: u64) -> std::time::Duration
+;
 
 /*
 const REQUEST_LATENCY_DEFAULT: std::time::Duration = std::time::Duration::from_millis(1000);
 const REQUEST_STDDEV_DEFAULT: std::time::Duration = std::time::Duration::from_millis(2000);
 */
+
 const REQUEST_LATENCY_DEFAULT_MS: u64 = 1000;
+
 const REQUEST_STDDEV_DEFAULT_MS: u64 = 2000;
 
 #[verifier::external_type_specification]
@@ -178,33 +181,32 @@ fn report_write(client_id: u64, val: Option<u64>) {
     );
 }
 
-
-fn connect<C, Conn>(
-    args: &Args,
-    connector: &Conn,
-    client_id: u64,
-) -> Result<BufChannel<C>, ConnectError>
-where
+fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
+    BufChannel<C>,
+    ConnectError,
+> where
     Conn: Connector<C>,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
-{
+ {
     let mut channel = connector.connect(client_id)?;
     if !args.no_delay {
-        channel.add_latency(std::time::Duration::from_millis(REQUEST_LATENCY_DEFAULT_MS), std::time::Duration::from_millis(REQUEST_STDDEV_DEFAULT_MS));
+        channel.add_latency(
+            std::time::Duration::from_millis(REQUEST_LATENCY_DEFAULT_MS),
+            std::time::Duration::from_millis(REQUEST_STDDEV_DEFAULT_MS),
+        );
     }
     Ok(BufChannel::new(channel))
 }
 
-fn connect_all<C, Conn>(
-    args: &Args,
-    connectors: &[Conn],
-    client_id: u64,
-) -> (r: Result<Vec<BufChannel<C>>, ConnectError>)
-where
+fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r: Result<
+    Vec<BufChannel<C>>,
+    ConnectError,
+>) where
     Conn: Connector<C>,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+
     ensures
-        r is Ok ==> connectors.len() == r->Ok_0.len()
+        r is Ok ==> connectors.len() == r->Ok_0.len(),
 {
     let mut v = Vec::with_capacity(connectors.len());
     for connector in connectors.iter() {
@@ -229,7 +231,6 @@ struct Event {
     end_ms: u64,
     op: Operation,
 }
-
 
 type Trace = Vec<Event>;
 
@@ -365,14 +366,16 @@ where
 }
 */
 
-fn get_invariant_state<Pool, C, ML, RL>(
-    pool: &Pool
-    ) -> (r: (Tracked<ClientToken>, Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>, Tracked<RegisterView>))
-    where
-        Pool: ConnectionPool<C = C>,
-        C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
-        ML: MutLinearizer<RegisterWrite>,
-        RL: ReadLinearizer<RegisterRead>,
+fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool) -> (r: (
+    Tracked<ClientToken>,
+    Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
+    Tracked<RegisterView>,
+)) where
+    Pool: ConnectionPool<C = C>,
+    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+
     ensures
         r.0@@ == pool.pool_id(),
         r.1@.constant().client_token_auth_id == r.0@.id(),
@@ -397,13 +400,16 @@ fn get_invariant_state<Pool, C, ML, RL>(
     (Tracked(client_token), Tracked(state_inv), Tracked(view))
 }
 
-
-fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error<WritePerm, GhostVar<Option<u64>>, ReadPerm, &'_ GhostVar<Option<u64>>>>
-where
+fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
+    Trace,
+    Error<WritePerm, GhostVar<Option<u64>>, ReadPerm, &'_ GhostVar<Option<u64>>>,
+> where
     Conn: Connector<C> + Send + Sync,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
     C: Sync + Send,
-    requires connectors.len() > 0
+
+    requires
+        connectors.len() > 0,
 {
     let pool = connect_all(&args, connectors, 0)?;
     let pool = FlawlessPool::new(pool, 0);
@@ -411,56 +417,63 @@ where
         lemma_pool_len(pool);
     }
 
-    let (client_token, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(&pool);
-    let mut client = AbdPool::<_, WritePerm, ReadPerm<'_>, GhostVar<Option<u64>>, &'_ GhostVar<Option<u64>>>::new(pool, client_token, state_inv);
+    let (client_token, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(
+        &pool,
+    );
+    let mut client = AbdPool::<
+        _,
+        WritePerm,
+        ReadPerm<'_>,
+        GhostVar<Option<u64>>,
+        &'_ GhostVar<Option<u64>>,
+    >::new(pool, client_token, state_inv);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     assert(client.weak_inv()) by { client.lemma_weak_inv() };
     let tracked view = view.get();
     report_quorum_size(client.quorum_size());
 
-  // let tracked read_perm = ReadPerm { register: &view };
-  // assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
-  // match client.read(Tracked(read_perm)) {
-  //     Ok((v, ts, _comp)) => {
-  //         report_read(0, (v, ts));
-  //     },
-  //     Err(e) => {
-  //         report_err(0, &e);
-  //         return Err(e)?;
-  //     }
-  // };
-  //
-  // let tracked write_perm = WritePerm { register: view, val: Some(42u64) };
-  // let view = match client.write(Some(42), Tracked(write_perm)) {
-  //     Ok(comp) => {
-  //         report_write(0, Some(42));
-  //         comp
-  //     },
-  //     Err(e) => {
-  //         report_err(0, &e);
-  //         return Err(e)?;
-  //     }
-  // };
-  // let tracked view = view.get();
-  // assert(view@@ == Some(42u64));
-  //
-  // let tracked read_perm = ReadPerm { register: &view };
-  // assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
-  // match client.read(Tracked(read_perm)) {
-  //     Ok((v, ts, _comp)) => {
-  //         report_read(0, (v, ts));
-  //     },
-  //     Err(e) => {
-  //         report_err(0, &e);
-  //         return Err(e)?;
-  //     }
-  // };
+    // let tracked read_perm = ReadPerm { register: &view };
+    // assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+    // match client.read(Tracked(read_perm)) {
+    //     Ok((v, ts, _comp)) => {
+    //         report_read(0, (v, ts));
+    //     },
+    //     Err(e) => {
+    //         report_err(0, &e);
+    //         return Err(e)?;
+    //     }
+    // };
+    //
+    // let tracked write_perm = WritePerm { register: view, val: Some(42u64) };
+    // let view = match client.write(Some(42), Tracked(write_perm)) {
+    //     Ok(comp) => {
+    //         report_write(0, Some(42));
+    //         comp
+    //     },
+    //     Err(e) => {
+    //         report_err(0, &e);
+    //         return Err(e)?;
+    //     }
+    // };
+    // let tracked view = view.get();
+    // assert(view@@ == Some(42u64));
+    //
+    // let tracked read_perm = ReadPerm { register: &view };
+    // assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+    // match client.read(Tracked(read_perm)) {
+    //     Ok((v, ts, _comp)) => {
+    //         report_read(0, (v, ts));
+    //     },
+    //     Err(e) => {
+    //         report_err(0, &e);
+    //         return Err(e)?;
+    //     }
+    // };
 
     Ok(Trace::new())
 }
 
-}
-
+} // verus!
 struct PartialOrder(HashMap<(u64, u64), bool>);
 impl std::ops::Deref for PartialOrder {
     type Target = HashMap<(u64, u64), bool>;

@@ -1,11 +1,7 @@
 #[allow(unused_imports)]
-use crate::abd::invariants::lin_queue::Completed;
-#[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::CompletedRead;
 #[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::CompletedWrite;
-#[allow(unused_imports)]
-use crate::abd::invariants::lin_queue::MaybeLinearized;
 #[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::MaybeReadLinearized;
 #[allow(unused_imports)]
@@ -24,18 +20,20 @@ use vstd::tokens::frac::GhostVarAuth;
 
 verus! {
 
-pub struct Pending<ML, Op, Tok> {
+pub struct PendingWrite<ML> {
     pub lin: ML,
-    pub token: Tok,
-    pub op: Op,
+    pub token: ClientToken,
+    pub op: RegisterWrite,
     pub ghost timestamp: Timestamp,
 }
 
-pub type PendingWrite<ML> = Pending<ML, RegisterWrite, ClientToken>;
+pub struct PendingRead<RL> {
+    pub lin: RL,
+    pub op: RegisterRead,
+    pub ghost value: Option<u64>,
+}
 
-pub type PendingRead<RL> = Pending<RL, RegisterRead, ()>;
-
-impl<ML: MutLinearizer<RegisterWrite>> Pending<ML, RegisterWrite, ClientToken> {
+impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
     pub proof fn new(
         tracked lin: ML,
         tracked token: ClientToken,
@@ -47,10 +45,10 @@ impl<ML: MutLinearizer<RegisterWrite>> Pending<ML, RegisterWrite, ClientToken> {
             lin.pre(op),
             timestamp.client_id == token@,
         ensures
-            result == (Pending { lin, token, op, timestamp }),
+            result == (PendingWrite { lin, token, op, timestamp }),
             result.inv(),
     {
-        Pending { lin, token, op, timestamp }
+        PendingWrite { lin, token, op, timestamp }
     }
 
     pub open spec fn inv(self) -> bool {
@@ -63,7 +61,7 @@ impl<ML: MutLinearizer<RegisterWrite>> Pending<ML, RegisterWrite, ClientToken> {
         tracked self,
         tracked register: &mut GhostVarAuth<Option<u64>>,
         timestamp: Timestamp,
-    ) -> (tracked r: Completed<ML, ML::Completion, (), RegisterWrite, ClientToken>)
+    ) -> (tracked r: CompletedWrite<ML, ML::Completion>)
         requires
             self.inv(),
             old(register).id() == self.op.id,
@@ -84,7 +82,7 @@ impl<ML: MutLinearizer<RegisterWrite>> Pending<ML, RegisterWrite, ClientToken> {
     }
 
     pub proof fn maybe(tracked self) -> (tracked r: (
-        MaybeLinearized<ML, ML::Completion, (), RegisterWrite>,
+        MaybeWriteLinearized<ML, ML::Completion>,
         ClientToken,
     ))
         requires
@@ -110,20 +108,20 @@ impl<ML: MutLinearizer<RegisterWrite>> Pending<ML, RegisterWrite, ClientToken> {
     }
 }
 
-impl<RL: ReadLinearizer<RegisterRead>> Pending<RL, RegisterRead, ()> {
+impl<RL: ReadLinearizer<RegisterRead>> PendingRead<RL> {
     pub proof fn new(
         tracked lin: RL,
         tracked op: RegisterRead,
-        timestamp: Timestamp,
+        value: Option<u64>,
     ) -> (tracked result: Self)
         requires
             lin.namespaces().finite(),
             lin.pre(op),
         ensures
-            result == (Pending { lin, token: (), op, timestamp }),
+            result == (PendingRead { lin, op, value }),
             result.inv(),
     {
-        Pending { lin, token: (), op, timestamp }
+        PendingRead { lin, op, value }
     }
 
     pub open spec fn inv(self) -> bool {
@@ -134,34 +132,26 @@ impl<RL: ReadLinearizer<RegisterRead>> Pending<RL, RegisterRead, ()> {
     pub proof fn apply_linearizer(
         tracked self,
         tracked register: &GhostVarAuth<Option<u64>>,
-        exec_res: Option<u64>,
         timestamp: Timestamp,
-    ) -> (tracked r: Completed<RL, RL::Completion, Option<u64>, RegisterRead, ()>)
+    ) -> (tracked r: CompletedRead<RL, RL::Completion>)
         requires
             self.inv(),
             register.id() == self.op.id,
-            timestamp >= self.timestamp,
-            register@ == &exec_res,
+            register@ == &self.value,
         ensures
             r.inv(),
             self.op == r.op,
-            self.timestamp == r.timestamp,
+            self.value == r.value,
             self.lin == r.lin,
-            self.token == r.token,
-            exec_res == r.exec_res,
+            r.timestamp == timestamp,
         opens_invariants self.lin.namespaces()
     {
         let ghost lin_copy = self.lin;
-        let tracked completion = self.lin.apply(self.op, register, &exec_res);
-        CompletedRead::new(completion, exec_res, lin_copy, self.op, self.timestamp)
+        let tracked completion = self.lin.apply(self.op, register, &self.value);
+        CompletedRead::new(completion, self.op, lin_copy, self.value, timestamp)
     }
 
-    pub proof fn maybe(tracked self) -> (tracked r: MaybeLinearized<
-        RL,
-        RL::Completion,
-        Option<u64>,
-        RegisterRead,
-    >)
+    pub proof fn maybe(tracked self) -> (tracked r: MaybeReadLinearized<RL, RL::Completion>)
         requires
             self.inv(),
         ensures
@@ -169,10 +159,10 @@ impl<RL: ReadLinearizer<RegisterRead>> Pending<RL, RegisterRead, ()> {
             r == (MaybeReadLinearized::<RL, RL::Completion>::Linearizer {
                 lin: self.lin,
                 op: self.op,
-                timestamp: self.timestamp,
+                value: self.value,
             }),
     {
-        MaybeReadLinearized::Linearizer { lin: self.lin, op: self.op, timestamp: self.timestamp }
+        MaybeReadLinearized::Linearizer { lin: self.lin, op: self.op, value: self.value }
     }
 }
 

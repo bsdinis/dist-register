@@ -16,11 +16,13 @@ pub axiom fn axiom_get_unanimous_replies(
     replies: &[(usize, (Timestamp, Option<u64>))],
     tracked old_map: ServerUniverse,
     max_ts: Timestamp,
+    min_ts: Timestamp,
 ) -> (tracked r: (ServerUniverse, Quorum))
     requires
         old_map.inv(),
 // NOTE(net_axiom): timestamps in the replies need to be above the lower bounds in old_map
 // How to do? network spec + sending lower bounds on read
+// This will enable removing the min_ts requirement
 
     ensures
         r.0.map.dom() == old_map.map.dom(),
@@ -41,6 +43,7 @@ pub axiom fn axiom_get_unanimous_replies(
                 }
             },
         forall|k: nat| r.1@.contains(k) ==> r.0[k]@@.timestamp() == max_ts,
+        min_ts <= max_ts,
 ;
 
 pub axiom fn axiom_writeback_unanimous_replies(
@@ -48,6 +51,7 @@ pub axiom fn axiom_writeback_unanimous_replies(
     wb_replies: &[(usize, ())],
     tracked old_map: ServerUniverse,
     max_ts: Timestamp,
+    min_ts: Timestamp,
 ) -> (tracked r: (ServerUniverse, Quorum))
     requires
         old_map.inv(),
@@ -55,6 +59,7 @@ pub axiom fn axiom_writeback_unanimous_replies(
 // get_replies is < max_ts then that idx must be in wb_replies)
 // NOTE(net_axiom): timestamps in the get_replies need to be above the lower bounds in old_map
 // How to do? network spec + sending lower bounds on read
+// This will enable removing the min_ts requirement
 
     ensures
         r.0.map.dom() == old_map.map.dom(),
@@ -83,6 +88,7 @@ pub axiom fn axiom_writeback_unanimous_replies(
                 }
             },
         forall|k: nat| r.1@.contains(k) ==> r.0[k]@@.timestamp() == max_ts,
+        min_ts <= max_ts,
 ;
 
 pub axiom fn axiom_get_ts_replies(

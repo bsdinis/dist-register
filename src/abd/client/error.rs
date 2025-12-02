@@ -24,8 +24,7 @@ pub enum ReadError<RL, RC> {
     FailedSecondQuorum {
         obtained: usize,
         required: usize,
-        timestamp: Timestamp,
-        token: Tracked<LinReadToken<RL>>,
+        lincomp: Tracked<MaybeReadLinearized<RL, RC>>,
     },
 }
 

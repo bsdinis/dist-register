@@ -9,23 +9,22 @@ use vstd::tokens::frac::GhostVarAuth;
 
 verus! {
 
-pub enum MaybeLinearized<L, C, E, Op> {
-    Linearizer { lin: L, ghost op: Op, ghost timestamp: Timestamp },
+pub enum MaybeWriteLinearized<ML, MC> {
+    Linearizer { lin: ML, ghost op: RegisterWrite, ghost timestamp: Timestamp },
     Completion {
-        // is GhostVar<Option<u64>>
-        completion: C,
-        ghost exec_res: E,
-        ghost op: Op,
+        completion: MC,
+        ghost op: RegisterWrite,
         ghost timestamp: Timestamp,
-        ghost lin: L,
+        ghost lin: ML,
     },
 }
 
-pub type MaybeWriteLinearized<ML, MC> = MaybeLinearized<ML, MC, (), RegisterWrite>;
+pub enum MaybeReadLinearized<RL, RC> {
+    Linearizer { lin: RL, ghost op: RegisterRead, ghost value: Option<u64> },
+    Completion { completion: RC, ghost op: RegisterRead, ghost value: Option<u64>, ghost lin: RL },
+}
 
-pub type MaybeReadLinearized<RL, RC> = MaybeLinearized<RL, RC, Option<u64>, RegisterRead>;
-
-impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML, ML::Completion, (), RegisterWrite> {
+impl<ML: MutLinearizer<RegisterWrite>> MaybeWriteLinearized<ML, ML::Completion> {
     pub proof fn linearizer(
         tracked lin: ML,
         op: RegisterWrite,
@@ -51,59 +50,31 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML, ML::Completion, (), R
         &&& self is Completion ==> self.lin().post(self.op(), (), self->completion)
     }
 
-    /*
-    pub proof fn apply_linearizer(tracked self,
-        tracked register: &mut GhostVarAuth<Option<u64>>,
-        resolved_timestamp: Timestamp
-    ) -> (tracked r: Self)
-        requires
-            self.inv(),
-            old(register).id() == self.op().id,
-        ensures
-            r.inv(),
-            self.op() == r.op(),
-            self.timestamp() == r.timestamp(),
-            self.lin() == r.lin(),
-            old(register).id() == register.id(),
-            resolved_timestamp >= self.timestamp() ==> r is Completion,
-        opens_invariants
-            self.namespaces()
-    {
-        match self {
-             MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp <= resolved_timestamp => {
-                    let ghost lin_copy = lin;
-                    let tracked completion = lin.apply(op, register, (), &());
-                    MaybeLinearized::Completion { completion, timestamp, lin: lin_copy, op }
-            } ,
-            other => other
-        }
-    }
-    */
     pub open spec fn lin(self) -> ML {
         match self {
-            MaybeLinearized::Linearizer { lin, .. } => lin,
-            MaybeLinearized::Completion { lin, .. } => lin,
+            MaybeWriteLinearized::Linearizer { lin, .. } => lin,
+            MaybeWriteLinearized::Completion { lin, .. } => lin,
         }
     }
 
     pub open spec fn op(self) -> RegisterWrite {
         match self {
-            MaybeLinearized::Linearizer { op, .. } => op,
-            MaybeLinearized::Completion { op, .. } => op,
+            MaybeWriteLinearized::Linearizer { op, .. } => op,
+            MaybeWriteLinearized::Completion { op, .. } => op,
         }
     }
 
     pub open spec fn timestamp(self) -> Timestamp {
         match self {
-            MaybeLinearized::Linearizer { timestamp, .. } => timestamp,
-            MaybeLinearized::Completion { timestamp, .. } => timestamp,
+            MaybeWriteLinearized::Linearizer { timestamp, .. } => timestamp,
+            MaybeWriteLinearized::Completion { timestamp, .. } => timestamp,
         }
     }
 
     pub open spec fn namespaces(self) -> Set<int> {
         match self {
-            MaybeLinearized::Linearizer { lin, .. } => lin.namespaces(),
-            MaybeLinearized::Completion { .. } => Set::empty(),
+            MaybeWriteLinearized::Linearizer { lin, .. } => lin.namespaces(),
+            MaybeWriteLinearized::Completion { .. } => Set::empty(),
         }
     }
 
@@ -115,97 +86,63 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeLinearized<ML, ML::Completion, (), R
             self->completion == r,
     {
         match self {
-            MaybeLinearized::Completion { completion, .. } => completion,
+            MaybeWriteLinearized::Completion { completion, .. } => completion,
             _ => proof_from_false(),
         }
     }
 }
 
-impl<RL: ReadLinearizer<RegisterRead>> MaybeLinearized<
-    RL,
-    RL::Completion,
-    Option<u64>,
-    RegisterRead,
-> {
+impl<RL: ReadLinearizer<RegisterRead>> MaybeReadLinearized<RL, RL::Completion> {
     pub proof fn linearizer(
         tracked lin: RL,
         op: RegisterRead,
-        timestamp: Timestamp,
+        value: Option<u64>,
     ) -> (tracked result: Self)
         requires
             lin.namespaces().finite(),
             lin.pre(op),
         ensures
-            result == (MaybeLinearized::<
-                RL,
-                RL::Completion,
-                Option<u64>,
-                RegisterRead,
-            >::Linearizer { lin, op, timestamp }),
+            result == (MaybeReadLinearized::<RL, RL::Completion>::Linearizer { lin, op, value }),
             result.inv(),
     {
-        MaybeLinearized::Linearizer { lin, op, timestamp }
+        MaybeReadLinearized::Linearizer { lin, op, value }
     }
 
     pub open spec fn inv(self) -> bool {
         &&& self.namespaces().finite()
         &&& self is Linearizer ==> self.lin().pre(self.op())
-        &&& self is Completion ==> self.lin().post(self.op(), self->exec_res, self->completion)
+        &&& self is Completion ==> self.lin().post(
+            self.op(),
+            self->Completion_value,
+            self->completion,
+        )
     }
 
-    /*
-    pub proof fn apply_linearizer(tracked self,
-        tracked register: &mut GhostVarAuth<Option<u64>>,
-        resolved_timestamp: Timestamp
-    ) -> (tracked r: Self)
-        requires
-            self.inv(),
-            old(register).id() == self.op().id,
-        ensures
-            r.inv(),
-            self.op() == r.op(),
-            self.timestamp() == r.timestamp(),
-            self.lin() == r.lin(),
-            old(register).id() == register.id(),
-            resolved_timestamp >= self.timestamp() ==> r is Completion,
-        opens_invariants
-            self.namespaces()
-    {
-        match self {
-             MaybeLinearized::Linearizer { lin, op, timestamp } if timestamp <= resolved_timestamp => {
-                    let ghost lin_copy = lin;
-                    let tracked completion = lin.apply(op, register, (), &());
-                    MaybeLinearized::Completion { completion, timestamp, lin: lin_copy, op }
-            } ,
-            other => other
-        }
-    }
-    */
     pub open spec fn lin(self) -> RL {
         match self {
-            MaybeLinearized::Linearizer { lin, .. } => lin,
-            MaybeLinearized::Completion { lin, .. } => lin,
+            MaybeReadLinearized::Linearizer { lin, .. } => lin,
+            MaybeReadLinearized::Completion { lin, .. } => lin,
         }
     }
 
     pub open spec fn op(self) -> RegisterRead {
         match self {
-            MaybeLinearized::Linearizer { op, .. } => op,
-            MaybeLinearized::Completion { op, .. } => op,
+            MaybeReadLinearized::Linearizer { op, .. } => op,
+            MaybeReadLinearized::Completion { op, .. } => op,
         }
     }
 
-    pub open spec fn timestamp(self) -> Timestamp {
+    pub open spec fn value(self) -> Option<u64> {
         match self {
-            MaybeLinearized::Linearizer { timestamp, .. } => timestamp,
-            MaybeLinearized::Completion { timestamp, .. } => timestamp,
+            MaybeReadLinearized::Linearizer { value, .. } => value,
+            MaybeReadLinearized::Completion { value, .. } => value,
         }
     }
 
     pub open spec fn namespaces(self) -> Set<int> {
         match self {
-            MaybeLinearized::Linearizer { lin, .. } => lin.namespaces(),
-            MaybeLinearized::Completion { .. } => Set::empty(),
+            MaybeReadLinearized::Linearizer { lin, .. } => lin.namespaces(),
+            MaybeReadLinearized::Completion { .. } => Set::empty(),
         }
     }
 
@@ -217,7 +154,7 @@ impl<RL: ReadLinearizer<RegisterRead>> MaybeLinearized<
             self->completion == r,
     {
         match self {
-            MaybeLinearized::Completion { completion, .. } => completion,
+            MaybeReadLinearized::Completion { completion, .. } => completion,
             _ => proof_from_false(),
         }
     }

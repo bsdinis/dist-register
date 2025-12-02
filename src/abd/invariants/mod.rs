@@ -67,6 +67,7 @@ impl<ML, RL> InvariantPredicate<
         &&& state.linearization_queue.register_id == state.register.id()
         &&& state.linearization_queue.client_token_auth_id == state.client_token_auth.id()
         &&& state.linearization_queue.inv()
+        &&& state.linearization_queue.current_value() == state.register@
         &&& state.servers.inv()
         &&& forall|q: Quorum|
             state.servers.valid_quorum(q) ==> {

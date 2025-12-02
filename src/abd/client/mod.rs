@@ -84,12 +84,12 @@ pub trait AbdRegisterClient<C, ML, RL> where
                 let err = r->Err_0;
                 let op = RegisterRead { id: Ghost(self.register_loc()) };
                 &&& err is FailedFirstQuorum ==> ({
-                    &&& err->lincomp@.lin() == lin
-                    &&& err->lincomp@.op() == op
+                    &&& err->FailedFirstQuorum_lincomp@.lin() == lin
+                    &&& err->FailedFirstQuorum_lincomp@.op() == op
                 })
                 &&& err is FailedSecondQuorum ==> ({
-                    &&& err->token@.value() == (lin@, op)
-                    &&& err->token@.key().0 == err->timestamp
+                    &&& err->FailedSecondQuorum_lincomp@.lin() == lin
+                    &&& err->FailedSecondQuorum_lincomp@.op() == op
                 })
             }),
     ;
@@ -291,11 +291,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let op = RegisterRead { id: Ghost(self.register_loc()) };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point -- see
         // discussion on `write`
-        let proph_ts = Prophecy::<Timestamp>::new();
-        let tracked token_res;
+        let proph_val = Prophecy::<Option<u64>>::new();
+        let tracked token;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                token_res = state.linearization_queue.insert_read_linearizer(lin, op, proph_ts@, &state.register);
+                token = state.linearization_queue.insert_read_linearizer(lin, op, proph_val@, &state.register);
             }
         });
 
@@ -315,14 +315,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                 let tracked lincomp;
                 vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                     proof {
-                        if &token_res is Ok {
-                            let tracked token = token_res.tracked_unwrap();
-                            lincomp = state.linearization_queue.remove_read_lin(token);
-                        } else {
-                            let tracked err = token_res.tracked_unwrap_err();
-                            let tracked err_lin = err.tracked_read_destruct();
-                            lincomp = MaybeReadLinearized::linearizer(err_lin, op, proph_ts@);
-                        }
+                        lincomp = state.linearization_queue.remove_read_lin(token);
                     }
                 });
                 return Err(
@@ -354,12 +347,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             }
         }
 
-        let tracked token;
-        proof {
-            // TODO(assume/watermark)
-            assume(token_res is Ok);
-            token = token_res.tracked_unwrap();
-        }
+        proph_val.resolve(&max_val);
 
         if n_max_ts >= self.pool.quorum_size() {
             let tracked comp;
@@ -369,7 +357,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
                     let tracked mut servers = ServerUniverse::dummy();
                     vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                    let tracked (mut new_servers, quorum) = axiom_get_unanimous_replies(replies, servers, max_ts);
+                    let tracked (mut new_servers, quorum) = axiom_get_unanimous_replies(replies, servers, max_ts, token.value().min_ts@.timestamp());
                     servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
@@ -391,9 +379,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                         assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
                     }
 
-                    // TODO(assume/apply): need to establish this relationship in the postcondition
-                    assume(token.key().0 <= watermark@.timestamp());
-                    comp = state.linearization_queue.extract_read_completion(token, &max_val, watermark);
+                    comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark);
                 }
 
                 // XXX: not load bearing but good for debugging
@@ -437,13 +423,17 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let wb_rep = match replies_result {
             Ok(r) => r,
             Err(replies) => {
-                assume(token.key().0 == max_ts);
+                let tracked lincomp;
+                vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+                    proof {
+                        lincomp = state.linearization_queue.remove_read_lin(token);
+                    }
+                });
                 return Err(
                     error::ReadError::FailedSecondQuorum {
                         obtained: replies.replies().len(),
                         required: self.pool.quorum_size(),
-                        timestamp: max_ts,
-                        token: Tracked(token),
+                        lincomp: Tracked(lincomp),
                     },
                 );
             },
@@ -457,7 +447,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
                 let tracked mut servers = ServerUniverse::dummy();
                 vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                let tracked (mut new_servers, quorum) = axiom_writeback_unanimous_replies(replies, wb_replies, servers, max_ts);
+                let tracked (mut new_servers, quorum) = axiom_writeback_unanimous_replies(replies, wb_replies, servers, max_ts, token.value().min_ts@.timestamp());
                 servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                 vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
@@ -478,9 +468,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
                 }
 
-                // TODO(assume/apply): need to establish this relationship in the postcondition
-                assume(token.key().0 <= watermark@.timestamp());
-                comp = state.linearization_queue.extract_read_completion(token, &max_val, watermark);
+                comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark);
             }
 
             // XXX: not load bearing but good for debugging

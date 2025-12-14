@@ -104,7 +104,7 @@ impl ServerUniverse {
     {
         let ts_leq = Self::ts_leq();
         let ts = self.quorum_timestamp(q);
-        let lbs = self.map.restrict(q@).values();
+        let lb_map = self.map.restrict(q@);
         let vals = self.quorum_vals(q);
 
         assert forall|idx: nat| q@.contains(idx) implies vals.contains(self[idx]@@.timestamp()) by {
@@ -121,9 +121,26 @@ impl ServerUniverse {
                 |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
             );
         }
-        assume(lbs.finite());
-        assume(lbs.len() <= q@.len());
-        lemma_map_size_bound(lbs, vals, |r: Tracked<MonotonicTimestampResource>| r@@.timestamp());
+
+        // lb_map.dom().len() <= q@.len()
+        assert(lb_map.dom() == self.map.dom().intersect(q@));
+        assert(lb_map.dom() <= q@);
+        assert(lb_map.dom().finite());
+        lemma_len_subset(lb_map.dom(), q@);
+        assert(lb_map.dom().len() <= q@.len());
+
+        // lb_map.values().len() <= lb_map.dom().len()
+        lb_map.lemma_values_len();
+        assert(lb_map.values().len() <= lb_map.dom().len());
+        assert(lb_map.values().finite());
+
+        // vals <= lb_map.values().len()
+        lemma_map_size_bound(
+            lb_map.values(),
+            vals,
+            |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
+        );
+
         assert(vals.len() <= q@.len());
         (vals, ts)
     }

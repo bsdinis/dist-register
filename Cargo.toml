@@ -16,10 +16,8 @@ rand_distr = "0.5.1"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = [ "std", "env-filter" ] }
 
-# verus
+vlib = { path = "../vlib" }
 vstd = { path = "../verus/source/vstd" }
-verus_builtin = { path = "../verus/source/builtin" }
-verus_builtin_macros = { path = "../verus/source/builtin_macros" }
 
 [lints.clippy]
 explicit_iter_loop = "warn"

@@ -291,17 +291,6 @@ impl ServerUniverse {
         }
     }
 
-    proof fn lemma_quorum_exists_lb(self, q: Quorum, ts: Timestamp)
-        requires
-            self.inv(),
-            self.valid_quorum(q),
-            exists|idx: nat| q@.contains(idx) ==> self[idx]@@.timestamp() >= ts,
-        ensures
-            self.quorum_timestamp(q) >= ts,
-    {
-        assume(self.quorum_timestamp(q) >= ts);
-    }
-
     // This is the big quorum lemma
     pub proof fn lemma_quorum_lb(self, lb_quorum: Quorum, ts: Timestamp)
         requires

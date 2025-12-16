@@ -1,3 +1,4 @@
+use crate::abd::invariants::committed_to::WriteCommitment;
 #[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::CompletedRead;
 #[allow(unused_imports)]
@@ -8,7 +9,6 @@ use crate::abd::invariants::lin_queue::MaybeReadLinearized;
 use crate::abd::invariants::lin_queue::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
-use crate::abd::invariants::ClientToken;
 use crate::abd::proto::Timestamp;
 
 use vstd::logatom::ReadLinearizer;
@@ -22,8 +22,8 @@ verus! {
 
 pub struct PendingWrite<ML> {
     pub lin: ML,
-    pub token: ClientToken,
     pub op: RegisterWrite,
+    pub commitment: WriteCommitment,
     pub ghost timestamp: Timestamp,
 }
 
@@ -36,25 +36,27 @@ pub struct PendingRead<RL> {
 impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
     pub proof fn new(
         tracked lin: ML,
-        tracked token: ClientToken,
         tracked op: RegisterWrite,
+        tracked commitment: WriteCommitment,
         timestamp: Timestamp,
     ) -> (tracked result: Self)
         requires
             lin.namespaces().finite(),
             lin.pre(op),
-            timestamp.client_id == token@,
+            commitment.key() == timestamp,
+            commitment.value() == op.new_value,
         ensures
-            result == (PendingWrite { lin, token, op, timestamp }),
+            result == (PendingWrite { lin, op, commitment, timestamp }),
             result.inv(),
     {
-        PendingWrite { lin, token, op, timestamp }
+        PendingWrite { lin, op, commitment, timestamp }
     }
 
     pub open spec fn inv(self) -> bool {
         &&& self.lin.namespaces().finite()
         &&& self.lin.pre(self.op)
-        &&& self.timestamp.client_id == self.token@
+        &&& self.commitment.key() == self.timestamp
+        &&& self.commitment.value() == self.op.new_value
     }
 
     pub proof fn apply_linearizer(
@@ -71,40 +73,35 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
             self.op == r.op,
             self.timestamp == r.timestamp,
             self.lin == r.lin,
-            self.token == r.token,
+            self.commitment == r.commitment,
             old(register).id() == register.id(),
             register@ == r.op.new_value,
         opens_invariants self.lin.namespaces()
     {
         let ghost lin_copy = self.lin;
         let tracked completion = self.lin.apply(self.op, register, (), &());
-        CompletedWrite::new(completion, self.token, lin_copy, self.op, self.timestamp)
+        CompletedWrite::new(completion, self.op, self.commitment, lin_copy, self.timestamp)
     }
 
-    pub proof fn maybe(tracked self) -> (tracked r: (
-        MaybeWriteLinearized<ML, ML::Completion>,
-        ClientToken,
-    ))
+    // TODO(maybe): add commitment to MaybeWriteLinearized
+    pub proof fn maybe(tracked self) -> (tracked r:
+        MaybeWriteLinearized<ML, ML::Completion>
+    )
         requires
             self.inv(),
         ensures
-            r.0.inv(),
-            r.0.timestamp().client_id == r.1@,
-            r.0 == (MaybeWriteLinearized::<ML, ML::Completion>::Linearizer {
+            r.inv(),
+            r == (MaybeWriteLinearized::<ML, ML::Completion>::Linearizer {
                 lin: self.lin,
                 op: self.op,
                 timestamp: self.timestamp,
             }),
-            r.1 == self.token,
     {
-        (
-            MaybeWriteLinearized::Linearizer {
-                lin: self.lin,
-                op: self.op,
-                timestamp: self.timestamp,
-            },
-            self.token,
-        )
+        MaybeWriteLinearized::Linearizer {
+            lin: self.lin,
+            op: self.op,
+            timestamp: self.timestamp,
+        }
     }
 }
 

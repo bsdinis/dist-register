@@ -8,10 +8,14 @@ use vstd::tokens::frac::GhostVarAuth;
 use vstd::tokens::set::GhostSetAuth;
 use vstd::tokens::set::GhostSingleton;
 
+use crate::abd::proto::Timestamp;
+
+pub mod committed_to;
 pub mod lin_queue;
 pub mod logatom;
 pub mod quorum;
 
+use committed_to::*;
 use lin_queue::*;
 use logatom::*;
 use quorum::*;
@@ -34,22 +38,48 @@ pub open spec fn state_inv_id() -> int {
     1int
 }
 
-pub type ClientTokenAuth = GhostSetAuth<u64>;
-
-pub type ClientToken = GhostSingleton<u64>;
-
 pub struct StatePredicate {
     pub lin_queue_ids: LinQueueIds,
     pub register_id: int,
     pub server_locs: Map<nat, int>,
-    pub client_token_auth_id: int,
+    pub commitments_ids: CommitmentIds,
 }
 
 pub struct State<ML, RL, MC, RC> {
     pub tracked register: GhostVarAuth<Option<u64>>,
     pub tracked linearization_queue: LinearizationQueue<ML, RL, MC, RC>,
     pub tracked servers: ServerUniverse,
-    pub tracked client_token_auth: ClientTokenAuth,
+    pub tracked commitments: Commitments,
+}
+
+impl<ML, RL> State<ML, RL, ML::Completion, RL::Completion>
+    where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
+{
+    pub open spec fn inv(self) -> bool {
+        &&& self.linearization_queue.register_id == self.register.id()
+        &&& self.linearization_queue.committed_to.id() == self.commitments.commitment_id()
+        &&& self.linearization_queue.inv()
+        &&& self.linearization_queue.current_value() == self.register@
+        &&& self.linearization_queue.known_timestamps() == self.commitments@.dom()
+        &&& self.servers.inv()
+        &&& self.commitments.inv()
+        &&& forall |q: Quorum|
+            self.servers.valid_quorum(q) ==> {
+                self.linearization_queue.watermark@.timestamp() <= self.servers.quorum_timestamp(
+                    q,
+                )
+            }
+        // TODO: this does not work
+        // -- when inserting the new write the timestamp is prophecized, so the watermark hasn't moved yet
+        // &&& forall |client_id: u64|
+            // self.commitments.client_max_seqno@.contains_key(client_id) ==>
+            // self.linearization_queue.watermark@.timestamp().seqno >= self.commitments.client_max_seqno@[client_id]
+        &&& forall |ts: Timestamp|
+            self.linearization_queue.write_token_map@.contains_key(ts) ==> ({
+                &&& self.commitments.client_max_seqno@.contains_key(ts.client_id)
+                &&& self.commitments.client_max_seqno@[ts.client_id] >= ts.seqno
+            })
+    }
 }
 
 impl<ML, RL> InvariantPredicate<
@@ -60,21 +90,11 @@ impl<ML, RL> InvariantPredicate<
         p: StatePredicate,
         state: State<ML, RL, ML::Completion, RL::Completion>,
     ) -> bool {
-        &&& p.lin_queue_ids == state.linearization_queue.ids()
         &&& p.register_id == state.register.id()
-        &&& p.client_token_auth_id == state.client_token_auth.id()
+        &&& p.lin_queue_ids == state.linearization_queue.ids()
         &&& p.server_locs == state.servers.locs()
-        &&& state.linearization_queue.register_id == state.register.id()
-        &&& state.linearization_queue.client_token_auth_id == state.client_token_auth.id()
-        &&& state.linearization_queue.inv()
-        &&& state.linearization_queue.current_value() == state.register@
-        &&& state.servers.inv()
-        &&& forall|q: Quorum|
-            state.servers.valid_quorum(q) ==> {
-                state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(
-                    q,
-                )
-            }
+        &&& p.commitments_ids == state.commitments.ids()
+        &&& state.inv()
     }
 }
 
@@ -96,20 +116,25 @@ pub proof fn initialize_system_state<ML, RL>() -> (tracked r: (
 {
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked servers = ServerUniverse::dummy();
-    let tracked client_token_auth = GhostSetAuth::dummy();
-    let tracked linearization_queue = LinearizationQueue::dummy(
+    let tracked (commitments, zero_commitment) = Commitments::new();
+    let tracked mut linearization_queue = LinearizationQueue::dummy(
         register.id(),
-        client_token_auth.id(),
+        zero_commitment,
     );
+
+    linearization_queue.committed_to.agree(&commitments.commitment_auth);
+    // XXX: load bearing
+    assert(linearization_queue.known_timestamps() == set![Timestamp { seqno: 0, client_id: 0 }]);
 
     let pred = StatePredicate {
         lin_queue_ids: linearization_queue.ids(),
         register_id: register.id(),
-        client_token_auth_id: client_token_auth.id(),
         server_locs: servers.locs(),
+        commitments_ids: commitments.ids(),
     };
 
-    let tracked state = State { register, linearization_queue, client_token_auth, servers };
+    let tracked state = State { register, linearization_queue, servers, commitments};
+
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
     let tracked state_inv = AtomicInvariant::new(pred, state, state_inv_id());
 

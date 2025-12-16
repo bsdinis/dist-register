@@ -1,9 +1,9 @@
+use crate::abd::invariants::committed_to::WriteCommitment;
 #[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::maybe_lin::MaybeReadLinearized;
 #[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::maybe_lin::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::{RegisterRead, RegisterWrite};
-use crate::abd::invariants::ClientToken;
 use crate::abd::proto::Timestamp;
 
 use vstd::prelude::*;
@@ -16,8 +16,8 @@ verus! {
 
 pub struct CompletedWrite<ML, MC> {
     pub completion: MC,
-    pub token: ClientToken,
     pub op: RegisterWrite,
+    pub commitment: WriteCommitment,
     pub ghost lin: ML,
     pub ghost timestamp: Timestamp,
 }
@@ -33,52 +33,49 @@ pub struct CompletedRead<RL, RC> {
 impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML, ML::Completion> {
     pub proof fn new(
         tracked completion: ML::Completion,
-        tracked token: ClientToken,
-        lin: ML,
         tracked op: RegisterWrite,
+        tracked commitment: WriteCommitment,
+        lin: ML,
         timestamp: Timestamp,
     ) -> (tracked r: Self)
         requires
             lin.post(op, (), completion),
-            timestamp.client_id == token@,
+            commitment.key() == timestamp,
+            commitment.value() == op.new_value,
         ensures
             r.inv(),
-            r == (CompletedWrite { completion, token, lin, op, timestamp }),
+            r == (CompletedWrite { completion, op, commitment, lin, timestamp }),
     {
-        CompletedWrite { completion, token, lin, op, timestamp }
+        CompletedWrite { completion, op, commitment, lin, timestamp }
     }
 
     pub open spec fn inv(self) -> bool {
         &&& self.lin.post(self.op, (), self.completion)
-        &&& self.timestamp.client_id == self.token@
+        &&& self.commitment.key() == self.timestamp
+        &&& self.commitment.value() == self.op.new_value
     }
 
-    pub proof fn maybe(tracked self) -> (tracked r: (
-        MaybeWriteLinearized<ML, ML::Completion>,
-        ClientToken,
-    ))
+    // TODO(maybe): add commitment to MaybeWriteLinearized
+    pub proof fn maybe(tracked self) -> (tracked r:
+        MaybeWriteLinearized<ML, ML::Completion>
+    )
         requires
             self.inv(),
         ensures
-            r.0.inv(),
-            r.0.timestamp().client_id == r.1@,
-            r.0 == (MaybeWriteLinearized::Completion {
+            r.inv(),
+            r == (MaybeWriteLinearized::Completion {
                 completion: self.completion,
                 lin: self.lin,
                 op: self.op,
                 timestamp: self.timestamp,
             }),
-            r.1 == self.token,
     {
-        (
             MaybeWriteLinearized::Completion {
                 completion: self.completion,
                 lin: self.lin,
                 op: self.op,
                 timestamp: self.timestamp,
-            },
-            self.token,
-        )
+            }
     }
 }
 

@@ -9,7 +9,6 @@ use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::invariants::quorum::Quorum;
 use crate::abd::invariants::quorum::ServerUniverse;
-use crate::abd::invariants::ClientToken;
 use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
 use crate::abd::proto::Request;
@@ -36,7 +35,10 @@ use vstd::tokens::frac::GhostVarAuth;
 
 use net_axioms::*;
 use utils::*;
+use vstd::tokens::map::GhostSubmap;
 use vstd::tokens::set::GhostSubset;
+
+use super::invariants::committed_to::ClientSeqnoToken;
 
 verus! {
 
@@ -142,7 +144,9 @@ pub trait AbdRegisterClient<C, ML, RL> where
                 })
                 &&& err is FailedSecondQuorum ==> ({
                     let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
-                    &&& err->token@.value() == (lin@, op)
+                    &&& err->token@.value().lin == lin@
+                    &&& err->token@.value().op == op
+                    &&& err->token@.value().commitment.value() == op.new_value
                     &&& err->token@.key() == err->timestamp
                 })
             }),
@@ -164,10 +168,10 @@ pub trait AbdRegisterClient<C, ML, RL> where
             error->token@.key() == error->timestamp,
         ensures
             r is Ok ==> ({
-                let (lin, op) = error->token@.value();
+                let val = error->token@.value();
                 let comp = r->Ok_0;
                 &&& self.inv()
-                &&& lin.post(op, (), comp@)
+                &&& val.lin.post(val.op, (), comp@)
             }),
             r is Err ==> ({
                 &&& self.weak_inv()
@@ -179,9 +183,8 @@ pub trait AbdRegisterClient<C, ML, RL> where
 pub struct AbdPool<Pool, ML, RL, WC, RC> {
     pool: Pool,
     register_id: Ghost<int>,
-    // assert ownership on timestamps with a particular client_id
-    client_tok_subset: Tracked<GhostSubset<u64>>,
     state_inv: Tracked<StateInvariant<ML, RL, WC, RC>>,
+    client_seqno_token: Tracked<ClientSeqnoToken>,
 }
 
 impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> where
@@ -192,22 +195,22 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
  {
     pub fn new(
         pool: Pool,
-        Tracked(client_token): Tracked<ClientToken>,
+        client_seqno_token: Tracked<ClientSeqnoToken>,
         state_inv: Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
     ) -> (r: Self)
         requires
             pool.n() > 0,
-            pool.pool_id() == client_token@,
-            state_inv@.constant().client_token_auth_id == client_token.id(),
             state_inv@.namespace() == invariants::state_inv_id(),
+            state_inv@.constant().commitments_ids.client_map_id == client_seqno_token@.id(),
+            client_seqno_token@.key() == pool.pool_id(),
         ensures
             r._inv(),
     {
         AbdPool {
             pool,
-            client_tok_subset: Tracked(client_token.subset()),
             state_inv,
             register_id: Ghost(state_inv@.constant().register_id),
+            client_seqno_token,
         }
     }
 
@@ -217,15 +220,14 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
 
     pub closed spec fn _inv(self) -> bool {
         &&& self._weak_inv()
-        &&& self.client_tok_subset@@ == set![self.id()]
-        &&& self.client_tok_subset@.is_singleton()
     }
 
     pub closed spec fn _weak_inv(self) -> bool {
         &&& self.pool.n() > 0
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
-        &&& self.state_inv@.constant().client_token_auth_id == self.client_tok_subset@.id()
+        &&& self.state_inv@.constant().commitments_ids.client_map_id == self.client_seqno_token@.id()
+        &&& self.client_seqno_token@.key() == self.id()
     }
 
     pub fn quorum_size(&self) -> usize {
@@ -297,6 +299,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             proof {
                 token = state.linearization_queue.insert_read_linearizer(lin, op, proph_val@, &state.register);
             }
+            // XXX: debug assert
+            assert(state.inv());
         });
 
         let bpool = BroadcastPool::new(&self.pool);
@@ -317,6 +321,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     proof {
                         lincomp = state.linearization_queue.remove_read_lin(token);
                     }
+                    // XXX: debug assert
+                    assert(state.inv());
                 });
                 return Err(
                     error::ReadError::FailedFirstQuorum {
@@ -353,37 +359,37 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             let tracked comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
-                    let ghost old_watermark = state.linearization_queue.watermark;
+                    let ghost old_watermark = state.linearization_queue.watermark@.timestamp();
+                    let ghost old_known = state.linearization_queue.known_timestamps();
 
                     let tracked mut servers = ServerUniverse::dummy();
                     vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                    let tracked (mut new_servers, quorum) = axiom_get_unanimous_replies(replies, servers, max_ts, token.value().min_ts@.timestamp());
+                    let tracked (mut new_servers, quorum, mut commitment) = axiom_get_unanimous_replies(replies, servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to.id());
                     servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
-
-                    // TODO(assume/read_lin): need to show that *at this point* the existence of a
-                    // read token implies the existence of the corresponding write token or that it
-                    // is over?
-                    assume(state.linearization_queue.write_token_map@.contains_key(max_ts));
+                    commitment.agree(&state.commitments.commitment_auth);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
                     let tracked (watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
 
-                    if max_ts > old_watermark@.timestamp() {
+                    if max_ts > old_watermark {
                         state.servers.lemma_quorum_lb(quorum, max_ts);
                         assert(state.linearization_queue.watermark@.timestamp() == max_ts);
                     } else {
-                        assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
+                        assert(state.linearization_queue.watermark@.timestamp() == old_watermark);
                     }
 
-                    comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark);
+                    comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark, commitment);
+
+                    // XXX: load bearing
+                    assert(state.linearization_queue.known_timestamps() == old_known);
                 }
 
-                // XXX: not load bearing but good for debugging
-                assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
+                // XXX: debug assert
+                assert(state.inv());
             });
             return Ok((max_val, max_ts, Tracked(comp)));
         }
@@ -428,6 +434,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     proof {
                         lincomp = state.linearization_queue.remove_read_lin(token);
                     }
+                    // XXX: debug assert
+                    assert(state.inv());
                 });
                 return Err(
                     error::ReadError::FailedSecondQuorum {
@@ -444,17 +452,15 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 let ghost old_watermark = state.linearization_queue.watermark;
+                let ghost old_known = state.linearization_queue.known_timestamps();
 
                 let tracked mut servers = ServerUniverse::dummy();
                 vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                let tracked (mut new_servers, quorum) = axiom_writeback_unanimous_replies(replies, wb_replies, servers, max_ts, token.value().min_ts@.timestamp());
+                let tracked (mut new_servers, quorum, commitment) = axiom_writeback_unanimous_replies(replies, wb_replies, servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to.id());
                 servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                 vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
-                // TODO(assume/read_lin): need to show that *at this point* the existence of a
-                // read token implies the existence of the corresponding write token or that it is
-                // over?
-                assume(state.linearization_queue.write_token_map@.contains_key(max_ts));
+                commitment.agree(&state.commitments.commitment_auth);
 
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
@@ -468,11 +474,14 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
                 }
 
-                comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark);
+                comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark, commitment);
+
+                // XXX: load bearing
+                assert(state.linearization_queue.known_timestamps() == old_known);
             }
 
-            // XXX: not load bearing but good for debugging
-            assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
+            // XXX: debug assert
+            assert(state.inv());
         });
         Ok((max_val, max_ts, Tracked(comp)))
     }
@@ -504,12 +513,40 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let proph_seqno = Prophecy::<u64>::new();
         let ghost proph_ts = Timestamp { seqno: proph_seqno@, client_id: self.client_id() };
         let tracked token_res;
+        let tracked commitment_opt;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                let tracked tok = self.client_tok_subset.borrow_mut().take().singleton();
-                token_res = state.linearization_queue.insert_write_linearizer(lin, op, proph_ts, tok);
+                let ghost old_known = state.linearization_queue.known_timestamps();
+
+                let tracked (orig, cpy) = if proph_ts > state.linearization_queue.watermark@.timestamp() {
+                    // TODO(assume/timestamp_alloc): need the client_ctr here too
+                    self.client_seqno_token.borrow_mut().agree(&state.commitments.client_max_seqno);
+                    assume(proph_ts.seqno > self.client_seqno_token@.value());
+                    assert(!state.commitments.commitment_auth@.contains_key(proph_ts));
+                    assert(!state.linearization_queue.write_token_map@.contains_key(proph_ts));
+
+                    // TODO(assume/client_ctr): client ctr is needed here -- otherwise we can
+                    // persist things that then error out
+                    let tracked mut persisted = state.commitments.commit_value(self.client_seqno_token.borrow_mut(), proph_ts, op.new_value);
+                    persisted.agree(&state.commitments.commitment_auth);
+                    let tracked dup = persisted.duplicate();
+
+                    (Some(persisted), Some(dup))
+                } else {
+                    (None, None)
+                };
+                commitment_opt = cpy;
+                token_res = state.linearization_queue.insert_write_linearizer(lin, op, proph_ts, orig);
+
+                // XXX: load bearing
+                assert(token_res is Ok ==> state.linearization_queue.known_timestamps() == old_known.insert(proph_ts));
             }
+            // XXX: debug assert
+            assert(state.inv());
         });
+        assert(token_res is Ok <==> commitment_opt is Some);
+        assert(token_res is Ok ==> token_res->Ok_0.value().commitment@ == commitment_opt->Some_0@);
+        assert(token_res is Ok ==> token_res->Ok_0.value().commitment.id() == commitment_opt->Some_0.id());
 
         let quorum = {
             let bpool = BroadcastPool::new(&self.pool);
@@ -529,21 +566,25 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     let tracked lincomp;
                     vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                         proof {
-                            let tracked client_token;
                             if &token_res is Ok {
                                 let tracked token = token_res.tracked_unwrap();
-                                let tracked x = state.linearization_queue.remove_write_lin(token);
-                                lincomp = x.0;
-                                client_token = x.1;
+                                lincomp = state.linearization_queue.remove_write_lin(token);
+                                // TODO(assume/error-remove): we need a more refined way of doing
+                                // commitments
+                                //
+                                // There are two alternatives here -- either the value was
+                                // committed by someone else, in which case is in
+                                // lin_queue.committed_to, or its still pending.
+                                //
+                                // In the latter case we could have the full points-to, allowing us
+                                // to remove it here if it exists, ensuring the option below is
+                                // true
+                                assume(state.linearization_queue.known_timestamps() == state.commitments@.dom());
                             } else {
                                 let tracked err = token_res.tracked_unwrap_err();
-                                let tracked (err_lin, tok) = err.tracked_write_destruct();
+                                let tracked err_lin = err.tracked_write_destruct();
                                 lincomp = MaybeWriteLinearized::linearizer(err_lin, op, proph_ts);
-                                client_token = tok;
                             }
-
-                            let tracked mut client_tok_subset = client_token.subset();
-                            vstd::modes::tracked_swap(&mut client_tok_subset, self.client_tok_subset.borrow_mut());
                         }
                     });
 
@@ -577,6 +618,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         assert(proph_ts == exec_ts);
 
         let tracked token;
+        let tracked mut commitment;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 let tracked mut servers = ServerUniverse::dummy();
@@ -594,7 +636,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     &state,
                     quorum
                 );
+                commitment = commitment_opt.tracked_unwrap();
             }
+
+            // XXX: not load bearing but good for debugging
+            assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
         });
 
         {
@@ -627,6 +673,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 let tracked comp;
                 proof {
+                    let ghost old_known = state.linearization_queue.known_timestamps();
+
                     token.agree(&state.linearization_queue.write_token_map);
                     state.linearization_queue.lemma_write_token_is_in_queue(&token);
 
@@ -637,6 +685,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     let tracked (mut new_servers, quorum) = axiom_write_replies(replies, servers, exec_ts);
                     servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
+
+                    commitment.agree(&state.commitments.commitment_auth);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
@@ -650,18 +700,16 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                         assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
                     }
 
-                    let tracked (c, tok) = state.linearization_queue.extract_write_completion(token, resource);
-                    let tracked mut subset = tok.subset();
-                    vstd::modes::tracked_swap(&mut subset, self.client_tok_subset.borrow_mut());
+                    comp = state.linearization_queue.extract_write_completion(token, resource);
 
-
-                    comp = c;
+                    // XXX: load bearing
+                    assert(state.linearization_queue.known_timestamps() == old_known);
                 }
 
                 exec_comp = Tracked(comp);
 
-                // XXX: not load bearing but good for debugging
-                assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
+                // XXX: debug assert
+                assert(state.inv());
             });
 
             Ok(exec_comp)
@@ -711,7 +759,10 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
         token_res is Ok ==> {
             let tok = token_res->Ok_0;
             &&& tok.key() == timestamp
-            &&& tok.value() == (lin, op)
+            &&& tok.value().lin == lin
+            &&& tok.value().op == op
+            &&& tok.value().commitment.key() == timestamp
+            &&& tok.value().commitment.value() == op.new_value
             &&& tok.id() == state.linearization_queue.write_token_map.id()
         },
         token_res is Err ==> ({
@@ -725,8 +776,12 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
     ensures
         tok == token_res->Ok_0,
         tok.key() == timestamp,
-        tok.value() == (lin, op),
+        tok.value().lin == lin,
+        tok.value().op == op,
+        tok.value().commitment.key() == timestamp,
+        tok.value().commitment.value() == op.new_value,
         tok.id() == state.linearization_queue.write_token_map.id(),
+        token_res is Ok,
 {
     if &token_res is Err {
         let tracked err = token_res.tracked_unwrap_err();

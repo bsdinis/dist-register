@@ -14,7 +14,6 @@ use abd::invariants::logatom::ReadPerm;
 use abd::invariants::logatom::RegisterRead;
 use abd::invariants::logatom::RegisterWrite;
 use abd::invariants::logatom::WritePerm;
-use abd::invariants::ClientToken;
 use abd::invariants::RegisterView;
 use abd::invariants::StateInvariant;
 use abd::proto::Timestamp;
@@ -33,6 +32,9 @@ use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::tokens::frac::GhostVar;
+use vstd::tokens::map::GhostSubmap;
+
+use self::abd::invariants::committed_to::ClientSeqnoToken;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
@@ -367,7 +369,7 @@ where
 */
 
 fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool) -> (r: (
-    Tracked<ClientToken>,
+    Tracked<ClientSeqnoToken>,
     Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
     Tracked<RegisterView>,
 )) where
@@ -377,8 +379,8 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool) -> (r: (
     RL: ReadLinearizer<RegisterRead>,
 
     ensures
-        r.0@@ == pool.pool_id(),
-        r.1@.constant().client_token_auth_id == r.0@.id(),
+        r.0@.key() == pool.pool_id(),
+        r.0@.id() == r.1@.constant().commitments_ids.client_map_id,
         r.1@.namespace() == invariants::state_inv_id(),
 {
     let tracked state_inv;
@@ -389,15 +391,20 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool) -> (r: (
         view = v;
     }
     // XXX: we could derive this with a sign-in procedure to create ids
-    let tracked client_token;
+    let tracked mut client_seqno_token;
     vstd::open_atomic_invariant!(&state_inv => state => {
         proof {
-            assume(!state.client_token_auth@.contains(pool.pool_id()));
-            client_token = state.client_token_auth.insert(pool.pool_id());
+            // XXX(assume/client_disjoint): client_id uniqueness: could be resolved by a client id service
+            assume(!state.commitments.client_max_seqno@.contains_key(pool.pool_id()));
+            client_seqno_token = state.commitments.login(pool.pool_id());
+            client_seqno_token.agree(&state.commitments.client_max_seqno);
         }
+
+        // XXX: not load bearing but good for debugging
+        assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(state_inv.constant(), state));
     });
 
-    (Tracked(client_token), Tracked(state_inv), Tracked(view))
+    (Tracked(client_seqno_token), Tracked(state_inv), Tracked(view))
 }
 
 fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
@@ -417,7 +424,7 @@ fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
         lemma_pool_len(pool);
     }
 
-    let (client_token, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(
+    let (client_commitments, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(
         &pool,
     );
     let mut client = AbdPool::<
@@ -426,7 +433,7 @@ fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
         ReadPerm<'_>,
         GhostVar<Option<u64>>,
         &'_ GhostVar<Option<u64>>,
-    >::new(pool, client_token, state_inv);
+    >::new(pool, client_commitments, state_inv);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     assert(client.weak_inv()) by { client.lemma_weak_inv() };
     let tracked view = view.get();

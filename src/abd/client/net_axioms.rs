@@ -1,4 +1,5 @@
 use crate::abd::client::utils::max_from_get_ts_replies;
+use crate::abd::invariants::committed_to::WriteCommitment;
 use crate::abd::invariants::quorum::Quorum;
 use crate::abd::invariants::quorum::ServerUniverse;
 use crate::abd::proto::Timestamp;
@@ -15,9 +16,11 @@ verus! {
 pub axiom fn axiom_get_unanimous_replies(
     replies: &[(usize, (Timestamp, Option<u64>))],
     tracked old_map: ServerUniverse,
-    max_ts: Timestamp,
     min_ts: Timestamp,
-) -> (tracked r: (ServerUniverse, Quorum))
+    max_ts: Timestamp,
+    max_val: Option<u64>,
+    commitment_id: int,
+) -> (tracked r: (ServerUniverse, Quorum, WriteCommitment))
     requires
         old_map.inv(),
 // NOTE(net_axiom): timestamps in the replies need to be above the lower bounds in old_map
@@ -44,15 +47,19 @@ pub axiom fn axiom_get_unanimous_replies(
             },
         forall|k: nat| r.1@.contains(k) ==> r.0[k]@@.timestamp() == max_ts,
         min_ts <= max_ts,
+        r.2@ == (max_ts, max_val),
+        r.2.id() == commitment_id,
 ;
 
 pub axiom fn axiom_writeback_unanimous_replies(
     get_replies: &[(usize, (Timestamp, Option<u64>))],
     wb_replies: &[(usize, ())],
     tracked old_map: ServerUniverse,
-    max_ts: Timestamp,
     min_ts: Timestamp,
-) -> (tracked r: (ServerUniverse, Quorum))
+    max_ts: Timestamp,
+    max_val: Option<u64>,
+    commitment_id: int,
+) -> (tracked r: (ServerUniverse, Quorum, WriteCommitment))
     requires
         old_map.inv(),
 // NOTE(net_axiom): relate the get_replies to the wb_replies (i.e., if something in the
@@ -89,6 +96,8 @@ pub axiom fn axiom_writeback_unanimous_replies(
             },
         forall|k: nat| r.1@.contains(k) ==> r.0[k]@@.timestamp() == max_ts,
         min_ts <= max_ts,
+        r.2@ == (max_ts, max_val),
+        r.2.id() == commitment_id,
 ;
 
 pub axiom fn axiom_get_ts_replies(

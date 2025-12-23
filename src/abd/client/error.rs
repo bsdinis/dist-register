@@ -1,9 +1,11 @@
-use crate::abd::invariants::lin_queue::LinReadToken;
+use crate::abd::invariants::committed_to::WriteCommitment;
 use crate::abd::invariants::lin_queue::LinWriteToken;
 use crate::abd::invariants::lin_queue::MaybeReadLinearized;
 use crate::abd::invariants::lin_queue::MaybeWriteLinearized;
+use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::proto::Timestamp;
 
+use vstd::logatom::MutLinearizer;
 use vstd::prelude::*;
 
 verus! {
@@ -48,7 +50,27 @@ pub enum WriteError<ML, MC> {
         required: usize,
         timestamp: Timestamp,
         token: Tracked<LinWriteToken<ML>>,
+        commitment: Tracked<WriteCommitment>,
     },
+}
+
+impl<ML> WriteError<ML, ML::Completion>
+where ML: MutLinearizer<RegisterWrite>
+{
+    pub open spec fn inv(self) -> bool {
+        match self {
+            WriteError::FailedFirstQuorum { lincomp, .. } => {
+                // TODO: might be worthwhile to say that lincomp.inv()
+                // This is non-obvious but not critical
+                true
+            }
+            WriteError::FailedSecondQuorum { token, commitment, timestamp, .. } => {
+                &&& token@.key() == timestamp
+                &&& commitment@.key() == timestamp
+                &&& commitment@.value() == token@.value().op.new_value
+            }
+        }
+    }
 }
 
 impl<RL, RC> std::error::Error for ReadError<RL, RC> {

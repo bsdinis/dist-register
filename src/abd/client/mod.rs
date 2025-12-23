@@ -136,6 +136,7 @@ pub trait AbdRegisterClient<C, ML, RL> where
                 let err = r->Err_0;
                 &&& err is FailedFirstQuorum ==> ({
                     &&& self.inv()
+                    &&& err.inv()
                     &&& err->lincomp@.lin() == lin
                     &&& err->lincomp@.op() == RegisterWrite {
                         id: Ghost(self.register_loc()),
@@ -144,10 +145,9 @@ pub trait AbdRegisterClient<C, ML, RL> where
                 })
                 &&& err is FailedSecondQuorum ==> ({
                     let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
+                    &&& err.inv()
                     &&& err->token@.value().lin == lin@
                     &&& err->token@.value().op == op
-                    &&& err->token@.value().commitment.value() == op.new_value
-                    &&& err->token@.key() == err->timestamp
                 })
             }),
     ;
@@ -336,8 +336,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
         // check early return
         let replies = quorum.replies();
-        // TODO(assume): network axiomatization invariant -- comes from spec'ing network layer
-        assume(replies.len() == self.qsize());
+        assume(replies.len() == self.qsize()); // TODO(assume/network)
         proof {
             self.lemma_qsize_nonempty();
         }
@@ -347,8 +346,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let q_iter = replies.iter();
         for (_idx, (ts, _val)) in q_iter {
             if ts.seqno == max_ts.seqno && ts.client_id == max_ts.client_id {
-                // XXX(assume): integer overflow assume
-                assume(n_max_ts + 1 < usize::MAX);
+                assume(n_max_ts + 1 < usize::MAX); // XXX: integer overflow
                 n_max_ts += 1;
             }
         }
@@ -513,30 +511,25 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let proph_seqno = Prophecy::<u64>::new();
         let ghost proph_ts = Timestamp { seqno: proph_seqno@, client_id: self.client_id() };
         let tracked token_res;
-        let tracked commitment_opt;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 let ghost old_known = state.linearization_queue.known_timestamps();
 
-                let tracked (orig, cpy) = if proph_ts > state.linearization_queue.watermark@.timestamp() {
+                let tracked allocation_opt = if proph_ts > state.linearization_queue.watermark@.timestamp() {
                     // TODO(assume/timestamp_alloc): need the client_ctr here too
                     self.client_seqno_token.borrow_mut().agree(&state.commitments.client_max_seqno);
                     assume(proph_ts.seqno > self.client_seqno_token@.value());
                     assert(!state.commitments.commitment_auth@.contains_key(proph_ts));
                     assert(!state.linearization_queue.write_token_map@.contains_key(proph_ts));
 
-                    // TODO(assume/client_ctr): client ctr is needed here -- otherwise we can
-                    // persist things that then error out
-                    let tracked mut persisted = state.commitments.commit_value(self.client_seqno_token.borrow_mut(), proph_ts, op.new_value);
-                    persisted.agree(&state.commitments.commitment_auth);
-                    let tracked dup = persisted.duplicate();
+                    let tracked mut allocation = state.commitments.alloc_value(self.client_seqno_token.borrow_mut(), proph_ts, op.new_value);
+                    allocation.agree(&state.commitments.commitment_auth);
 
-                    (Some(persisted), Some(dup))
+                    Some(allocation)
                 } else {
-                    (None, None)
+                    None
                 };
-                commitment_opt = cpy;
-                token_res = state.linearization_queue.insert_write_linearizer(lin, op, proph_ts, orig);
+                token_res = state.linearization_queue.insert_write_linearizer(lin, op, proph_ts, allocation_opt);
 
                 // XXX: load bearing
                 assert(token_res is Ok ==> state.linearization_queue.known_timestamps() == old_known.insert(proph_ts));
@@ -544,9 +537,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             // XXX: debug assert
             assert(state.inv());
         });
-        assert(token_res is Ok <==> commitment_opt is Some);
-        assert(token_res is Ok ==> token_res->Ok_0.value().commitment@ == commitment_opt->Some_0@);
-        assert(token_res is Ok ==> token_res->Ok_0.value().commitment.id() == commitment_opt->Some_0.id());
 
         let quorum = {
             let bpool = BroadcastPool::new(&self.pool);
@@ -568,18 +558,19 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                         proof {
                             if &token_res is Ok {
                                 let tracked token = token_res.tracked_unwrap();
-                                lincomp = state.linearization_queue.remove_write_lin(token);
-                                // TODO(assume/error-remove): we need a more refined way of doing
-                                // commitments
-                                //
-                                // There are two alternatives here -- either the value was
-                                // committed by someone else, in which case is in
-                                // lin_queue.committed_to, or its still pending.
-                                //
-                                // In the latter case we could have the full points-to, allowing us
-                                // to remove it here if it exists, ensuring the option below is
-                                // true
-                                assume(state.linearization_queue.known_timestamps() == state.commitments@.dom());
+
+                                let tracked (lc, allocation_opt) = state.linearization_queue.remove_write_lin(token);
+
+                                // if this write had not been committed we need to remove it from
+                                // the commitment map
+                                if &allocation_opt is Some {
+                                    let tracked allocation = allocation_opt.tracked_unwrap();
+                                    allocation.agree(&state.commitments.commitment_auth);
+                                    state.commitments.commitment_auth.delete_points_to(allocation);
+                                    // XXX: load bearing
+                                    assert(state.linearization_queue.known_timestamps() == state.commitments@.dom());
+                                }
+                                lincomp = lc;
                             } else {
                                 let tracked err = token_res.tracked_unwrap_err();
                                 let tracked err_lin = err.tracked_write_destruct();
@@ -600,8 +591,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         };
 
         let replies = quorum.replies();
-        // TODO(assume): network axiomatization invariant -- comes from spec'ing network layer
-        assume(replies.len() == self.qsize());
+        assume(replies.len() == self.qsize()); // TODO(assume/network)
         proof {
             self.lemma_qsize_nonempty();
         }
@@ -609,9 +599,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         assert(max_ts is Some);
         let max_ts = max_ts.expect("the quorum should never be empty");
 
-        // XXX(assume): integer overflow
         // XXX: timestamp recycling would be interesting
-        assume(max_ts.seqno < u64::MAX - 1);
+        assume(max_ts.seqno < u64::MAX - 1); // XXX: integer overflow
         let exec_seqno = max_ts.seqno + 1;
         let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id() };
         proph_seqno.resolve(&exec_seqno);
@@ -627,7 +616,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                 servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                 vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
-                token = lemma_watermark_contradiction(
+                let tracked mut tk = lemma_watermark_contradiction(
                     token_res,
                     proph_ts,
                     lin,
@@ -636,7 +625,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     &state,
                     quorum
                 );
-                commitment = commitment_opt.tracked_unwrap();
+
+                commitment = state.linearization_queue.commit_value(&mut tk);
+                token = tk;
             }
 
             // XXX: not load bearing but good for debugging
@@ -663,6 +654,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                             required: self.pool.quorum_size(),
                             timestamp: exec_ts,
                             token: Tracked(token),
+                            commitment: Tracked(commitment),
                         },
                     );
                 },
@@ -761,8 +753,6 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
             &&& tok.key() == timestamp
             &&& tok.value().lin == lin
             &&& tok.value().op == op
-            &&& tok.value().commitment.key() == timestamp
-            &&& tok.value().commitment.value() == op.new_value
             &&& tok.id() == state.linearization_queue.write_token_map.id()
         },
         token_res is Err ==> ({
@@ -778,8 +768,6 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
         tok.key() == timestamp,
         tok.value().lin == lin,
         tok.value().op == op,
-        tok.value().commitment.key() == timestamp,
-        tok.value().commitment.value() == op.new_value,
         tok.id() == state.linearization_queue.write_token_map.id(),
         token_res is Ok,
 {

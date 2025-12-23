@@ -17,6 +17,7 @@ use vstd::prelude::*;
 verus! {
 
 pub type WriteCommitment = GhostPersistentPointsTo<Timestamp, Option<u64>>;
+pub type WriteAllocation = GhostPointsTo<Timestamp, Option<u64>>;
 pub type CommitmentAuthMap = GhostMapAuth<Timestamp, Option<u64>>;
 pub type ClientSeqnoToken = GhostPointsTo<u64, u64>;
 
@@ -104,11 +105,11 @@ impl Commitments {
         self.client_max_seqno.insert(client_id, 0)
     }
 
-    pub proof fn commit_value(tracked &mut self,
+    pub proof fn alloc_value(tracked &mut self,
         tracked client_token: &mut ClientSeqnoToken,
         timestamp: Timestamp,
         value: Option<u64>
-    ) -> (tracked r: WriteCommitment)
+    ) -> (tracked r: WriteAllocation)
         requires
             old(self).inv(),
             old(client_token).id() == old(self).client_map_id(),
@@ -129,7 +130,7 @@ impl Commitments {
         client_token.agree(&self.client_max_seqno);
         client_token.disjoint(&self.zero_client);
         client_token.update(&mut self.client_max_seqno, timestamp.seqno);
-        self.commitment_auth.insert(timestamp, value).persist()
+        self.commitment_auth.insert(timestamp, value)
     }
 
     pub proof fn update_seqno(tracked &mut self, tracked client_token: &mut ClientSeqnoToken, seqno: u64)

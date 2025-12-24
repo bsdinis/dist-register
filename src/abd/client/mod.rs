@@ -24,6 +24,8 @@ pub mod error;
 mod net_axioms;
 mod utils;
 
+use vstd::atomic::PAtomicU64;
+use vstd::atomic::PermissionU64;
 use vstd::invariant::InvariantPredicate;
 #[allow(unused_imports)]
 use vstd::logatom::MutLinearizer;
@@ -38,7 +40,7 @@ use utils::*;
 use vstd::tokens::map::GhostSubmap;
 use vstd::tokens::set::GhostSubset;
 
-use super::invariants::committed_to::ClientSeqnoToken;
+use super::invariants::committed_to::ClientCtrToken;
 
 verus! {
 
@@ -49,12 +51,14 @@ verus! {
 pub trait AbdRegisterClient<C, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
- {
+{
+    type Locs;
+
     spec fn register_loc(self) -> int;
 
     spec fn client_id(self) -> u64;
 
-    spec fn named_locs(self) -> Map<&'static str, int>;
+    spec fn named_locs(self) -> Self::Locs;
 
     spec fn inv(self) -> bool;
 
@@ -184,7 +188,8 @@ pub struct AbdPool<Pool, ML, RL, WC, RC> {
     pool: Pool,
     register_id: Ghost<int>,
     state_inv: Tracked<StateInvariant<ML, RL, WC, RC>>,
-    client_seqno_token: Tracked<ClientSeqnoToken>,
+    client_ctr_token: Tracked<ClientCtrToken>,
+    client_ctr: PAtomicU64,
 }
 
 impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> where
@@ -195,14 +200,17 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
  {
     pub fn new(
         pool: Pool,
-        client_seqno_token: Tracked<ClientSeqnoToken>,
+        client_ctr: PAtomicU64,
+        client_ctr_token: Tracked<ClientCtrToken>,
         state_inv: Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
     ) -> (r: Self)
         requires
             pool.n() > 0,
             state_inv@.namespace() == invariants::state_inv_id(),
-            state_inv@.constant().commitments_ids.client_map_id == client_seqno_token@.id(),
-            client_seqno_token@.key() == pool.pool_id(),
+            state_inv@.constant().commitments_ids.client_ctr_id == client_ctr_token@.id(),
+            client_ctr_token@.key() == pool.pool_id(),
+            client_ctr_token@.value().0 == 0,
+            client_ctr_token@.value().1 == client_ctr.id(),
         ensures
             r._inv(),
     {
@@ -210,7 +218,8 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
             pool,
             state_inv,
             register_id: Ghost(state_inv@.constant().register_id),
-            client_seqno_token,
+            client_ctr_token,
+            client_ctr,
         }
     }
 
@@ -226,8 +235,9 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
         &&& self.pool.n() > 0
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
-        &&& self.state_inv@.constant().commitments_ids.client_map_id == self.client_seqno_token@.id()
-        &&& self.client_seqno_token@.key() == self.id()
+        &&& self.state_inv@.constant().commitments_ids.client_ctr_id == self.client_ctr_token@.id()
+        &&& self.client_ctr_token@.key() == self.id()
+        &&& self.client_ctr_token@.value().1 == self.client_ctr.id()
     }
 
     pub fn quorum_size(&self) -> usize {
@@ -248,6 +258,13 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
     }
 }
 
+pub struct AbdRegisterLocs {
+    pub register_id: int,
+    pub state_inv_namespace: int,
+    pub client_ctr_perm: int,
+    pub client_ctr_token_id: int,
+}
+
 impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
     Pool,
     ML,
@@ -259,7 +276,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
- {
+{
+    type Locs = AbdRegisterLocs;
+
     closed spec fn client_id(self) -> u64 {
         self.id()
     }
@@ -268,11 +287,13 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         self.register_id@
     }
 
-    closed spec fn named_locs(self) -> Map<&'static str, int> {
-        map![
-            "register" => self.register_id@,
-            "state_inv" => self.state_inv@.namespace(),
-        ]
+    closed spec fn named_locs(self) -> AbdRegisterLocs {
+        AbdRegisterLocs {
+            register_id: self.register_id@,
+            state_inv_namespace: self.state_inv@.namespace(),
+            client_ctr_perm: self.client_ctr_token@.value().1,
+            client_ctr_token_id: self.client_ctr_token@.id(),
+        }
     }
 
     closed spec fn inv(self) -> bool {
@@ -509,24 +530,28 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         // the queue immediately. Once we figure out the timestamp, we resolve the prophecy
         // variable.
         let proph_seqno = Prophecy::<u64>::new();
-        let ghost proph_ts = Timestamp { seqno: proph_seqno@, client_id: self.client_id() };
         let tracked token_res;
+        let client_ctr;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            let tracked mut perm;
+            proof {
+                perm = state.commitments.take_permission(self.client_ctr_token.borrow());
+            }
+
+            assume(perm.value() < u64::MAX); // XXX: integer overflow
+            client_ctr = self.client_ctr.fetch_add(Tracked(&mut perm), 1);
+            let ghost proph_ts = Timestamp { seqno: proph_seqno@, client_id: self.client_id(), client_ctr };
+
             proof {
                 let ghost old_known = state.linearization_queue.known_timestamps();
 
                 let tracked allocation_opt = if proph_ts > state.linearization_queue.watermark@.timestamp() {
-                    // TODO(assume/timestamp_alloc): need the client_ctr here too
-                    self.client_seqno_token.borrow_mut().agree(&state.commitments.client_max_seqno);
-                    assume(proph_ts.seqno > self.client_seqno_token@.value());
-                    assert(!state.commitments.commitment_auth@.contains_key(proph_ts));
-                    assert(!state.linearization_queue.write_token_map@.contains_key(proph_ts));
-
-                    let tracked mut allocation = state.commitments.alloc_value(self.client_seqno_token.borrow_mut(), proph_ts, op.new_value);
+                    let tracked mut allocation = state.commitments.alloc_value(self.client_ctr_token.borrow_mut(), proph_ts, op.new_value, perm);
                     allocation.agree(&state.commitments.commitment_auth);
 
                     Some(allocation)
                 } else {
+                    state.commitments.return_permission(self.client_ctr_token.borrow_mut(), perm);
                     None
                 };
                 token_res = state.linearization_queue.insert_write_linearizer(lin, op, proph_ts, allocation_opt);
@@ -535,8 +560,10 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                 assert(token_res is Ok ==> state.linearization_queue.known_timestamps() == old_known.insert(proph_ts));
             }
             // XXX: debug assert
+            assert(state.commitments.inv());
             assert(state.inv());
         });
+        let ghost proph_ts = Timestamp { seqno: proph_seqno@, client_id: self.client_id(), client_ctr };
 
         let quorum = {
             let bpool = BroadcastPool::new(&self.pool);
@@ -602,7 +629,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         // XXX: timestamp recycling would be interesting
         assume(max_ts.seqno < u64::MAX - 1); // XXX: integer overflow
         let exec_seqno = max_ts.seqno + 1;
-        let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id() };
+        let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id(), client_ctr: client_ctr };
         proph_seqno.resolve(&exec_seqno);
         assert(proph_ts == exec_ts);
 

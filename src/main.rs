@@ -1,4 +1,6 @@
 use clap::Parser;
+use vstd::atomic::PAtomicU64;
+use vstd::atomic::PermissionU64;
 
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -34,7 +36,7 @@ use vstd::prelude::*;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::map::GhostSubmap;
 
-use self::abd::invariants::committed_to::ClientSeqnoToken;
+use self::abd::invariants::committed_to::ClientCtrToken;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
@@ -368,8 +370,8 @@ where
 }
 */
 
-fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool) -> (r: (
-    Tracked<ClientSeqnoToken>,
+fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<PermissionU64>) -> (r: (
+    Tracked<ClientCtrToken>,
     Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
     Tracked<RegisterView>,
 )) where
@@ -377,10 +379,13 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool) -> (r: (
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-
+    requires
+        client_perm@.value() == 0,
     ensures
         r.0@.key() == pool.pool_id(),
-        r.0@.id() == r.1@.constant().commitments_ids.client_map_id,
+        r.0@.value().0 == 0,
+        r.0@.value().1 == client_perm@.id(),
+        r.0@.id() == r.1@.constant().commitments_ids.client_ctr_id,
         r.1@.namespace() == invariants::state_inv_id(),
 {
     let tracked state_inv;
@@ -390,14 +395,16 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool) -> (r: (
         state_inv = s;
         view = v;
     }
+
     // XXX: we could derive this with a sign-in procedure to create ids
     let tracked mut client_seqno_token;
     vstd::open_atomic_invariant!(&state_inv => state => {
         proof {
+            let tracked Tracked(client_p) = client_perm;
             // XXX(assume/client_disjoint): client_id uniqueness: could be resolved by a client id service
-            assume(!state.commitments.client_max_seqno@.contains_key(pool.pool_id()));
-            client_seqno_token = state.commitments.login(pool.pool_id());
-            client_seqno_token.agree(&state.commitments.client_max_seqno);
+            assume(!state.commitments.client_ctr_auth@.contains_key(pool.pool_id()));
+            client_seqno_token = state.commitments.login(pool.pool_id(), client_p);
+            client_seqno_token.agree(&state.commitments.client_ctr_auth);
         }
 
         // XXX: not load bearing but good for debugging
@@ -424,8 +431,11 @@ fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
         lemma_pool_len(pool);
     }
 
-    let (client_commitments, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(
+    let (client_ctr, client_ctr_perm) = PAtomicU64::new(0);
+
+    let (client_ctr_token, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(
         &pool,
+        client_ctr_perm,
     );
     let mut client = AbdPool::<
         _,
@@ -433,7 +443,7 @@ fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
         ReadPerm<'_>,
         GhostVar<Option<u64>>,
         &'_ GhostVar<Option<u64>>,
-    >::new(pool, client_commitments, state_inv);
+    >::new(pool, client_ctr, client_ctr_token, state_inv);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     assert(client.weak_inv()) by { client.lemma_weak_inv() };
     let tracked view = view.get();

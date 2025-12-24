@@ -26,10 +26,7 @@ impl ServerUniverse {
         ensures
             r.inv(),
             forall|q: Quorum|
-                r.valid_quorum(q) ==> r.quorum_timestamp(q) >= (Timestamp {
-                    seqno: 0,
-                    client_id: 0,
-                }),
+                r.valid_quorum(q) ==> r.quorum_timestamp(q) >= Timestamp::spec_default(),
     {
         let tracked set = ServerUniverse { map: Map::tracked_empty() };
         set

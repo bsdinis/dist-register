@@ -150,13 +150,13 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
  {
     pub proof fn dummy(register_id: int, tracked zero_commitment: WriteCommitment) -> (tracked result: Self)
         requires
-            zero_commitment.key() == (Timestamp { seqno: 0, client_id: 0 }),
+            zero_commitment.key() == Timestamp::spec_default(),
             zero_commitment.value() == None::<u64>,
         ensures
             result.inv(),
             result.register_id == register_id,
-            result.watermark@.timestamp() == (Timestamp { seqno: 0, client_id: 0 }),
-            result.committed_to@ == map![Timestamp { seqno: 0, client_id: 0 } => None::<u64>],
+            result.watermark@.timestamp() == Timestamp::spec_default(),
+            result.committed_to@ == map![Timestamp::spec_default() => None::<u64>],
             result.committed_to.id() == zero_commitment.id(),
             result.read_token_map@.is_empty(),
             result.write_token_map@.is_empty(),

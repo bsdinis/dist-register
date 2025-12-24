@@ -1,4 +1,5 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
+use vstd::atomic::PermissionU64;
 use vstd::invariant::AtomicInvariant;
 use vstd::invariant::InvariantPredicate;
 use vstd::logatom::MutLinearizer;
@@ -69,16 +70,11 @@ impl<ML, RL> State<ML, RL, ML::Completion, RL::Completion>
                     q,
                 )
             }
-        // TODO: this does not work
-        // -- when inserting the new write the timestamp is prophecized, so the watermark hasn't moved yet
-        // &&& forall |client_id: u64|
-            // self.commitments.client_max_seqno@.contains_key(client_id) ==>
-            // self.linearization_queue.watermark@.timestamp().seqno >= self.commitments.client_max_seqno@[client_id]
         &&& forall |ts: Timestamp|
-            self.linearization_queue.write_token_map@.contains_key(ts) ==> ({
-                &&& self.commitments.client_max_seqno@.contains_key(ts.client_id)
-                &&& self.commitments.client_max_seqno@[ts.client_id] >= ts.seqno
-            })
+            self.linearization_queue.write_token_map@.contains_key(ts) ==> {
+                &&& self.commitments.client_ctr_auth@.contains_key(ts.client_id)
+                &&& ts.client_ctr < self.commitments.client_ctr_auth@[ts.client_id].0
+            }
     }
 }
 
@@ -106,17 +102,19 @@ pub type StateInvariant<ML, RL, MC, RC> = AtomicInvariant<
 
 pub type RegisterView = GhostVar<Option<u64>>;
 
-pub proof fn initialize_system_state<ML, RL>() -> (tracked r: (
+pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -> (tracked r: (
     StateInvariant<ML, RL, ML::Completion, RL::Completion>,
     RegisterView,
 )) where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
+    requires
+        zero_perm.value() == 1,
     ensures
         r.0.namespace() == state_inv_id(),
         r.0.constant().register_id == r.1.id(),
 {
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked servers = ServerUniverse::dummy();
-    let tracked (commitments, zero_commitment) = Commitments::new();
+    let tracked (commitments, zero_commitment) = Commitments::new(zero_perm);
     let tracked mut linearization_queue = LinearizationQueue::dummy(
         register.id(),
         zero_commitment,
@@ -124,7 +122,7 @@ pub proof fn initialize_system_state<ML, RL>() -> (tracked r: (
 
     linearization_queue.committed_to.agree(&commitments.commitment_auth);
     // XXX: load bearing
-    assert(linearization_queue.known_timestamps() == set![Timestamp { seqno: 0, client_id: 0 }]);
+    assert(linearization_queue.known_timestamps() == set![Timestamp::spec_default()]);
 
     let pred = StatePredicate {
         lin_queue_ids: linearization_queue.ids(),

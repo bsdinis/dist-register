@@ -62,15 +62,6 @@ pub trait AbdRegisterClient<C, ML, RL> where
 
     spec fn inv(self) -> bool;
 
-    spec fn weak_inv(self) -> bool;
-
-    proof fn lemma_weak_inv(self)
-        requires
-            self.inv(),
-        ensures
-            self.weak_inv(),
-    ;
-
     fn read(&self, lin: Tracked<RL>) -> (r: Result<
         (Option<u64>, Timestamp, Tracked<RL::Completion>),
         error::ReadError<RL, RL::Completion>,
@@ -79,9 +70,8 @@ pub trait AbdRegisterClient<C, ML, RL> where
             lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
-            self.weak_inv(),
+            self.inv(),
         ensures
-            self.weak_inv(),
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
                 lin@.post(RegisterRead { id: Ghost(self.register_loc()) }, val, compl@)
@@ -100,21 +90,9 @@ pub trait AbdRegisterClient<C, ML, RL> where
             }),
     ;
 
-    // NOTE: to make writes behind a shared ref we need to restructure the timestamp
-    // The timestamp requires a field for a per-client seqno that orders the writes on the same
-    // client
-    //
-    // Consider the following counterexample:
-    // - Two writes come through the same client
-    // - They both observe a read at (seqno, c_id')
-    // - They both write to (seqno + 1, c_id) -- but with different values
-    //
-    // To solve it, we add an extra (atomic) client seqno to break ties between concurrent writes
-    // in the same client:
-    // - Two writes come through the same client
-    // - They both observe a read at (seqno, c_id', c_seqno')
-    // - They race to increment an atomic internal c_seqno (one gets c_seqno1 and the other c_seqno2)
-    // - They write to (seqno + 1, c_id, c_seqno1) and (seqno + 1, c_id, c_seqno2) respectively
+    // TODO(writes): make writes behind a shared ref.
+    // Problem: there is only a single tracked ClientCtrToken which cannot be shared between
+    // threads
     fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<
         Tracked<ML::Completion>,
         error::WriteError<ML, ML::Completion>,
@@ -125,11 +103,10 @@ pub trait AbdRegisterClient<C, ML, RL> where
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
         ensures
-            old(self).named_locs() == self.named_locs(),
-            self.weak_inv(),
+            self.inv(),
+            self.named_locs() == old(self).named_locs(),
             r is Ok ==> ({
                 let comp = r->Ok_0;
-                &&& self.inv()
                 &&& lin@.post(
                     RegisterWrite { id: Ghost(self.register_loc()), new_value: val },
                     (),
@@ -139,7 +116,6 @@ pub trait AbdRegisterClient<C, ML, RL> where
             r is Err ==> ({
                 let err = r->Err_0;
                 &&& err is FailedFirstQuorum ==> ({
-                    &&& self.inv()
                     &&& err.inv()
                     &&& err->lincomp@.lin() == lin
                     &&& err->lincomp@.op() == RegisterWrite {
@@ -153,33 +129,6 @@ pub trait AbdRegisterClient<C, ML, RL> where
                     &&& err->token@.value().lin == lin@
                     &&& err->token@.value().op == op
                 })
-            }),
-    ;
-
-    // Wait for register to move past the value written, so we can recover the token and linearizer
-    // in the queue and restore invariants on the client.
-    //
-    // Note that since this is only called when the second phase happens, at least one server has
-    // received the write. This means that recover_client, by reading the register on a loop can
-    // finish its own previous write.
-    fn recover_client(&mut self, error: error::WriteError<ML, ML::Completion>) -> (r: Result<
-        Tracked<ML::Completion>,
-        error::WriteError<ML, ML::Completion>,
-    >)
-        requires
-            old(self).weak_inv(),
-            error is FailedSecondQuorum,
-            error->token@.key() == error->timestamp,
-        ensures
-            r is Ok ==> ({
-                let val = error->token@.value();
-                let comp = r->Ok_0;
-                &&& self.inv()
-                &&& val.lin.post(val.op, (), comp@)
-            }),
-            r is Err ==> ({
-                &&& self.weak_inv()
-                &&& r->Err_0 == error
             }),
     ;
 }
@@ -228,10 +177,6 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
     }
 
     pub closed spec fn _inv(self) -> bool {
-        &&& self._weak_inv()
-    }
-
-    pub closed spec fn _weak_inv(self) -> bool {
         &&& self.pool.n() > 0
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
@@ -298,13 +243,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
     closed spec fn inv(self) -> bool {
         self._inv()
-    }
-
-    closed spec fn weak_inv(self) -> bool {
-        self._weak_inv()
-    }
-
-    proof fn lemma_weak_inv(self) {
     }
 
     fn read(&self, Tracked(lin): Tracked<RL>) -> (r: Result<
@@ -734,15 +672,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             Ok(exec_comp)
         }
     }
-
-    fn recover_client(&mut self, error: error::WriteError<ML, ML::Completion>) -> (r: Result<
-        Tracked<ML::Completion>,
-        error::WriteError<ML, ML::Completion>,
-    >) {
-        // TODO(recover): issue a read and if the timestamp is >= error.timestamp we can return the
-        // completion and restore the invariant
-        Err(error)
-    }
 }
 
 pub proof fn lemma_inv<Pool, C, ML, RL>(
@@ -752,10 +681,8 @@ pub proof fn lemma_inv<Pool, C, ML, RL>(
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-
     ensures
         c._inv() <==> c.inv(),
-        c._weak_inv() <==> c.weak_inv(),
 {
 }
 

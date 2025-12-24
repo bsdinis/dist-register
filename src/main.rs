@@ -445,7 +445,6 @@ fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
         &'_ GhostVar<Option<u64>>,
     >::new(pool, client_ctr, client_ctr_token, state_inv);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
-    assert(client.weak_inv()) by { client.lemma_weak_inv() };
     let tracked view = view.get();
     report_quorum_size(client.quorum_size());
 

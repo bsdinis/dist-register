@@ -59,23 +59,23 @@ impl<ML, RL> State<ML, RL, ML::Completion, RL::Completion>
     where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
 {
     pub open spec fn inv(self) -> bool {
-        &&& self.linearization_queue.register_id == self.register.id()
-        &&& self.linearization_queue.committed_to.id() == self.commitments.commitment_id()
+        // member invariants
         &&& self.linearization_queue.inv()
-        &&& self.linearization_queue.current_value() == self.register@
-        &&& self.linearization_queue.known_timestamps() == self.commitments@.dom()
         &&& self.servers.inv()
         &&& self.commitments.inv()
+
+        // id concordance
+        &&& self.linearization_queue.register_id == self.register.id()
+        &&& self.linearization_queue.committed_to.id() == self.commitments.commitment_id()
+
+        // matching state
+        &&& self.linearization_queue.current_value() == self.register@
+        &&& self.linearization_queue.known_timestamps() == self.commitments@.dom()
         &&& forall |q: Quorum|
             self.servers.valid_quorum(q) ==> {
                 self.linearization_queue.watermark@.timestamp() <= self.servers.quorum_timestamp(
                     q,
                 )
-            }
-        &&& forall |ts: Timestamp|
-            self.linearization_queue.write_token_map@.contains_key(ts) ==> {
-                &&& self.commitments.client_ctr_auth@.contains_key(ts.client_id)
-                &&& ts.client_ctr < self.commitments.client_ctr_auth@[ts.client_id].0
             }
     }
 }

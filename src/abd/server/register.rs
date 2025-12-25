@@ -32,19 +32,6 @@ impl MonotonicRegisterInner {
         Ghost(self.resource@.loc())
     }
 
-    /*
-    pub fn lower_bound(&self) -> (r: Tracked<MonotonicTimestampResource>)
-        requires
-            self.inv(),
-        ensures
-            r@.loc() == self.loc(),
-            r@@ is LowerBound,
-            r@@.timestamp() == self.resource@@.timestamp(),
-    {
-        Tracked(self.resource.borrow().extract_lower_bound())
-    }
-    */
-
     pub open spec fn inv(&self) -> bool {
         &&& self.timestamp == self.resource@@.timestamp()
     }

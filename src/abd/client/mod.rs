@@ -495,11 +495,15 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     let tracked mut allocation = state.commitments.alloc_value(self.client_ctr_token.borrow_mut(), proph_ts, op.new_value, perm);
                     allocation.agree(&state.commitments.commitment_auth);
 
+                    // XXX: load bearing
+                    assert(!state.linearization_queue.known_timestamps().contains(proph_ts));
+
                     Some(allocation)
                 } else {
                     state.commitments.return_permission(self.client_ctr_token.borrow_mut(), perm);
                     None
                 };
+
                 token_res = state.linearization_queue.insert_write_linearizer(lin, op, proph_ts, allocation_opt);
 
                 // XXX: load bearing

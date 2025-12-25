@@ -600,23 +600,21 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
     /// Applies the linearizer for all operations prophecized to <= timestamp
     pub proof fn apply_linearizers_up_to(
         tracked &mut self,
-        tracked mut register: GhostVarAuth<Option<u64>>,
+        tracked register: &mut GhostVarAuth<Option<u64>>,
         max_timestamp: Timestamp,
-    ) -> (tracked r: (MonotonicTimestampResource, GhostVarAuth<Option<u64>>))
+    ) -> (tracked r: MonotonicTimestampResource)
         requires
             old(self).inv(),
-            register.id() == old(self).register_id,
-            old(self).current_value() == register@,
+            old(register).id() == old(self).register_id,
+            old(self).current_value() == old(register)@,
             old(self).known_timestamps().contains(max_timestamp),
         ensures
-    // invariants + ids
-
+            // invariants + ids
             self.inv(),
             self.ids() == old(self).ids(),
-            old(self).write_token_map@.dom() == self.write_token_map@.dom(),
-            register.id() == r.1.id(),
-            self.watermark.loc() == r.0.loc(),
-            self.current_value() == r.1@,
+            self.watermark.loc() == r.loc(),
+            self.current_value() == register@,
+            register.id() == old(register).id(),
             // post-condition changes
             self.write_token_map@.dom() == old(self).write_token_map@.dom(),
             self.read_token_map@.dom() == old(self).read_token_map@.dom(),
@@ -633,9 +631,8 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
             ),
             self.pending_writes_up_to(max_timestamp).len() == 0,
             // return values
-            r.0@.timestamp() == self.watermark@.timestamp(),
-            r.0@ is LowerBound,
-            r.1.id() == register.id(),
+            r@.timestamp() == self.watermark@.timestamp(),
+            r@ is LowerBound,
         decreases old(self).pending_writes_up_to(max_timestamp).len(),
         opens_invariants Set::new(|id: int| id != super::state_inv_id())
     {
@@ -650,7 +647,7 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
                     assert(self.pending_writes_up_to(max_timestamp).contains(max_timestamp)); // trigger
                 });
             }
-            return (self.watermark.extract_lower_bound(), register);
+            return self.watermark.extract_lower_bound();
         }
         let ts_leq = |a: Timestamp, b: Timestamp| a <= b;
         let next_ts = pending_writes.find_unique_minimal(ts_leq);
@@ -660,7 +657,7 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
         let tracked (pending, cur_commitment) = self.pending_writes.tracked_remove(
             next_ts,
         ).commit();
-        let tracked mut completed = pending.apply_linearizer(&mut register, next_ts);
+        let tracked mut completed = pending.apply_linearizer(register, next_ts);
 
         let ghost old_committed = self.committed_to@;
         self.committed_to.intersection_agrees_points_to(&completed.commitment);
@@ -693,7 +690,7 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
         }
 
         // linearize any reads at the current value
-        self.apply_read_linearizers_at_value(&register, self.current_value());
+        self.apply_read_linearizers_at_value(&*register, self.current_value());
 
         // XXX: load bearing assert
         assert(self.pending_writes_up_to(max_timestamp) == old(self).pending_writes_up_to(

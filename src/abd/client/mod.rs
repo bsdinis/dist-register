@@ -326,18 +326,14 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     let ghost old_watermark = state.linearization_queue.watermark@.timestamp();
                     let ghost old_known = state.linearization_queue.known_timestamps();
 
-                    let tracked mut servers = ServerUniverse::dummy();
-                    vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                    let tracked (mut new_servers, quorum, mut commitment) = axiom_get_unanimous_replies(replies, servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to.id());
-                    servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
-                    vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
+                    let ghost old_servers = state.servers;
+                    let tracked (quorum, mut commitment) = axiom_get_unanimous_replies(replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to.id());
+                    old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark@.timestamp());
 
                     state.commitments.agree_commitment(&commitment);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
-                    vstd::modes::tracked_swap(&mut register, &mut state.register);
-                    let tracked (watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
-                    vstd::modes::tracked_swap(&mut register, &mut state.register);
+                    let tracked watermark = state.linearization_queue.apply_linearizers_up_to(&mut state.register, max_ts);
 
                     if max_ts > old_watermark {
                         state.servers.lemma_quorum_lb(quorum, max_ts);
@@ -419,18 +415,14 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                 let ghost old_watermark = state.linearization_queue.watermark;
                 let ghost old_known = state.linearization_queue.known_timestamps();
 
-                let tracked mut servers = ServerUniverse::dummy();
-                vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                let tracked (mut new_servers, quorum, commitment) = axiom_writeback_unanimous_replies(replies, wb_replies, servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to.id());
-                servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
-                vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
+                let ghost old_servers = state.servers;
+                let tracked (quorum, commitment) = axiom_writeback_unanimous_replies(replies, wb_replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to.id());
+                old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark@.timestamp());
 
                 state.commitments.agree_commitment(&commitment);
 
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
-                vstd::modes::tracked_swap(&mut register, &mut state.register);
-                let tracked (watermark, mut register) = state.linearization_queue.apply_linearizers_up_to(register, max_ts);
-                vstd::modes::tracked_swap(&mut register, &mut state.register);
+                let tracked watermark = state.linearization_queue.apply_linearizers_up_to(&mut state.register, max_ts);
 
                 if max_ts > old_watermark@.timestamp() {
                     state.servers.lemma_quorum_lb(quorum, max_ts);
@@ -590,11 +582,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let tracked mut commitment;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                let tracked mut servers = ServerUniverse::dummy();
-                vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                let tracked (mut new_servers, quorum) = axiom_get_ts_replies(replies, servers, max_ts);
-                servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
-                vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
+                let ghost old_servers = state.servers;
+                let tracked quorum = axiom_get_ts_replies(replies, &mut state.servers, max_ts);
+                old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark@.timestamp());
 
                 let tracked mut tk = lemma_watermark_contradiction(
                     token_res,
@@ -653,18 +643,14 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
                     let ghost old_watermark = state.linearization_queue.watermark;
 
-                    let tracked mut servers = ServerUniverse::dummy();
-                    vstd::modes::tracked_swap(&mut servers, &mut state.servers);
-                    let tracked (mut new_servers, quorum) = axiom_write_replies(replies, servers, exec_ts);
-                    servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
-                    vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
+                    let ghost old_servers = state.servers;
+                    let tracked quorum = axiom_write_replies(replies, &mut state.servers, exec_ts);
+                    old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark@.timestamp());
 
                     state.commitments.agree_commitment(&commitment);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
-                    vstd::modes::tracked_swap(&mut register, &mut state.register);
-                    let tracked (resource, mut register) = state.linearization_queue.apply_linearizers_up_to(register, exec_ts);
-                    vstd::modes::tracked_swap(&mut register, &mut state.register);
+                    let tracked resource = state.linearization_queue.apply_linearizers_up_to(&mut state.register, exec_ts);
 
                     if exec_ts > old_watermark@.timestamp() {
                         state.servers.lemma_quorum_lb(quorum, exec_ts);

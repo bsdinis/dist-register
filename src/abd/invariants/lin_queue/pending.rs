@@ -13,7 +13,6 @@ use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::proto::Timestamp;
 
 use vstd::logatom::ReadLinearizer;
-use vstd::pervasive::proof_from_false;
 use vstd::prelude::*;
 
 use vstd::logatom::MutLinearizer;
@@ -97,7 +96,7 @@ impl WriteStatus {
                 let tracked new_self = WriteStatus::Committed { commitment };
                 (new_self, dup)
             },
-            WriteStatus::Allocated { .. } => proof_from_false(),
+            WriteStatus::Allocated { .. } => vstd::pervasive::proof_from_false(),
         }
     }
 
@@ -110,7 +109,7 @@ impl WriteStatus {
     {
         match self {
             WriteStatus::Committed { commitment } => commitment,
-            WriteStatus::Allocated { .. } => proof_from_false(),
+            WriteStatus::Allocated { .. } => vstd::pervasive::proof_from_false(),
         }
     }
 
@@ -122,7 +121,7 @@ impl WriteStatus {
             r@ == self->allocation@,
     {
         match self {
-            WriteStatus::Committed { .. } => proof_from_false(),
+            WriteStatus::Committed { .. } => vstd::pervasive::proof_from_false(),
             WriteStatus::Allocated { allocation } => allocation,
         }
     }

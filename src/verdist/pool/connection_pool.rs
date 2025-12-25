@@ -29,6 +29,7 @@ pub trait ConnectionPool {
         (usize, Result<Option<Resp<Self>>, crate::verdist::network::error::TryRecvError>),
     >;
 
+    #[allow(unused)]
     fn id(&self) -> (r: u64)
         ensures
             r == self.pool_id(),
@@ -46,6 +47,7 @@ pub trait ConnectionPool {
     ;
 }
 
+#[allow(unused)]
 pub struct FlawlessPool<C> {
     pool: Vec<C>,
     id: u64,

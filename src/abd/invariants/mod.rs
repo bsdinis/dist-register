@@ -1,4 +1,7 @@
 #![cfg_attr(verus_keep_ghost, verus::trusted)]
+#![allow(dead_code)]
+
+#[allow(unused_imports)]
 use vstd::atomic::PermissionU64;
 use vstd::invariant::AtomicInvariant;
 use vstd::invariant::InvariantPredicate;
@@ -6,9 +9,8 @@ use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
-use vstd::tokens::set::GhostSetAuth;
-use vstd::tokens::set::GhostSingleton;
 
+#[allow(unused_imports)]
 use crate::abd::proto::Timestamp;
 
 pub mod committed_to;

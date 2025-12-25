@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::abd::proto::Timestamp;
 
 use vstd::prelude::*;
@@ -15,7 +17,7 @@ pub fn max_from_get_replies(vals: &[(usize, (Timestamp, Option<u64>))]) -> (r: O
         }),
         vals.len() == 0 ==> r is None,
 {
-    if vals.len() == 0 {
+    if vals.is_empty() {
         return None;
     }
     assert(vals.len() > 0);

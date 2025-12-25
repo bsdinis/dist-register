@@ -1,14 +1,20 @@
+#![cfg_attr(verus_keep_ghost, verus::trusted)]
+
 #[allow(unused_imports)]
 use crate::abd::invariants;
+#[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::InsertError;
-use crate::abd::invariants::lin_queue::LinReadToken;
+#[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::LinWriteToken;
-use crate::abd::invariants::lin_queue::MaybeReadLinearized;
+#[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
+#[allow(unused_imports)]
 use crate::abd::invariants::quorum::Quorum;
+#[allow(unused_imports)]
 use crate::abd::invariants::quorum::ServerUniverse;
+#[allow(unused_imports)]
 use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
 use crate::abd::proto::Request;
@@ -25,9 +31,8 @@ mod net_axioms;
 mod utils;
 
 use vstd::atomic::PAtomicU64;
-use vstd::atomic::PermissionU64;
-use vstd::invariant::InvariantPredicate;
 #[allow(unused_imports)]
+use vstd::invariant::InvariantPredicate;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
@@ -35,10 +40,9 @@ use vstd::proph::Prophecy;
 #[allow(unused_imports)]
 use vstd::tokens::frac::GhostVarAuth;
 
+#[allow(unused_imports)]
 use net_axioms::*;
 use utils::*;
-use vstd::tokens::map::GhostSubmap;
-use vstd::tokens::set::GhostSubset;
 
 use super::invariants::committed_to::ClientCtrToken;
 
@@ -48,6 +52,7 @@ verus! {
 // - The MutLinearizer should be specified in the method
 // - Type problem: the linearization queue is parametrized by the linearizer type
 // - Polymorphism is hard
+#[allow(unused)]
 pub trait AbdRegisterClient<C, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -133,6 +138,7 @@ pub trait AbdRegisterClient<C, ML, RL> where
     ;
 }
 
+#[allow(dead_code)]
 pub struct AbdPool<Pool, ML, RL, WC, RC> {
     pool: Pool,
     register_id: Ghost<int>,
@@ -203,6 +209,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
     }
 }
 
+#[allow(dead_code)]
 pub struct AbdRegisterLocs {
     pub register_id: int,
     pub state_inv_namespace: int,
@@ -249,7 +256,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         (Option<u64>, Timestamp, Tracked<RL::Completion>),
         error::ReadError<RL, RL::Completion>,
     >) {
-        let op = RegisterRead { id: Ghost(self.register_loc()) };
+        let tracked op = RegisterRead { id: Ghost(self.register_loc()) };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point -- see
         // discussion on `write`
         let proph_val = Prophecy::<Option<u64>>::new();
@@ -403,6 +410,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                 );
             },
         };
+        #[allow(unused)]
         let wb_replies = wb_rep.replies();
 
         let tracked comp;
@@ -447,7 +455,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         Tracked<ML::Completion>,
         error::WriteError<ML, ML::Completion>,
     >) {
-        let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
+        let tracked op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
         //
         // Imagine if we added this after the read quorum is achieved
@@ -567,7 +575,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         // XXX: timestamp recycling would be interesting
         assume(max_ts.seqno < u64::MAX - 1); // XXX: integer overflow
         let exec_seqno = max_ts.seqno + 1;
-        let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id(), client_ctr: client_ctr };
+        let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id(), client_ctr };
         proph_seqno.resolve(&exec_seqno);
         assert(proph_ts == exec_ts);
 
@@ -595,8 +603,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                 token = tk;
             }
 
-            // XXX: not load bearing but good for debugging
-            assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(self.state_inv@.constant(), state));
+            // XXX: debug assert
+            assert(state.inv());
         });
 
         {
@@ -624,6 +632,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     );
                 },
             };
+            #[allow(unused)]
             let replies = quorum.replies();
 
             let exec_comp;

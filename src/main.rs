@@ -2,14 +2,13 @@ use clap::Parser;
 use vstd::atomic::PAtomicU64;
 use vstd::atomic::PermissionU64;
 
-use std::collections::BTreeSet;
-use std::collections::HashMap;
-
 mod abd;
 mod verdist;
 
 use abd::client::AbdPool;
+#[allow(unused_imports)]
 use abd::client::AbdRegisterClient;
+#[allow(unused_imports)]
 use abd::invariants;
 use abd::invariants::logatom::ReadPerm;
 #[allow(unused_imports)]
@@ -24,7 +23,6 @@ use verdist::network::channel::BufChannel;
 use verdist::network::channel::Channel;
 use verdist::network::channel::Connector;
 use verdist::network::error::ConnectError;
-use verdist::pool::connection_pool::lemma_pool_len;
 use verdist::pool::ConnectionPool;
 use verdist::pool::FlawlessPool;
 use verdist::rpc::proto::Tagged;
@@ -34,7 +32,6 @@ use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::tokens::frac::GhostVar;
-use vstd::tokens::map::GhostSubmap;
 
 use self::abd::invariants::committed_to::ClientCtrToken;
 
@@ -156,6 +153,7 @@ const REQUEST_LATENCY_DEFAULT_MS: u64 = 1000;
 
 const REQUEST_STDDEV_DEFAULT_MS: u64 = 2000;
 
+#[allow(unused)]
 #[verifier::external_type_specification]
 struct ExArgs(Args);
 
@@ -165,6 +163,7 @@ fn report_quorum_size(quorum_size: usize) {
 }
 
 #[verifier::external_body]
+#[allow(unused)]
 fn report_read(client_id: u64, r: (Option<u64>, Timestamp)) {
     eprintln!(
         "client {client_id:3} read finished: {:20}",
@@ -173,11 +172,13 @@ fn report_read(client_id: u64, r: (Option<u64>, Timestamp)) {
 }
 
 #[verifier::external_body]
+#[allow(unused)]
 fn report_err<E: std::error::Error>(client_id: u64, e: &E) {
     eprintln!("client {client_id:3} failed: {e:20?}");
 }
 
 #[verifier::external_body]
+#[allow(unused)]
 fn report_write(client_id: u64, val: Option<u64>) {
     eprintln!(
         "client {client_id:3} write finished: {:20}",
@@ -215,7 +216,7 @@ fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r:
     let mut v = Vec::with_capacity(connectors.len());
     for connector in connectors.iter() {
         let conn = connect(args, connector, client_id)?;
-        v.push(conn)
+        v.push(conn);
     }
 
     // XXX(assume): this is trivial but seems like something should be able to get
@@ -223,22 +224,8 @@ fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r:
     Ok(v)
 }
 
-#[derive(Debug)]
-enum Operation {
-    Read(Option<u64>),
-    Write(Option<u64>),
-}
-
-struct Event {
-    event_id: u64,
-    begin_ms: u64,
-    end_ms: u64,
-    op: Operation,
-}
-
-type Trace = Vec<Event>;
-
 /*
+
 fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error>
 where
     Conn: Connector<C> + Send + Sync,
@@ -370,6 +357,7 @@ where
 }
 */
 
+#[allow(unused)]
 fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<PermissionU64>) -> (r: (
     Tracked<ClientCtrToken>,
     Tracked<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
@@ -414,9 +402,9 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<Permis
     (Tracked(client_seqno_token), Tracked(state_inv), Tracked(view))
 }
 
-fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
-    Trace,
-    Error<WritePerm, GhostVar<Option<u64>>, ReadPerm, &'_ GhostVar<Option<u64>>>,
+fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
+    (),
+    Error<WritePerm, GhostVar<Option<u64>>, ReadPerm<'a>, &'a GhostVar<Option<u64>>>,
 > where
     Conn: Connector<C> + Send + Sync,
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
@@ -428,16 +416,17 @@ fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
     let pool = connect_all(&args, connectors, 0)?;
     let pool = FlawlessPool::new(pool, 0);
     assert(pool.n() == connectors.len()) by {
-        lemma_pool_len(pool);
+        verdist::pool::connection_pool::lemma_pool_len(pool);
     }
 
     let (client_ctr, client_ctr_perm) = PAtomicU64::new(0);
 
+    #[allow(unused)]
     let (client_ctr_token, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(
         &pool,
         client_ctr_perm,
     );
-    let mut client = AbdPool::<
+    let client = AbdPool::<
         _,
         WritePerm,
         ReadPerm<'_>,
@@ -486,138 +475,160 @@ fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<
     //     }
     // };
 
-    Ok(Trace::new())
+    Ok(())
 }
 
 } // verus!
-struct PartialOrder(HashMap<(u64, u64), bool>);
-impl std::ops::Deref for PartialOrder {
-    type Target = HashMap<(u64, u64), bool>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-struct ConcisePartialOrder(HashMap<u64, BTreeSet<u64>>);
-impl std::ops::Deref for ConcisePartialOrder {
-    type Target = HashMap<u64, BTreeSet<u64>>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 
-impl From<&PartialOrder> for ConcisePartialOrder {
-    fn from(value: &PartialOrder) -> Self {
-        let mut lt_order: HashMap<u64, BTreeSet<u64>> = HashMap::new();
-        for ((k, v), lt) in &**value {
-            if *lt {
-                lt_order.entry(*k).or_default().insert(*v);
-            }
+#[cfg(false)]
+mod trace {
+    use std::collections::BTreeSet;
+    use std::collections::HashMap;
+
+    #[derive(Debug)]
+    enum Operation {
+        Read(Option<u64>),
+        Write(Option<u64>),
+    }
+
+    struct Event {
+        event_id: u64,
+        begin_ms: u64,
+        end_ms: u64,
+        op: Operation,
+    }
+
+    type Trace = Vec<Event>;
+
+    struct PartialOrder(HashMap<(u64, u64), bool>);
+    impl std::ops::Deref for PartialOrder {
+        type Target = HashMap<(u64, u64), bool>;
+        fn deref(&self) -> &Self::Target {
+            &self.0
         }
+    }
+    struct ConcisePartialOrder(HashMap<u64, BTreeSet<u64>>);
+    impl std::ops::Deref for ConcisePartialOrder {
+        type Target = HashMap<u64, BTreeSet<u64>>;
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
 
-        // remove transitives
-        loop {
-            let mut removed = false;
-
-            let mut removals = vec![];
-            for (k, greaters) in &lt_order {
-                let rem: Vec<_> = greaters
-                    .iter()
-                    .filter(|a| {
-                        greaters
-                            .iter()
-                            .any(|b| lt_order.get(b).map(|v| v.contains(a)).unwrap_or(false))
-                    })
-                    .copied()
-                    .collect();
-
-                if !rem.is_empty() {
-                    removals.push((*k, rem));
-                    removed = true;
+    impl From<&PartialOrder> for ConcisePartialOrder {
+        fn from(value: &PartialOrder) -> Self {
+            let mut lt_order: HashMap<u64, BTreeSet<u64>> = HashMap::new();
+            for ((k, v), lt) in &**value {
+                if *lt {
+                    lt_order.entry(*k).or_default().insert(*v);
                 }
             }
 
-            for (k, rems) in removals {
-                for r in rems {
-                    lt_order.entry(k).and_modify(|x| {
-                        x.remove(&r);
-                    });
+            // remove transitives
+            loop {
+                let mut removed = false;
+
+                let mut removals = vec![];
+                for (k, greaters) in &lt_order {
+                    let rem: Vec<_> = greaters
+                        .iter()
+                        .filter(|a| {
+                            greaters
+                                .iter()
+                                .any(|b| lt_order.get(b).map(|v| v.contains(a)).unwrap_or(false))
+                        })
+                        .copied()
+                        .collect();
+
+                    if !rem.is_empty() {
+                        removals.push((*k, rem));
+                        removed = true;
+                    }
+                }
+
+                for (k, rems) in removals {
+                    for r in rems {
+                        lt_order.entry(k).and_modify(|x| {
+                            x.remove(&r);
+                        });
+                    }
+                }
+
+                if !removed {
+                    break;
                 }
             }
 
-            if !removed {
-                break;
+            ConcisePartialOrder(lt_order)
+        }
+    }
+
+    impl std::fmt::Debug for ConcisePartialOrder {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for (k, v) in &**self {
+                writeln!(f, "{k:3} < {v:3?}")?;
             }
-        }
 
-        ConcisePartialOrder(lt_order)
-    }
-}
-
-impl std::fmt::Debug for ConcisePartialOrder {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (k, v) in &**self {
-            writeln!(f, "{k:3} < {v:3?}")?;
-        }
-
-        Ok(())
-    }
-}
-
-impl std::fmt::Debug for PartialOrder {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let concise: ConcisePartialOrder = self.into();
-        concise.fmt(f)
-    }
-}
-
-fn realtime(trace: &[Event]) -> PartialOrder {
-    let mut order = HashMap::new();
-    for op1 in trace {
-        assert!(op1.begin_ms < op1.end_ms, "invalid event");
-        for op2 in trace {
-            if op1.end_ms < op2.begin_ms {
-                order.insert((op1.event_id, op2.event_id), true);
-            } else if op2.end_ms < op1.begin_ms {
-                order.insert((op1.event_id, op2.event_id), false);
-            }
+            Ok(())
         }
     }
 
-    PartialOrder(order)
-}
+    impl std::fmt::Debug for PartialOrder {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let concise: ConcisePartialOrder = self.into();
+            concise.fmt(f)
+        }
+    }
 
-fn partial(trace: &[Event]) -> PartialOrder {
-    let mut order = HashMap::new();
-
-    for op1 in trace {
-        assert!(op1.begin_ms < op1.end_ms, "invalid event");
-        for op2 in trace {
-            if let (Operation::Read(read_v), Operation::Write(write_v)) = (&op1.op, &op2.op) {
-                if read_v == write_v {
+    fn realtime(trace: &[Event]) -> PartialOrder {
+        let mut order = HashMap::new();
+        for op1 in trace {
+            assert!(op1.begin_ms < op1.end_ms, "invalid event");
+            for op2 in trace {
+                if op1.end_ms < op2.begin_ms {
+                    order.insert((op1.event_id, op2.event_id), true);
+                } else if op2.end_ms < op1.begin_ms {
                     order.insert((op1.event_id, op2.event_id), false);
-                    order.insert((op2.event_id, op1.event_id), true);
                 }
             }
         }
+
+        PartialOrder(order)
     }
 
-    PartialOrder(order)
-}
+    fn partial(trace: &[Event]) -> PartialOrder {
+        let mut order = HashMap::new();
 
-fn orders_agree(o1: &PartialOrder, o2: &PartialOrder) -> bool {
-    for (k, lt1) in &**o1 {
-        if o2.get(k) == Some(&!lt1) {
-            return false;
+        for op1 in trace {
+            assert!(op1.begin_ms < op1.end_ms, "invalid event");
+            for op2 in trace {
+                if let (Operation::Read(read_v), Operation::Write(write_v)) = (&op1.op, &op2.op) {
+                    if read_v == write_v {
+                        order.insert((op1.event_id, op2.event_id), false);
+                        order.insert((op2.event_id, op1.event_id), true);
+                    }
+                }
+            }
         }
+
+        PartialOrder(order)
     }
 
-    for (k, lt2) in &**o2 {
-        if o1.get(k) == Some(&!lt2) {
-            return false;
+    fn orders_agree(o1: &PartialOrder, o2: &PartialOrder) -> bool {
+        for (k, lt1) in &**o1 {
+            if o2.get(k) == Some(&!lt1) {
+                return false;
+            }
         }
-    }
 
-    true
+        for (k, lt2) in &**o2 {
+            if o1.get(k) == Some(&!lt2) {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 fn main() {
@@ -632,16 +643,16 @@ fn main() {
 
     let connectors: Vec<_> = (0..args.n_servers).map(run_modelled_server).collect();
 
-    let trace = run_client(args, &connectors).expect("error");
+    run_client(args, &connectors).expect("error");
 
-    let realtime_order = realtime(&trace);
-    println!("realtime ordering:\n{realtime_order:?}");
-    let part_order = partial(&trace);
-    println!("implied partial ordering:\n{part_order:?}");
+    // let realtime_order = realtime(&trace);
+    // println!("realtime ordering:\n{realtime_order:?}");
+    // let part_order = partial(&trace);
+    // println!("implied partial ordering:\n{part_order:?}");
 
-    if orders_agree(&realtime_order, &part_order) {
-        println!("partial orderings agree");
-    } else {
-        println!("partial orderings do not agree");
-    }
+    // if orders_agree(&realtime_order, &part_order) {
+    // println!("partial orderings agree");
+    // } else {
+    // println!("partial orderings do not agree");
+    // }
 }

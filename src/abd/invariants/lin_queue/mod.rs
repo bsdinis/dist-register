@@ -1,4 +1,8 @@
+#![allow(dead_code)]
+
+#[allow(unused_imports)]
 use crate::abd::invariants::committed_to::WriteAllocation;
+#[allow(unused_imports)]
 use crate::abd::invariants::committed_to::WriteCommitment;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
@@ -7,15 +11,12 @@ use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
-use vstd::pervasive::proof_from_false;
 #[allow(unused_imports)]
 use vstd::set_lib::*;
 #[allow(unused_imports)]
 use vstd::tokens::frac::GhostVarAuth;
 #[allow(unused_imports)]
 use vstd::tokens::map::GhostMapAuth;
-#[allow(unused_imports)]
-use vstd::tokens::map::GhostPersistentPointsTo;
 #[allow(unused_imports)]
 use vstd::tokens::map::GhostPersistentSubmap;
 #[allow(unused_imports)]
@@ -62,7 +63,7 @@ impl<ML, RL> InsertError<ML, RL> {
     {
         match self {
             InsertError::WriteWatermarkContradiction { w_lin, .. } => w_lin,
-            _ => proof_from_false(),
+            _ => vstd::pervasive::proof_from_false(),
         }
     }
 
@@ -74,7 +75,7 @@ impl<ML, RL> InsertError<ML, RL> {
     {
         match self {
             InsertError::ReadWatermarkContradiction { r_lin, .. } => r_lin,
-            _ => proof_from_false(),
+            _ => vstd::pervasive::proof_from_false(),
         }
     }
 

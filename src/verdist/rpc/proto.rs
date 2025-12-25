@@ -35,6 +35,7 @@ impl<R> Tagged<R> {
         self.inner
     }
 
+    #[allow(unused)]
     pub fn deref(&self) -> &R {
         &self.inner
     }

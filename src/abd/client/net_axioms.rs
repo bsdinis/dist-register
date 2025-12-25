@@ -1,9 +1,11 @@
-use crate::abd::client::utils::max_from_get_ts_replies;
+#[allow(unused_imports)]
 use crate::abd::invariants::committed_to::WriteCommitment;
+#[allow(unused_imports)]
 use crate::abd::invariants::quorum::Quorum;
+#[allow(unused_imports)]
 use crate::abd::invariants::quorum::ServerUniverse;
+#[allow(unused_imports)]
 use crate::abd::proto::Timestamp;
-use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 
 use vstd::prelude::*;
 

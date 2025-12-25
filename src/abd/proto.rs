@@ -11,6 +11,7 @@ pub struct Timestamp {
     pub client_ctr: u64,
 }
 
+#[cfg(verus_keep_ghost)]
 impl vstd::std_specs::cmp::PartialOrdSpecImpl for Timestamp {
     open spec fn obeys_partial_cmp_spec() -> bool {
         true
@@ -30,6 +31,7 @@ impl vstd::std_specs::cmp::PartialOrdSpecImpl for Timestamp {
     }
 }
 
+#[cfg(verus_keep_ghost)]
 impl vstd::std_specs::cmp::OrdSpecImpl for Timestamp {
     open spec fn obeys_cmp_spec() -> bool {
         true
@@ -88,6 +90,7 @@ impl Timestamp {
     }
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone, Copy)]
 pub enum Request {
     Get,
@@ -108,14 +111,14 @@ impl Clone for Response {
             Response::Get { val, timestamp, lb } => {
                 let tracked new_lb = lb.borrow().extract_lower_bound();
                 Response::Get {
-                    val: val.clone(),
-                    timestamp: timestamp.clone(),
+                    val: *val,
+                    timestamp: *timestamp,
                     lb: Tracked(new_lb),
                 }
             },
             Response::GetTimestamp { timestamp, lb } => {
                 let tracked new_lb = lb.borrow().extract_lower_bound();
-                Response::GetTimestamp { timestamp: timestamp.clone(), lb: Tracked(new_lb) }
+                Response::GetTimestamp { timestamp: *timestamp, lb: Tracked(new_lb) }
             },
             Response::Write { lb } => {
                 let tracked new_lb = lb.borrow().extract_lower_bound();

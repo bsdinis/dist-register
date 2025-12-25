@@ -1,3 +1,5 @@
+#![allow(unused, non_shorthand_field_patterns)]
+
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::proto::Timestamp;
@@ -27,6 +29,7 @@ impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
     }
 }
 
+#[allow(dead_code)]
 struct LowerBoundPredicate {
     #[allow(dead_code)]
     loc: Ghost<int>,

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;

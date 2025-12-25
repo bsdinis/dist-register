@@ -29,7 +29,7 @@ uninlined_format_args = "warn"
 useless_conversion = "warn"
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_keep_ghost)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_keep_ghost)', 'cfg(verus_keep_ghost_body)'] }
 
 [profile.release]
 strip = "debuginfo"

@@ -4,12 +4,11 @@
 //! - Clients get access to their entire timestamp range
 //! - When the timestamp is known, the client can commit to a value by persisting the kv-pair
 
-use vstd::assert_by_contradiction;
+#![allow(dead_code)]
 use vstd::atomic::PermissionU64;
 use vstd::tokens::map::GhostMapAuth;
 use vstd::tokens::map::GhostPersistentPointsTo;
 use vstd::tokens::map::GhostPointsTo;
-use vstd::tokens::map::GhostSubmap;
 
 use crate::abd::proto::Timestamp;
 

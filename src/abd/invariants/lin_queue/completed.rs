@@ -55,7 +55,6 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML, ML::Completion> {
         &&& self.commitment.value() == self.op.new_value
     }
 
-    // TODO(maybe): add commitment to MaybeWriteLinearized
     pub proof fn maybe(tracked self) -> (tracked r: MaybeWriteLinearized<ML, ML::Completion>)
         requires
             self.inv(),

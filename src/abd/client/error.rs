@@ -59,9 +59,7 @@ impl<ML> WriteError<ML, ML::Completion> where ML: MutLinearizer<RegisterWrite> {
     pub open spec fn inv(self) -> bool {
         match self {
             WriteError::FailedFirstQuorum { lincomp, .. } => {
-                // TODO: might be worthwhile to say that lincomp.inv()
-                // This is non-obvious but not critical
-                true
+                lincomp@.inv()
             },
             WriteError::FailedSecondQuorum { token, commitment, timestamp, .. } => {
                 &&& token@.key() == timestamp

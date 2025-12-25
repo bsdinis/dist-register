@@ -893,6 +893,7 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
             !token.value().committed && r.1 is None ==> {
                 self.pending_writes == old(self).pending_writes
             },
+            r.0.inv(),
     {
         token.agree(&self.write_token_map);
 

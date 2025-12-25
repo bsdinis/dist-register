@@ -3,7 +3,6 @@
 //! In general, the way this happens is:
 //! - Clients get access to their entire timestamp range
 //! - When the timestamp is known, the client can commit to a value by persisting the kv-pair
-
 #![allow(dead_code)]
 use vstd::atomic::PermissionU64;
 use vstd::tokens::map::GhostMapAuth;
@@ -17,8 +16,11 @@ use vstd::prelude::*;
 verus! {
 
 pub type WriteCommitment = GhostPersistentPointsTo<Timestamp, Option<u64>>;
+
 pub type WriteAllocation = GhostPointsTo<Timestamp, Option<u64>>;
+
 pub type CommitmentAuthMap = GhostMapAuth<Timestamp, Option<u64>>;
+
 pub type ClientCtrToken = GhostPointsTo<u64, (u64, int)>;
 
 pub struct Commitments {
@@ -42,29 +44,30 @@ impl Commitments {
 
     pub open spec fn basic_inv(self) -> bool {
         &&& self.commitment_auth@.contains_pair(Timestamp::spec_default(), None)
-        &&& self.missing_perm is None ==> {
-            self.client_ctr_auth@.dom() == self.client_perm.dom()
-        }
+        &&& self.missing_perm is None ==> { self.client_ctr_auth@.dom() == self.client_perm.dom() }
         &&& self.missing_perm is Some ==> {
             let missing_client = self.missing_perm->Some_0.0;
             self.client_ctr_auth@.dom() == self.client_perm.dom().insert(missing_client)
         }
-        &&& forall |client_id: u64| {
-            &&& self.client_ctr_auth@.contains_key(client_id)
-            &&& self.client_perm.contains_key(client_id)
-        } ==> {
-            &&& self.client_ctr_auth@[client_id].0 == self.client_perm[client_id].value()
-            &&& self.client_ctr_auth@[client_id].1 == self.client_perm[client_id].id()
-        }
-        &&& forall |ts: Timestamp| self.commitment_auth@.contains_key(ts) ==> {
-            &&& self.client_ctr_auth@.contains_key(ts.client_id)
-            &&& ts.client_ctr < self.client_ctr_auth@[ts.client_id].0
-        }
-        // client 0 is reserved for the original write -- it never writes anything else
+        &&& forall|client_id: u64|
+            {
+                &&& self.client_ctr_auth@.contains_key(client_id)
+                &&& self.client_perm.contains_key(client_id)
+            } ==> {
+                &&& self.client_ctr_auth@[client_id].0 == self.client_perm[client_id].value()
+                &&& self.client_ctr_auth@[client_id].1 == self.client_perm[client_id].id()
+            }
+        &&& forall|ts: Timestamp|
+            self.commitment_auth@.contains_key(ts) ==> {
+                &&& self.client_ctr_auth@.contains_key(ts.client_id)
+                &&& ts.client_ctr < self.client_ctr_auth@[ts.client_id].0
+            }
+            // client 0 is reserved for the original write -- it never writes anything else
         &&& self.zero_client.id() == self.client_map_id()
         &&& self.zero_client.key() == 0
         &&& self.zero_client.value().0 == 1
-        &&& self.client_perm.contains_key(0) // 0 cannot be missing
+        &&& self.client_perm.contains_key(0)  // 0 cannot be missing
+
     }
 
     pub open spec fn ids(self) -> CommitmentIds {
@@ -86,7 +89,10 @@ impl Commitments {
         self.commitment_auth.view()
     }
 
-    pub proof fn new(tracked zero_perm: PermissionU64) -> (tracked r: (Commitments, WriteCommitment))
+    pub proof fn new(tracked zero_perm: PermissionU64) -> (tracked r: (
+        Commitments,
+        WriteCommitment,
+    ))
         requires
             zero_perm.value() == 1,
         ensures
@@ -96,13 +102,17 @@ impl Commitments {
             r.0.client_ctr_auth@ == map![0u64 => (1u64, zero_perm.id())],
             r.0.client_perm == map![0u64 => zero_perm],
             r.1.key() == Timestamp::spec_default(),
-            r.1.value() == None::<u64>
+            r.1.value() == None::<u64>,
     {
-        let tracked (commitment_auth, zero_submap) = GhostMapAuth::new(map![Timestamp::spec_default() => None]);
+        let tracked (commitment_auth, zero_submap) = GhostMapAuth::new(
+            map![Timestamp::spec_default() => None],
+        );
         let tracked mut zero_commitment = zero_submap.points_to();
         zero_commitment.agree(&commitment_auth);
 
-        let tracked (client_ctr_auth, zero_client_submap) = GhostMapAuth::new(map![0 => (1, zero_perm.id())]);
+        let tracked (client_ctr_auth, zero_client_submap) = GhostMapAuth::new(
+            map![0 => (1, zero_perm.id())],
+        );
         let tracked mut zero_client = zero_client_submap.points_to();
         zero_client.agree(&client_ctr_auth);
 
@@ -119,7 +129,11 @@ impl Commitments {
         (commitments, zero_commitment.persist())
     }
 
-    pub proof fn login(tracked &mut self, client_id: u64, tracked client_perm: PermissionU64) -> (tracked r: ClientCtrToken)
+    pub proof fn login(
+        tracked &mut self,
+        client_id: u64,
+        tracked client_perm: PermissionU64,
+    ) -> (tracked r: ClientCtrToken)
         requires
             old(self).inv(),
             !old(self).client_ctr_auth@.contains_key(client_id),
@@ -128,7 +142,10 @@ impl Commitments {
             self.inv(),
             self.ids() == old(self).ids(),
             self.commitment_auth@ == old(self).commitment_auth@,
-            self.client_ctr_auth@ == old(self).client_ctr_auth@.insert(client_id, (0, client_perm.id())),
+            self.client_ctr_auth@ == old(self).client_ctr_auth@.insert(
+                client_id,
+                (0, client_perm.id()),
+            ),
             self.client_perm == old(self).client_perm.insert(client_id, client_perm),
             r.id() == self.client_map_id(),
             r.key() == client_id,
@@ -140,7 +157,8 @@ impl Commitments {
         self.client_ctr_auth.insert(client_id, (0, client_perm_id))
     }
 
-    pub proof fn take_permission(tracked &mut self,
+    pub proof fn take_permission(
+        tracked &mut self,
         tracked client_token: &ClientCtrToken,
     ) -> (tracked r: PermissionU64)
         requires
@@ -164,7 +182,8 @@ impl Commitments {
         r
     }
 
-    pub proof fn alloc_value(tracked &mut self,
+    pub proof fn alloc_value(
+        tracked &mut self,
         tracked client_token: &mut ClientCtrToken,
         timestamp: Timestamp,
         value: Option<u64>,
@@ -182,7 +201,10 @@ impl Commitments {
             self.inv(),
             self.ids() == old(self).ids(),
             self.commitment_auth@ == old(self).commitment_auth@.insert(timestamp, value),
-            self.client_ctr_auth@ == old(self).client_ctr_auth@.insert(timestamp.client_id, (client_perm.value(), client_perm.id())),
+            self.client_ctr_auth@ == old(self).client_ctr_auth@.insert(
+                timestamp.client_id,
+                (client_perm.value(), client_perm.id()),
+            ),
             self.client_perm == old(self).client_perm.insert(timestamp.client_id, client_perm),
             self.missing_perm == None::<(u64, int)>,
             client_token.id() == old(client_token).id(),
@@ -198,14 +220,16 @@ impl Commitments {
         client_token.update(&mut self.client_ctr_auth, (client_perm.value(), client_perm.id()));
 
         // XXX: load bearing
-        assert(self.client_perm.dom().insert(self.missing_perm->Some_0.0) == self.client_ctr_auth@.dom());
+        assert(self.client_perm.dom().insert(self.missing_perm->Some_0.0)
+            == self.client_ctr_auth@.dom());
 
         self.client_perm.tracked_insert(client_token.key(), client_perm);
         self.missing_perm = None;
         self.commitment_auth.insert(timestamp, value)
     }
 
-    pub proof fn return_permission(tracked &mut self,
+    pub proof fn return_permission(
+        tracked &mut self,
         tracked client_token: &mut ClientCtrToken,
         tracked client_perm: PermissionU64,
     )
@@ -219,7 +243,10 @@ impl Commitments {
             self.inv(),
             self.ids() == old(self).ids(),
             self.commitment_auth@ == old(self).commitment_auth@,
-            self.client_ctr_auth@ == old(self).client_ctr_auth@.insert(client_token.key(), (client_perm.value(), client_perm.id())),
+            self.client_ctr_auth@ == old(self).client_ctr_auth@.insert(
+                client_token.key(),
+                (client_perm.value(), client_perm.id()),
+            ),
             self.client_perm == old(self).client_perm.insert(client_token.key(), client_perm),
             self.missing_perm == None::<(u64, int)>,
             client_token.id() == old(client_token).id(),
@@ -232,11 +259,12 @@ impl Commitments {
         client_token.update(&mut self.client_ctr_auth, (client_perm.value(), client_perm.id()));
 
         // XXX: load bearing
-        assert(self.client_perm.dom().insert(self.missing_perm->Some_0.0) == self.client_ctr_auth@.dom());
+        assert(self.client_perm.dom().insert(self.missing_perm->Some_0.0)
+            == self.client_ctr_auth@.dom());
 
         self.client_perm.tracked_insert(client_token.key(), client_perm);
         self.missing_perm = None;
     }
 }
 
-}
+} // verus!

@@ -149,7 +149,10 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
-    pub proof fn dummy(register_id: int, tracked zero_commitment: WriteCommitment) -> (tracked result: Self)
+    pub proof fn dummy(
+        register_id: int,
+        tracked zero_commitment: WriteCommitment,
+    ) -> (tracked result: Self)
         requires
             zero_commitment.key() == Timestamp::spec_default(),
             zero_commitment.value() == None::<u64>,
@@ -196,10 +199,12 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
         &&& self.pending_writes.dom().finite()
         &&& self.pending_reads.dom().finite()
         &&& self.committed_to@.contains_key(self.watermark@.timestamp())
-        &&& forall|ts: Timestamp| self.committed_to@.contains_key(ts) ==> ts <= self.watermark@.timestamp()
-        &&& forall|ts: Timestamp| self.write_token_map@.contains_key(ts) && ts <= self.watermark@.timestamp() ==> self.committed_to@.contains_key(ts)
+        &&& forall|ts: Timestamp|
+            self.committed_to@.contains_key(ts) ==> ts <= self.watermark@.timestamp()
+        &&& forall|ts: Timestamp|
+            self.write_token_map@.contains_key(ts) && ts <= self.watermark@.timestamp()
+                ==> self.committed_to@.contains_key(ts)
     }
-
 
     // full invariant over the write domain:
     //  1. the completed_writes + pending_writes match the write token domain
@@ -294,7 +299,9 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
                 &&& pending.op.id == self.register_id
                 &&& forall|ts: Timestamp|
                     token.min_ts@.timestamp() <= ts && ts <= self.watermark@.timestamp()
-                        && self.committed_to@.contains_key(ts) ==> { self.committed_to@[ts] != pending.value }
+                        && self.committed_to@.contains_key(ts) ==> {
+                        self.committed_to@[ts] != pending.value
+                    }
                 &&& !pending.lin.namespaces().contains(super::state_inv_id())
             }
     }
@@ -319,7 +326,9 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
                 &&& token.op == pending.op
                 &&& forall|ts: Timestamp|
                     token.min_ts@.timestamp() <= ts && ts < self.watermark@.timestamp()
-                        && self.committed_to@.contains_key(ts) ==> { self.committed_to@[ts] != pending.value }
+                        && self.committed_to@.contains_key(ts) ==> {
+                        self.committed_to@[ts] != pending.value
+                    }
                 &&& !pending.lin.namespaces().contains(super::state_inv_id())
             }
     }
@@ -375,7 +384,7 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
                 &&& allocation.value() == op.new_value
                 &&& allocation.id() == old(self).committed_to.id()
                 &&& !old(self).write_token_map@.contains_key(timestamp)
-            })
+            }),
         ensures
             self.inv(),
             old(self).ids() == self.ids(),
@@ -390,7 +399,10 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
                 &&& token.value().lin == lin
                 &&& token.value().op == op
                 &&& !token.value().committed
-                &&& self.write_token_map@ == old(self).write_token_map@.insert(token.key(), token.value())
+                &&& self.write_token_map@ == old(self).write_token_map@.insert(
+                    token.key(),
+                    token.value(),
+                )
                 &&& self.pending_writes.dom() == old(self).pending_writes.dom().insert(token.key())
             }),
             r is Err ==> ({
@@ -404,7 +416,7 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
                 &&& watermark_lb@ is LowerBound
             }),
     {
-        if timestamp <= self.watermark@.timestamp(){
+        if timestamp <= self.watermark@.timestamp() {
             return Err(
                 InsertError::WriteWatermarkContradiction {
                     w_watermark_lb: self.watermark.extract_lower_bound(),
@@ -412,13 +424,8 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
                 },
             );
         }
-
         let tracked allocation = allocation_opt.tracked_unwrap();
-        let tracked v = WriteTokenVal {
-            lin,
-            op,
-            committed: false,
-        };
+        let tracked v = WriteTokenVal { lin, op, committed: false };
         let tracked pending = PendingWrite::new(lin, op, allocation, timestamp);
 
         self.pending_writes.tracked_insert(timestamp, pending);
@@ -495,7 +502,10 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
         token
     }
 
-    pub proof fn commit_value(tracked &mut self, tracked write_token: &mut LinWriteToken<ML>) -> (tracked r: WriteCommitment)
+    pub proof fn commit_value(
+        tracked &mut self,
+        tracked write_token: &mut LinWriteToken<ML>,
+    ) -> (tracked r: WriteCommitment)
         requires
             old(self).inv(),
             old(write_token).id() == old(self).write_token_map.id(),
@@ -515,7 +525,7 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
             write_token.value().committed == true,
             r.id() == self.committed_to.id(),
             r.key() == write_token.key(),
-            r.value() == write_token.value().op.new_value
+            r.value() == write_token.value().op.new_value,
     {
         write_token.agree(&self.write_token_map);
         let tracked commitment = if write_token.key() <= self.watermark@.timestamp() {
@@ -533,7 +543,7 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
         let new_write_val = WriteTokenVal {
             lin: write_token.value().lin,
             op: write_token.value().op,
-            committed: true
+            committed: true,
         };
         write_token.update(&mut self.write_token_map, new_write_val);
 
@@ -599,23 +609,29 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
             old(self).current_value() == register@,
             old(self).known_timestamps().contains(max_timestamp),
         ensures
-            // invariants + ids
+    // invariants + ids
+
             self.inv(),
             self.ids() == old(self).ids(),
             old(self).write_token_map@.dom() == self.write_token_map@.dom(),
             register.id() == r.1.id(),
             self.watermark.loc() == r.0.loc(),
             self.current_value() == r.1@,
-
             // post-condition changes
             self.write_token_map@.dom() == old(self).write_token_map@.dom(),
             self.read_token_map@.dom() == old(self).read_token_map@.dom(),
-            max_timestamp > old(self).watermark@.timestamp() ==> self.watermark@.timestamp() == max_timestamp,
-            max_timestamp <= old(self).watermark@.timestamp() ==> self.watermark == old(self).watermark,
-            self.committed_to@.dom() == old(self).committed_to@.dom().union(old(self).pending_writes_up_to(max_timestamp)),
-            self.pending_writes == old(self).pending_writes.remove_keys(old(self).pending_writes_up_to(max_timestamp)),
+            max_timestamp > old(self).watermark@.timestamp() ==> self.watermark@.timestamp()
+                == max_timestamp,
+            max_timestamp <= old(self).watermark@.timestamp() ==> self.watermark == old(
+                self,
+            ).watermark,
+            self.committed_to@.dom() == old(self).committed_to@.dom().union(
+                old(self).pending_writes_up_to(max_timestamp),
+            ),
+            self.pending_writes == old(self).pending_writes.remove_keys(
+                old(self).pending_writes_up_to(max_timestamp),
+            ),
             self.pending_writes_up_to(max_timestamp).len() == 0,
-
             // return values
             r.0@.timestamp() == self.watermark@.timestamp(),
             r.0@ is LowerBound,
@@ -641,13 +657,18 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
         pending_writes.find_unique_minimal_ensures(ts_leq);
 
         // take linearizer, apply, move watermark, place in completed
-        let tracked (pending, cur_commitment) = self.pending_writes.tracked_remove(next_ts).commit();
+        let tracked (pending, cur_commitment) = self.pending_writes.tracked_remove(
+            next_ts,
+        ).commit();
         let tracked mut completed = pending.apply_linearizer(&mut register, next_ts);
 
         let ghost old_committed = self.committed_to@;
         self.committed_to.intersection_agrees_points_to(&completed.commitment);
         self.committed_to.combine_points_to(cur_commitment);
-        assert(self.committed_to@ == old_committed.insert(cur_commitment.key(), cur_commitment.value()));
+        assert(self.committed_to@ == old_committed.insert(
+            cur_commitment.key(),
+            cur_commitment.value(),
+        ));
         assert(old_committed <= self.committed_to@);
 
         let ghost old_watermark = self.watermark@.timestamp();
@@ -720,13 +741,16 @@ impl<ML, RL> LinearizationQueue<ML, RL, ML::Completion, RL::Completion> where
                 let token = self.read_token_map@[key];
                 forall|ts: Timestamp|
                     token.min_ts@.timestamp() <= ts && ts <= self.watermark@.timestamp()
-                        && self.committed_to@.contains_key(ts) ==> { self.committed_to@[ts] != pending.value }
+                        && self.committed_to@.contains_key(ts) ==> {
+                        self.committed_to@[ts] != pending.value
+                    }
             } by {
                 let pending = self.pending_reads[key];
                 let token = self.read_token_map@[key];
                 assert forall|ts: Timestamp|
                     token.min_ts@.timestamp() <= ts && ts <= self.watermark@.timestamp()
-                        && self.committed_to@.contains_key(ts) implies { self.committed_to@[ts] != pending.value
+                        && self.committed_to@.contains_key(ts) implies {
+                    self.committed_to@[ts] != pending.value
                 } by {
                     if ts == self.watermark@.timestamp() {
                         assert_by_contradiction!(self.committed_to@[ts] != pending.value, {

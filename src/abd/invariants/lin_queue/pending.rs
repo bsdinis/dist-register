@@ -22,12 +22,8 @@ use vstd::tokens::frac::GhostVarAuth;
 verus! {
 
 pub enum WriteStatus {
-    Allocated {
-        allocation: WriteAllocation
-    },
-    Committed {
-        commitment: WriteCommitment
-    }
+    Allocated { allocation: WriteAllocation },
+    Committed { commitment: WriteCommitment },
 }
 
 impl WriteStatus {
@@ -55,7 +51,7 @@ impl WriteStatus {
     proof fn allocated(tracked allocation: WriteAllocation) -> (tracked r: WriteStatus)
         ensures
             r is Allocated,
-            r->allocation == allocation
+            r->allocation == allocation,
     {
         WriteStatus::Allocated { allocation }
     }
@@ -68,7 +64,7 @@ impl WriteStatus {
                 &&& r.id() == self.id()
                 &&& r.timestamp() == self.timestamp()
                 &&& r.value() == self.value()
-            }
+            },
     {
         let tracked commitment = match self {
             WriteStatus::Allocated { allocation } => allocation.persist(),
@@ -153,7 +149,12 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
             allocation.key() == timestamp,
             allocation.value() == op.new_value,
         ensures
-            result == (PendingWrite { lin, op, write_status: WriteStatus::Allocated { allocation }, timestamp }),
+            result == (PendingWrite {
+                lin,
+                op,
+                write_status: WriteStatus::Allocated { allocation },
+                timestamp,
+            }),
             result.inv(),
     {
         PendingWrite { lin, op, write_status: WriteStatus::Allocated { allocation }, timestamp }
@@ -174,7 +175,6 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
             r.0.lin == self.lin,
             r.0.op == self.op,
             r.0.timestamp == self.timestamp,
-
             r.0.write_status is Committed,
             r.0.write_status.id() == self.write_status.id(),
             r.0.write_status.id() == r.1.id(),
@@ -211,12 +211,18 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
     {
         let ghost lin_copy = self.lin;
         let tracked completion = self.lin.apply(self.op, register, (), &());
-        CompletedWrite::new(completion, self.op, self.write_status.tracked_destruct_commitment(), lin_copy, self.timestamp)
+        CompletedWrite::new(
+            completion,
+            self.op,
+            self.write_status.tracked_destruct_commitment(),
+            lin_copy,
+            self.timestamp,
+        )
     }
 
     pub proof fn maybe(tracked self) -> (tracked r: (
-            MaybeWriteLinearized<ML, ML::Completion>,
-            Option<WriteAllocation>
+        MaybeWriteLinearized<ML, ML::Completion>,
+        Option<WriteAllocation>,
     ))
         requires
             self.inv(),
@@ -233,7 +239,7 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
                 &&& allocation.id() == self.write_status.id()
                 &&& allocation.key() == self.write_status.timestamp()
                 &&& allocation.value() == self.write_status.value()
-            }
+            },
     {
         let tracked maybe = MaybeWriteLinearized::Linearizer {
             lin: self.lin,

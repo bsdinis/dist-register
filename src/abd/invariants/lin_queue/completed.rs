@@ -56,9 +56,7 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML, ML::Completion> {
     }
 
     // TODO(maybe): add commitment to MaybeWriteLinearized
-    pub proof fn maybe(tracked self) -> (tracked r:
-        MaybeWriteLinearized<ML, ML::Completion>
-    )
+    pub proof fn maybe(tracked self) -> (tracked r: MaybeWriteLinearized<ML, ML::Completion>)
         requires
             self.inv(),
         ensures
@@ -70,12 +68,12 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML, ML::Completion> {
                 timestamp: self.timestamp,
             }),
     {
-            MaybeWriteLinearized::Completion {
-                completion: self.completion,
-                lin: self.lin,
-                op: self.op,
-                timestamp: self.timestamp,
-            }
+        MaybeWriteLinearized::Completion {
+            completion: self.completion,
+            lin: self.lin,
+            op: self.op,
+            timestamp: self.timestamp,
+        }
     }
 }
 

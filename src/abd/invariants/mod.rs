@@ -55,27 +55,25 @@ pub struct State<ML, RL, MC, RC> {
     pub tracked commitments: Commitments,
 }
 
-impl<ML, RL> State<ML, RL, ML::Completion, RL::Completion>
-    where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
-{
+impl<ML, RL> State<ML, RL, ML::Completion, RL::Completion> where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+ {
     pub open spec fn inv(self) -> bool {
         // member invariants
         &&& self.linearization_queue.inv()
         &&& self.servers.inv()
         &&& self.commitments.inv()
-
         // id concordance
         &&& self.linearization_queue.register_id == self.register.id()
-        &&& self.linearization_queue.committed_to.id() == self.commitments.commitment_id()
-
+        &&& self.linearization_queue.committed_to.id()
+            == self.commitments.commitment_id()
         // matching state
         &&& self.linearization_queue.current_value() == self.register@
         &&& self.linearization_queue.known_timestamps() == self.commitments@.dom()
-        &&& forall |q: Quorum|
+        &&& forall|q: Quorum|
             self.servers.valid_quorum(q) ==> {
-                self.linearization_queue.watermark@.timestamp() <= self.servers.quorum_timestamp(
-                    q,
-                )
+                self.linearization_queue.watermark@.timestamp() <= self.servers.quorum_timestamp(q)
             }
     }
 }
@@ -117,10 +115,7 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked servers = ServerUniverse::dummy();
     let tracked (commitments, zero_commitment) = Commitments::new(zero_perm);
-    let tracked mut linearization_queue = LinearizationQueue::dummy(
-        register.id(),
-        zero_commitment,
-    );
+    let tracked mut linearization_queue = LinearizationQueue::dummy(register.id(), zero_commitment);
 
     linearization_queue.committed_to.agree(&commitments.commitment_auth);
     // XXX: load bearing
@@ -133,7 +128,7 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
         commitments_ids: commitments.ids(),
     };
 
-    let tracked state = State { register, linearization_queue, servers, commitments};
+    let tracked state = State { register, linearization_queue, servers, commitments };
 
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
     let tracked state_inv = AtomicInvariant::new(pred, state, state_inv_id());

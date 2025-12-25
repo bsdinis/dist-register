@@ -367,6 +367,7 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<Permis
     C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
+
     requires
         client_perm@.value() == 0,
     ensures
@@ -479,7 +480,6 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
 }
 
 } // verus!
-
 #[cfg(false)]
 mod trace {
     use std::collections::BTreeSet;

@@ -56,7 +56,7 @@ verus! {
 pub trait AbdRegisterClient<C, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-{
+ {
     type Locs;
 
     spec fn register_loc(self) -> int;
@@ -228,7 +228,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-{
+ {
     type Locs = AbdRegisterLocs;
 
     closed spec fn client_id(self) -> u64 {
@@ -302,7 +302,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
         // check early return
         let replies = quorum.replies();
-        assume(replies.len() == self.qsize()); // TODO(assume/network)
+        assume(replies.len() == self.qsize());  // TODO(assume/network)
         proof {
             self.lemma_qsize_nonempty();
         }
@@ -312,7 +312,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let q_iter = replies.iter();
         for (_idx, (ts, _val)) in q_iter {
             if ts.seqno == max_ts.seqno && ts.client_id == max_ts.client_id {
-                assume(n_max_ts + 1 < usize::MAX); // XXX: integer overflow
+                assume(n_max_ts + 1 < usize::MAX);  // XXX: integer overflow
                 n_max_ts += 1;
             }
         }
@@ -513,7 +513,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             assert(state.commitments.inv());
             assert(state.inv());
         });
-        let ghost proph_ts = Timestamp { seqno: proph_seqno@, client_id: self.client_id(), client_ctr };
+        let ghost proph_ts = Timestamp {
+            seqno: proph_seqno@,
+            client_id: self.client_id(),
+            client_ctr,
+        };
 
         let quorum = {
             let bpool = BroadcastPool::new(&self.pool);
@@ -568,7 +572,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         };
 
         let replies = quorum.replies();
-        assume(replies.len() == self.qsize()); // TODO(assume/network)
+        assume(replies.len() == self.qsize());  // TODO(assume/network)
         proof {
             self.lemma_qsize_nonempty();
         }
@@ -577,7 +581,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let max_ts = max_ts.expect("the quorum should never be empty");
 
         // XXX: timestamp recycling would be interesting
-        assume(max_ts.seqno < u64::MAX - 1); // XXX: integer overflow
+        assume(max_ts.seqno < u64::MAX - 1);  // XXX: integer overflow
         let exec_seqno = max_ts.seqno + 1;
         let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id(), client_ctr };
         proph_seqno.resolve(&exec_seqno);
@@ -694,6 +698,7 @@ pub proof fn lemma_inv<Pool, C, ML, RL>(
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
+
     ensures
         c._inv() <==> c.inv(),
 {

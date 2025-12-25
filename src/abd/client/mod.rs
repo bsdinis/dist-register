@@ -332,7 +332,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
-                    commitment.agree(&state.commitments.commitment_auth);
+                    state.commitments.agree_commitment(&commitment);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);
@@ -425,7 +425,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                 servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                 vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
-                commitment.agree(&state.commitments.commitment_auth);
+                state.commitments.agree_commitment(&commitment);
 
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 vstd::modes::tracked_swap(&mut register, &mut state.register);
@@ -493,7 +493,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
                 let tracked allocation_opt = if proph_ts > state.linearization_queue.watermark@.timestamp() {
                     let tracked mut allocation = state.commitments.alloc_value(self.client_ctr_token.borrow_mut(), proph_ts, op.new_value, perm);
-                    allocation.agree(&state.commitments.commitment_auth);
+                    state.commitments.agree_allocation(&allocation);
 
                     // XXX: load bearing
                     assert(!state.linearization_queue.known_timestamps().contains(proph_ts));
@@ -546,10 +546,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                                 // the commitment map
                                 if &allocation_opt is Some {
                                     let tracked allocation = allocation_opt.tracked_unwrap();
-                                    allocation.agree(&state.commitments.commitment_auth);
-                                    state.commitments.commitment_auth.delete_points_to(allocation);
+                                    state.commitments.remove_allocation(allocation, self.client_ctr_token.borrow());
                                     // XXX: load bearing
-                                    assert(state.linearization_queue.known_timestamps() == state.commitments@.dom());
+                                    assert(state.linearization_queue.known_timestamps() == state.commitments.allocated().dom());
                                 }
                                 lincomp = lc;
                             } else {
@@ -660,7 +659,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                     servers.lemma_leq_quorums(new_servers, state.linearization_queue.watermark@.timestamp());
                     vstd::modes::tracked_swap(&mut new_servers, &mut state.servers);
 
-                    commitment.agree(&state.commitments.commitment_auth);
+                    state.commitments.agree_commitment(&commitment);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     vstd::modes::tracked_swap(&mut register, &mut state.register);

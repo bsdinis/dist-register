@@ -7,6 +7,8 @@
 use vstd::atomic::PermissionU64;
 use vstd::tokens::map::GhostMapAuth;
 use vstd::tokens::map::GhostPersistentPointsTo;
+#[allow(unused_imports)]
+use vstd::tokens::map::GhostPersistentSubmap;
 use vstd::tokens::map::GhostPointsTo;
 
 use crate::abd::proto::Timestamp;
@@ -24,11 +26,11 @@ pub type CommitmentAuthMap = GhostMapAuth<Timestamp, Option<u64>>;
 pub type ClientCtrToken = GhostPointsTo<u64, (u64, int)>;
 
 pub struct Commitments {
-    pub commitment_auth: GhostMapAuth<Timestamp, Option<u64>>,
-    pub client_ctr_auth: GhostMapAuth<u64, (u64, int)>,
-    pub client_perm: Map<u64, PermissionU64>,
-    pub zero_client: ClientCtrToken,
-    pub ghost missing_perm: Option<(u64, int)>,
+    commitment_auth: GhostMapAuth<Timestamp, Option<u64>>,
+    client_ctr_auth: GhostMapAuth<u64, (u64, int)>,
+    client_perm: Map<u64, PermissionU64>,
+    zero_client: ClientCtrToken,
+    ghost missing_perm: Option<(u64, int)>,
 }
 
 pub struct CommitmentIds {
@@ -37,12 +39,10 @@ pub struct CommitmentIds {
 }
 
 impl Commitments {
-    pub open spec fn inv(self) -> bool {
-        &&& self.basic_inv()
-        &&& self.missing_perm is None
-    }
-
-    pub open spec fn basic_inv(self) -> bool {
+    // TODO(type_inv): move this type to having a #[verifier::type_invariant]
+    // Problem: verus does not supoprt opening the type invariant. which precludes maintaining the type
+    // Without it, there is no way of atomically update members here
+    pub closed spec fn inv(self) -> bool {
         &&& self.commitment_auth@.contains_pair(Timestamp::spec_default(), None)
         &&& self.missing_perm is None ==> { self.client_ctr_auth@.dom() == self.client_perm.dom() }
         &&& self.missing_perm is Some ==> {
@@ -71,22 +71,38 @@ impl Commitments {
     }
 
     pub open spec fn ids(self) -> CommitmentIds {
-        CommitmentIds {
-            commitment_id: self.commitment_auth.id(),
-            client_ctr_id: self.client_ctr_auth.id(),
-        }
+        CommitmentIds { commitment_id: self.commitment_id(), client_ctr_id: self.client_map_id() }
     }
 
-    pub open spec fn commitment_id(self) -> int {
+    pub closed spec fn is_full(self) -> bool {
+        self.missing_perm is None
+    }
+
+    pub closed spec fn missing_perm(self) -> (u64, int)
+        recommends
+            !self.is_full(),
+    {
+        self.missing_perm->Some_0
+    }
+
+    pub closed spec fn commitment_id(self) -> int {
         self.commitment_auth.id()
     }
 
-    pub open spec fn client_map_id(self) -> int {
+    pub closed spec fn client_map_id(self) -> int {
         self.client_ctr_auth.id()
     }
 
-    pub open spec fn view(self) -> Map<Timestamp, Option<u64>> {
+    pub closed spec fn allocated(self) -> Map<Timestamp, Option<u64>> {
         self.commitment_auth.view()
+    }
+
+    pub closed spec fn client_map(self) -> Map<u64, (u64, int)> {
+        self.client_ctr_auth@
+    }
+
+    pub closed spec fn client_perm(self) -> Map<u64, PermissionU64> {
+        self.client_perm
     }
 
     pub proof fn new(tracked zero_perm: PermissionU64) -> (tracked r: (
@@ -96,11 +112,12 @@ impl Commitments {
         requires
             zero_perm.value() == 1,
         ensures
+            r.0.is_full(),
             r.0.inv(),
             r.0.commitment_id() == r.1.id(),
-            r.0.commitment_auth@ == map![Timestamp::spec_default() => None::<u64>],
-            r.0.client_ctr_auth@ == map![0u64 => (1u64, zero_perm.id())],
-            r.0.client_perm == map![0u64 => zero_perm],
+            r.0.allocated() == map![Timestamp::spec_default() => None::<u64>],
+            r.0.client_map() == map![0u64 => (1u64, zero_perm.id())],
+            r.0.client_perm() == map![0u64 => zero_perm],
             r.1.key() == Timestamp::spec_default(),
             r.1.value() == None::<u64>,
     {
@@ -136,17 +153,16 @@ impl Commitments {
     ) -> (tracked r: ClientCtrToken)
         requires
             old(self).inv(),
-            !old(self).client_ctr_auth@.contains_key(client_id),
+            old(self).is_full(),
+            !old(self).client_map().contains_key(client_id),
             client_perm.value() == 0,
         ensures
             self.inv(),
+            self.is_full(),
             self.ids() == old(self).ids(),
-            self.commitment_auth@ == old(self).commitment_auth@,
-            self.client_ctr_auth@ == old(self).client_ctr_auth@.insert(
-                client_id,
-                (0, client_perm.id()),
-            ),
-            self.client_perm == old(self).client_perm.insert(client_id, client_perm),
+            self.allocated() == old(self).allocated(),
+            self.client_map() == old(self).client_map().insert(client_id, (0, client_perm.id())),
+            self.client_perm() == old(self).client_perm().insert(client_id, client_perm),
             r.id() == self.client_map_id(),
             r.key() == client_id,
             r.value().0 == 0,
@@ -163,18 +179,22 @@ impl Commitments {
     ) -> (tracked r: PermissionU64)
         requires
             old(self).inv(),
+            old(self).is_full(),
             client_token.id() == old(self).client_map_id(),
         ensures
-            self.basic_inv(),
+            self.inv(),
+            !self.is_full(),
             self.ids() == old(self).ids(),
-            self.missing_perm == Some((client_token.key(), r.id())),
-            self.commitment_auth@ == old(self).commitment_auth@,
-            self.client_ctr_auth@ == old(self).client_ctr_auth@,
-            self.client_perm == old(self).client_perm.remove(client_token.key()),
-            r == old(self).client_perm[client_token.key()],
+            self.missing_perm() == (client_token.key(), r.id()),
+            self.allocated() == old(self).allocated(),
+            self.client_map() == old(self).client_map(),
+            self.client_perm() == old(self).client_perm().remove(client_token.key()),
+            r == old(self).client_perm()[client_token.key()],
             r.id() == client_token.value().1,
             r.value() == client_token.value().0,
     {
+        assert(client_token.id() == self.client_map_id());
+        assert(self.zero_client.id() == self.client_map_id());
         client_token.agree(&self.client_ctr_auth);
         self.zero_client.disjoint(client_token);
         let tracked r = self.client_perm.tracked_remove(client_token.key());
@@ -190,23 +210,25 @@ impl Commitments {
         tracked client_perm: PermissionU64,
     ) -> (tracked r: WriteAllocation)
         requires
-            old(self).basic_inv(),
+            old(self).inv(),
+            !old(self).is_full(),
             old(client_token).id() == old(self).client_map_id(),
-            old(self).missing_perm == Some((old(client_token).key(), client_perm.id())),
+            old(self).missing_perm() == (old(client_token).key(), client_perm.id()),
             timestamp.client_id == old(client_token).key(),
             timestamp.client_ctr == old(client_token).value().0,
             timestamp.client_ctr < client_perm.value(),
             client_perm.id() == old(client_token).value().1,
         ensures
             self.inv(),
+            self.is_full(),
             self.ids() == old(self).ids(),
-            self.commitment_auth@ == old(self).commitment_auth@.insert(timestamp, value),
-            self.client_ctr_auth@ == old(self).client_ctr_auth@.insert(
+            !old(self).allocated().contains_key(timestamp),
+            self.allocated() == old(self).allocated().insert(timestamp, value),
+            self.client_map() == old(self).client_map().insert(
                 timestamp.client_id,
                 (client_perm.value(), client_perm.id()),
             ),
-            self.client_perm == old(self).client_perm.insert(timestamp.client_id, client_perm),
-            self.missing_perm == None::<(u64, int)>,
+            self.client_perm() == old(self).client_perm().insert(timestamp.client_id, client_perm),
             client_token.id() == old(client_token).id(),
             client_token.key() == old(client_token).key(),
             client_token.value().0 == client_perm.value(),
@@ -234,21 +256,22 @@ impl Commitments {
         tracked client_perm: PermissionU64,
     )
         requires
-            old(self).basic_inv(),
+            old(self).inv(),
+            !old(self).is_full(),
             old(client_token).id() == old(self).client_map_id(),
-            old(self).missing_perm == Some((old(client_token).key(), client_perm.id())),
+            old(self).missing_perm() == (old(client_token).key(), client_perm.id()),
             old(client_token).value().0 < client_perm.value(),
             old(client_token).value().1 == client_perm.id(),
         ensures
             self.inv(),
+            self.is_full(),
             self.ids() == old(self).ids(),
-            self.commitment_auth@ == old(self).commitment_auth@,
-            self.client_ctr_auth@ == old(self).client_ctr_auth@.insert(
+            self.allocated() == old(self).allocated(),
+            self.client_map() == old(self).client_map().insert(
                 client_token.key(),
                 (client_perm.value(), client_perm.id()),
             ),
-            self.client_perm == old(self).client_perm.insert(client_token.key(), client_perm),
-            self.missing_perm == None::<(u64, int)>,
+            self.client_perm() == old(self).client_perm().insert(client_token.key(), client_perm),
             client_token.id() == old(client_token).id(),
             client_token.key() == old(client_token).key(),
             client_token.value().0 == client_perm.value(),
@@ -264,6 +287,76 @@ impl Commitments {
 
         self.client_perm.tracked_insert(client_token.key(), client_perm);
         self.missing_perm = None;
+    }
+
+    pub proof fn agree_commitment(tracked &self, tracked commitment: &WriteCommitment)
+        requires
+            self.inv(),
+            self.is_full(),
+            commitment.id() == self.commitment_id(),
+        ensures
+            self.allocated().contains_key(commitment.key()),
+    {
+        commitment.agree(&self.commitment_auth);
+    }
+
+    pub proof fn agree_commitment_submap(
+        tracked &self,
+        tracked commitments: &GhostPersistentSubmap<Timestamp, Option<u64>>,
+    )
+        requires
+            self.inv(),
+            self.is_full(),
+            commitments.id() == self.commitment_id(),
+        ensures
+            commitments@ <= self.allocated(),
+    {
+        commitments.agree(&self.commitment_auth);
+    }
+
+    pub proof fn agree_allocation(tracked &self, tracked allocation: &WriteAllocation)
+        requires
+            self.inv(),
+            self.is_full(),
+            allocation.id() == self.commitment_id(),
+        ensures
+            self.allocated().contains_key(allocation.key()),
+    {
+        allocation.agree(&self.commitment_auth);
+    }
+
+    pub proof fn remove_allocation(
+        tracked &mut self,
+        tracked allocation: WriteAllocation,
+        tracked client_ctr_token: &ClientCtrToken,
+    )
+        requires
+            old(self).inv(),
+            old(self).is_full(),
+            allocation.id() == old(self).commitment_id(),
+            client_ctr_token.id() == old(self).client_map_id(),
+            allocation.key().client_id == client_ctr_token.key(),
+        ensures
+            self.inv(),
+            self.is_full(),
+            self.ids() == old(self).ids(),
+            self.allocated() == old(self).allocated().remove(allocation.key()),
+    {
+        client_ctr_token.agree(&self.client_ctr_auth);
+        self.zero_client.disjoint(client_ctr_token);
+        allocation.agree(&self.commitment_auth);
+        self.commitment_auth.delete_points_to(allocation);
+    }
+
+    pub proof fn agree_client_token(tracked &self, tracked client_ctr_token: &ClientCtrToken)
+        requires
+            self.inv(),
+            self.is_full(),
+            client_ctr_token.id() == self.client_map_id(),
+        ensures
+            self.client_map().contains_key(client_ctr_token.key()),
+    {
+        client_ctr_token.agree(&self.client_ctr_auth);
     }
 }
 

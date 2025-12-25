@@ -385,22 +385,21 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<Permis
         view = v;
     }
 
-    // XXX: we could derive this with a sign-in procedure to create ids
-    let tracked mut client_seqno_token;
+    let tracked mut client_ctr_token;
     vstd::open_atomic_invariant!(&state_inv => state => {
         proof {
             let tracked Tracked(client_p) = client_perm;
             // XXX(assume/client_disjoint): client_id uniqueness: could be resolved by a client id service
-            assume(!state.commitments.client_ctr_auth@.contains_key(pool.pool_id()));
-            client_seqno_token = state.commitments.login(pool.pool_id(), client_p);
-            client_seqno_token.agree(&state.commitments.client_ctr_auth);
+            assume(!state.commitments.client_map().contains_key(pool.pool_id()));
+            client_ctr_token = state.commitments.login(pool.pool_id(), client_p);
+            state.commitments.agree_client_token(&client_ctr_token);
         }
 
         // XXX: not load bearing but good for debugging
         assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(state_inv.constant(), state));
     });
 
-    (Tracked(client_seqno_token), Tracked(state_inv), Tracked(view))
+    (Tracked(client_ctr_token), Tracked(state_inv), Tracked(view))
 }
 
 fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<

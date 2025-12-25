@@ -64,13 +64,14 @@ impl<ML, RL> State<ML, RL, ML::Completion, RL::Completion> where
         &&& self.linearization_queue.inv()
         &&& self.servers.inv()
         &&& self.commitments.inv()
+        &&& self.commitments.is_full()
         // id concordance
         &&& self.linearization_queue.register_id == self.register.id()
         &&& self.linearization_queue.committed_to.id()
             == self.commitments.commitment_id()
         // matching state
         &&& self.linearization_queue.current_value() == self.register@
-        &&& self.linearization_queue.known_timestamps() == self.commitments@.dom()
+        &&& self.linearization_queue.known_timestamps() == self.commitments.allocated().dom()
         &&& forall|q: Quorum|
             self.servers.valid_quorum(q) ==> {
                 self.linearization_queue.watermark@.timestamp() <= self.servers.quorum_timestamp(q)
@@ -117,7 +118,7 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
     let tracked (commitments, zero_commitment) = Commitments::new(zero_perm);
     let tracked mut linearization_queue = LinearizationQueue::dummy(register.id(), zero_commitment);
 
-    linearization_queue.committed_to.agree(&commitments.commitment_auth);
+    commitments.agree_commitment_submap(&linearization_queue.committed_to);
     // XXX: load bearing
     assert(linearization_queue.known_timestamps() == set![Timestamp::spec_default()]);
 

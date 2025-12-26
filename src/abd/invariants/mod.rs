@@ -79,7 +79,7 @@ impl<ML, RL> State<ML, RL> where
         &&& self.linearization_queue.current_value() == self.register@
         &&& self.linearization_queue.known_timestamps() == self.commitments.allocated().dom()
         &&& forall|q: Quorum|
-            self.servers.valid_quorum(q) ==> {
+            #[trigger] self.servers.valid_quorum(q) ==> {
                 self.linearization_queue.watermark() <= self.servers.quorum_timestamp(q)
             }
     }

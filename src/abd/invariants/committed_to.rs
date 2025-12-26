@@ -51,14 +51,14 @@ impl Commitments {
         }
         &&& forall|client_id: u64|
             {
-                &&& self.client_ctr_auth@.contains_key(client_id)
-                &&& self.client_perm.contains_key(client_id)
+                &&& #[trigger] self.client_ctr_auth@.contains_key(client_id)
+                &&& #[trigger] self.client_perm.contains_key(client_id)
             } ==> {
                 &&& self.client_ctr_auth@[client_id].0 == self.client_perm[client_id].value()
                 &&& self.client_ctr_auth@[client_id].1 == self.client_perm[client_id].id()
             }
         &&& forall|ts: Timestamp|
-            self.commitment_auth@.contains_key(ts) ==> {
+            #[trigger] self.commitment_auth@.contains_key(ts) ==> {
                 &&& self.client_ctr_auth@.contains_key(ts.client_id)
                 &&& ts.client_ctr < self.client_ctr_auth@[ts.client_id].0
             }

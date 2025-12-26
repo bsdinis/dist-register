@@ -26,14 +26,14 @@ impl ServerUniverse {
         ensures
             r.inv(),
             forall|q: Quorum|
-                r.valid_quorum(q) ==> r.quorum_timestamp(q) >= Timestamp::spec_default(),
+                #[trigger] r.valid_quorum(q) ==> r.quorum_timestamp(q) >= Timestamp::spec_default(),
     {
         let tracked set = ServerUniverse { map: Map::tracked_empty() };
         set
     }
 
     pub open spec fn inv(self) -> bool {
-        &&& forall|k: nat| self.map.contains_key(k) ==> self.map[k]@@ is LowerBound
+        &&& forall|k: nat| #[trigger] self.map.contains_key(k) ==> self.map[k]@@ is LowerBound
         &&& self.map.dom().finite()
     }
 
@@ -69,7 +69,7 @@ impl ServerUniverse {
         recommends
             self.valid_quorum(q),
     {
-        forall|idx: nat| q@.contains(idx) ==> self[idx]@@.timestamp() >= lb
+        forall|idx: nat| #[trigger] q@.contains(idx) ==> self[idx]@@.timestamp() >= lb
     }
 
     pub open spec fn quorum_timestamp(self, q: Quorum) -> Timestamp
@@ -95,7 +95,7 @@ impl ServerUniverse {
         ensures
             r.0 == self.quorum_vals(q),
             r.1 == self.quorum_timestamp(q),
-            forall|idx: nat| q@.contains(idx) ==> r.0.contains(self[idx]@@.timestamp()),
+            forall|idx: nat| #[trigger] q@.contains(idx) ==> r.0.contains(self[idx]@@.timestamp()),
             r.0.finite(),
             r.0.len() <= q@.len(),
     {
@@ -104,7 +104,7 @@ impl ServerUniverse {
         let lb_map = self.map.restrict(q@);
         let vals = self.quorum_vals(q);
 
-        assert forall|idx: nat| q@.contains(idx) implies vals.contains(self[idx]@@.timestamp()) by {
+        assert forall|idx: nat| #[trigger] q@.contains(idx) implies vals.contains(self[idx]@@.timestamp()) by {
             assert(self.map.restrict(q@).contains_key(idx));
             assert(self.map.restrict(q@).values().contains(self[idx]));
         }
@@ -148,7 +148,7 @@ impl ServerUniverse {
             self.valid_quorum(q),
         ensures
             forall|idx: nat|
-                q@.contains(idx) ==> self.quorum_timestamp(q) >= self[idx]@@.timestamp(),
+                #[trigger] q@.contains(idx) ==> self.quorum_timestamp(q) >= self[idx]@@.timestamp(),
     {
         let ts_leq = Self::ts_leq();
         let (vals, ts) = self.lemma_vals(q);
@@ -158,7 +158,7 @@ impl ServerUniverse {
         ).find_unique_maximal_ensures(ts_leq);
         vals.lemma_maximal_equivalent_greatest(ts_leq, ts);
 
-        assert(forall|idx: nat| q@.contains(idx) ==> ts_leq(self[idx]@@.timestamp(), ts));
+        assert(forall|idx: nat| #[trigger] q@.contains(idx) ==> ts_leq(self[idx]@@.timestamp(), ts));
     }
 
     proof fn lemma_quorum_timestamp_witness(self, q: Quorum) -> (idx: nat)
@@ -177,7 +177,7 @@ impl ServerUniverse {
         ).find_unique_maximal_ensures(ts_leq);
         vals.lemma_maximal_equivalent_greatest(ts_leq, ts);
 
-        let witness_idx = choose|idx: nat| q@.contains(idx) && self[idx]@@.timestamp() == ts;
+        let witness_idx = choose|idx: nat| #[trigger] q@.contains(idx) && self[idx]@@.timestamp() == ts;
         assert(q@.contains(witness_idx));
         assert(self.quorum_timestamp(q) == self[witness_idx]@@.timestamp());
         witness_idx
@@ -199,7 +199,7 @@ impl ServerUniverse {
         ).find_unique_maximal_ensures(ts_leq);
         vals.lemma_maximal_equivalent_greatest(ts_leq, ts);
 
-        assert(forall|idx: nat| q@.contains(idx) ==> ts_leq(self[idx]@@.timestamp(), ts));
+        assert(forall|idx: nat| #[trigger] q@.contains(idx) ==> ts_leq(self[idx]@@.timestamp(), ts));
         assert(ts_leq(self[witness_idx]@@.timestamp(), ts));
     }
 
@@ -212,7 +212,7 @@ impl ServerUniverse {
             self.inv(),
             other.inv(),
     {
-        &&& forall|k: nat| self.contains_key(k) ==> self[k]@@.timestamp() <= other[k]@@.timestamp()
+        &&& forall|k: nat| #[trigger] self.contains_key(k) ==> self[k]@@.timestamp() <= other[k]@@.timestamp()
         &&& self.locs() == other.locs()
     }
 
@@ -250,7 +250,7 @@ impl ServerUniverse {
         self.lemma_leq_implies_validity(other, q);
         assert(other.valid_quorum(q));
         if self.unanimous_quorum(q, lb) {
-            assert forall|idx: nat| q@.contains(idx) implies other[idx]@@.timestamp() >= lb by {
+            assert forall|idx: nat| #[trigger] q@.contains(idx) implies other[idx]@@.timestamp() >= lb by {
                 assert(self.contains_key(idx));
                 assert(self[idx]@@.timestamp() <= other[idx]@@.timestamp());
             }
@@ -263,11 +263,11 @@ impl ServerUniverse {
             other.inv(),
             self.locs() == other.locs(),
             self.leq(other),
-            forall|q: Quorum| self.valid_quorum(q) ==> self.quorum_timestamp(q) >= min,
+            forall|q: Quorum| #[trigger] self.valid_quorum(q) ==> self.quorum_timestamp(q) >= min,
         ensures
-            forall|q: Quorum| other.valid_quorum(q) ==> other.quorum_timestamp(q) >= min,
+            forall|q: Quorum| #[trigger] other.valid_quorum(q) ==> other.quorum_timestamp(q) >= min,
     {
-        assert forall|q: Quorum| other.valid_quorum(q) implies other.quorum_timestamp(q) >= min by {
+        assert forall|q: Quorum| #[trigger] other.valid_quorum(q) implies other.quorum_timestamp(q) >= min by {
             assert(other.valid_quorum(q));
 
             self.lemma_leq_implies_validity(other, q);
@@ -278,11 +278,11 @@ impl ServerUniverse {
             assert(self.contains_key(witness_idx));
 
             assert(forall|idx: nat|
-                self.contains_key(idx) ==> other[idx]@@.timestamp() >= self[idx]@@.timestamp());
+                #[trigger] self.contains_key(idx) ==> other[idx]@@.timestamp() >= self[idx]@@.timestamp());
             assert(other[witness_idx]@@.timestamp() >= self[witness_idx]@@.timestamp());
             assert(other[witness_idx]@@.timestamp() >= min);
 
-            assert(exists|idx: nat| q@.contains(idx) ==> other[idx]@@.timestamp() >= min);
+            assert(exists|idx: nat| #[trigger] q@.contains(idx) ==> other[idx]@@.timestamp() >= min);
             other.lemma_quorum_witness_implies_lb(q, witness_idx);
             assert(other.quorum_timestamp(q) >= min);
         }
@@ -295,9 +295,9 @@ impl ServerUniverse {
             self.valid_quorum(lb_quorum),
             self.unanimous_quorum(lb_quorum, ts),
         ensures
-            forall|q: Quorum| self.valid_quorum(q) ==> self.quorum_timestamp(q) >= ts,
+            forall|q: Quorum| #[trigger] self.valid_quorum(q) ==> self.quorum_timestamp(q) >= ts,
     {
-        assert forall|q: Quorum| self.valid_quorum(q) implies self.quorum_timestamp(q) >= ts by {
+        assert forall|q: Quorum| #[trigger] self.valid_quorum(q) implies self.quorum_timestamp(q) >= ts by {
             self.lemma_quorum_agree(lb_quorum, q, ts);
             self.lemma_quorum_timestamp_is_upper_bound(q);
             let witness_idx = self.lemma_quorum_intersection(lb_quorum, q);
@@ -333,7 +333,7 @@ impl ServerUniverse {
         });
 
         lemma_disjoint_iff_empty_intersection(q1@, q2@);
-        let witness_idx = choose|idx: nat| q1@.contains(idx) && q2@.contains(idx);
+        let witness_idx = choose|idx: nat| #[trigger] q1@.contains(idx) && q2@.contains(idx);
         witness_idx
     }
 
@@ -345,11 +345,11 @@ impl ServerUniverse {
             self.unanimous_quorum(q1, lb),
         ensures
             forall|idx: nat|
-                q1@.contains(idx) && q2@.contains(idx) ==> self[idx]@@.timestamp() >= lb,
+                #[trigger] q1@.contains(idx) && q2@.contains(idx) ==> self[idx]@@.timestamp() >= lb,
     {
         let restr = self.map.restrict(q1@.intersect(q2@));
         assert forall|idx: nat|
-            q1@.contains(idx) && q2@.contains(idx) implies self[idx]@@.timestamp() >= lb by {
+            #[trigger] q1@.contains(idx) && q2@.contains(idx) implies self[idx]@@.timestamp() >= lb by {
             assert(restr.contains_key(idx));
             vstd::assert_by_contradiction!(self[idx]@@.timestamp() >= lb,
             {

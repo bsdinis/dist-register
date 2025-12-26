@@ -1,3 +1,32 @@
+# 0006: 2025-12-26 09:56:08
+
+- manually selected triggers
+
+even though most triggers were the automatically chosen, this seems to have helped
+
+|                                     |                                          |
+|---|---|
+|                             profile |                               release    |
+|                             version |            0.2025.12.22.95ec04c.dirty    |
+|                            platform |                          linux_x86_64    |
+|                           toolchain |       1.91.0-x86_64-unknown-linux-gnu    |
+|                        verus commit | 95ec04c1198741329100b84cae4c3b49916b1c52 |
+|                            hostname |                                bertha    |
+|                           n_threads |                                    15    |
+|                  total (wall-clock) |                                  2996 ms |
+|                         total (cpu) |                                  8242 ms |
+|           verification (wall-clock) |                                  1856 ms |
+|                  verification (cpu) |                                  6266 ms |
+|                       smt run (cpu) |                                  1569 ms |
+|          abd::invariants::lin_queue |                                   921 ms |
+|                         abd::client |                                   806 ms |
+|             abd::invariants::quorum |                                   426 ms |
+|       abd::invariants::committed_to |                                   375 ms |
+|                                     |                                   366 ms |
+|                  elapsed wall clock |                               0:03.68    |
+
+---
+
 # 0005: 2025-12-26 07:52:09
 
 - moved Pending and Committed to use type_invariant

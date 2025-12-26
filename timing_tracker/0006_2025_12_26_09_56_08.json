@@ -1,0 +1,1891 @@
+{
+  "verification-results": {
+    "encountered-error": false,
+    "encountered-vir-error": false,
+    "success": true,
+    "verified": 175,
+    "errors": 0,
+    "is-verifying-entire-crate": true
+  },
+  "times-ms": {
+    "verus-build": {
+      "profile": "release",
+      "version": "0.2025.12.22.95ec04c.dirty"
+    },
+    "num-threads": 15,
+    "total": 2996,
+    "estimated-cpu-time": 8242,
+    "rust": {
+      "total": 984,
+      "init-and-types": 432,
+      "trait-conflicts": 68,
+      "compile": 483
+    },
+    "verification": {
+      "total": 1856,
+      "vir": {
+        "total": 731,
+        "hir": 209,
+        "import": 157,
+        "rust-to-vir": 130
+      }
+    },
+    "total-verify": 6266,
+    "total-verify-module-times": [
+      {
+        "module": "abd::invariants::lin_queue",
+        "time": 921
+      },
+      {
+        "module": "abd::client",
+        "time": 806
+      },
+      {
+        "module": "abd::invariants::quorum",
+        "time": 426
+      },
+      {
+        "module": "abd::invariants::committed_to",
+        "time": 375
+      },
+      {
+        "module": "",
+        "time": 366
+      },
+      {
+        "module": "abd::server",
+        "time": 342
+      },
+      {
+        "module": "abd::invariants::lin_queue::pending",
+        "time": 271
+      },
+      {
+        "module": "abd::client::utils",
+        "time": 241
+      },
+      {
+        "module": "abd::invariants",
+        "time": 224
+      },
+      {
+        "module": "abd::resource::monotonic_timestamp",
+        "time": 216
+      },
+      {
+        "module": "verdist::pool::connection_pool",
+        "time": 209
+      },
+      {
+        "module": "verdist::network::channel",
+        "time": 201
+      },
+      {
+        "module": "verdist::rpc::rpc_channel",
+        "time": 196
+      },
+      {
+        "module": "verdist::pool::broadcast_pool",
+        "time": 196
+      },
+      {
+        "module": "abd::server::register",
+        "time": 179
+      },
+      {
+        "module": "abd::invariants::lin_queue::completed",
+        "time": 179
+      },
+      {
+        "module": "verdist::rpc::request_context",
+        "time": 176
+      },
+      {
+        "module": "abd::proto",
+        "time": 137
+      },
+      {
+        "module": "abd::invariants::lin_queue::maybe_lin",
+        "time": 133
+      },
+      {
+        "module": "abd::invariants::logatom",
+        "time": 122
+      },
+      {
+        "module": "verdist::rpc::replies",
+        "time": 108
+      },
+      {
+        "module": "abd::client::net_axioms",
+        "time": 94
+      },
+      {
+        "module": "verdist::rpc::proto",
+        "time": 87
+      },
+      {
+        "module": "abd::client::error",
+        "time": 51
+      }
+    ],
+    "air": {
+      "total": 1790,
+      "module-times": [
+        {
+          "module": "abd::client",
+          "time": 194
+        },
+        {
+          "module": "abd::invariants::lin_queue",
+          "time": 174
+        },
+        {
+          "module": "",
+          "time": 135
+        },
+        {
+          "module": "abd::server",
+          "time": 111
+        },
+        {
+          "module": "abd::invariants::lin_queue::pending",
+          "time": 85
+        },
+        {
+          "module": "abd::invariants::committed_to",
+          "time": 84
+        },
+        {
+          "module": "abd::invariants",
+          "time": 83
+        },
+        {
+          "module": "verdist::network::channel",
+          "time": 82
+        },
+        {
+          "module": "verdist::pool::broadcast_pool",
+          "time": 80
+        },
+        {
+          "module": "abd::invariants::quorum",
+          "time": 73
+        },
+        {
+          "module": "abd::client::utils",
+          "time": 70
+        },
+        {
+          "module": "verdist::pool::connection_pool",
+          "time": 69
+        },
+        {
+          "module": "abd::invariants::lin_queue::completed",
+          "time": 69
+        },
+        {
+          "module": "verdist::rpc::request_context",
+          "time": 64
+        },
+        {
+          "module": "verdist::rpc::rpc_channel",
+          "time": 61
+        },
+        {
+          "module": "abd::server::register",
+          "time": 57
+        },
+        {
+          "module": "abd::proto",
+          "time": 52
+        },
+        {
+          "module": "abd::invariants::lin_queue::maybe_lin",
+          "time": 51
+        },
+        {
+          "module": "abd::resource::monotonic_timestamp",
+          "time": 48
+        },
+        {
+          "module": "abd::invariants::logatom",
+          "time": 43
+        },
+        {
+          "module": "verdist::rpc::replies",
+          "time": 41
+        },
+        {
+          "module": "verdist::rpc::proto",
+          "time": 30
+        },
+        {
+          "module": "abd::client::net_axioms",
+          "time": 16
+        },
+        {
+          "module": "abd::client::error",
+          "time": 9
+        }
+      ]
+    },
+    "smt": {
+      "total": 2166,
+      "smt-init": 597,
+      "smt-init-module-times": [
+        {
+          "module": "abd::invariants::lin_queue",
+          "time": 68,
+          "time-micros": 68631,
+          "rlimit-count": 1186021
+        },
+        {
+          "module": "abd::client",
+          "time": 68,
+          "time-micros": 68469,
+          "rlimit-count": 957184
+        },
+        {
+          "module": "",
+          "time": 52,
+          "time-micros": 52362,
+          "rlimit-count": 242333
+        },
+        {
+          "module": "abd::server",
+          "time": 43,
+          "time-micros": 43284,
+          "rlimit-count": 222458
+        },
+        {
+          "module": "abd::invariants::lin_queue::pending",
+          "time": 35,
+          "time-micros": 35388,
+          "rlimit-count": 154463
+        },
+        {
+          "module": "abd::invariants::committed_to",
+          "time": 31,
+          "time-micros": 31349,
+          "rlimit-count": 274162
+        },
+        {
+          "module": "abd::invariants::quorum",
+          "time": 30,
+          "time-micros": 30527,
+          "rlimit-count": 383930
+        },
+        {
+          "module": "abd::invariants",
+          "time": 28,
+          "time-micros": 28037,
+          "rlimit-count": 10189
+        },
+        {
+          "module": "abd::client::utils",
+          "time": 25,
+          "time-micros": 25419,
+          "rlimit-count": 189336
+        },
+        {
+          "module": "verdist::network::channel",
+          "time": 24,
+          "time-micros": 24400,
+          "rlimit-count": 105590
+        },
+        {
+          "module": "verdist::pool::broadcast_pool",
+          "time": 23,
+          "time-micros": 23486,
+          "rlimit-count": 134893
+        },
+        {
+          "module": "verdist::pool::connection_pool",
+          "time": 23,
+          "time-micros": 23282,
+          "rlimit-count": 150051
+        },
+        {
+          "module": "verdist::rpc::rpc_channel",
+          "time": 18,
+          "time-micros": 18278,
+          "rlimit-count": 181237
+        },
+        {
+          "module": "abd::proto",
+          "time": 17,
+          "time-micros": 17536,
+          "rlimit-count": 59130
+        },
+        {
+          "module": "abd::invariants::lin_queue::completed",
+          "time": 17,
+          "time-micros": 17494,
+          "rlimit-count": 89475
+        },
+        {
+          "module": "verdist::rpc::request_context",
+          "time": 17,
+          "time-micros": 17474,
+          "rlimit-count": 114503
+        },
+        {
+          "module": "abd::resource::monotonic_timestamp",
+          "time": 13,
+          "time-micros": 13913,
+          "rlimit-count": 143864
+        },
+        {
+          "module": "abd::invariants::lin_queue::maybe_lin",
+          "time": 13,
+          "time-micros": 13516,
+          "rlimit-count": 56799
+        },
+        {
+          "module": "abd::server::register",
+          "time": 12,
+          "time-micros": 12518,
+          "rlimit-count": 75424
+        },
+        {
+          "module": "verdist::rpc::replies",
+          "time": 12,
+          "time-micros": 12385,
+          "rlimit-count": 44181
+        },
+        {
+          "module": "abd::invariants::logatom",
+          "time": 12,
+          "time-micros": 12161,
+          "rlimit-count": 47612
+        },
+        {
+          "module": "verdist::rpc::proto",
+          "time": 7,
+          "time-micros": 7567,
+          "rlimit-count": 27088
+        },
+        {
+          "module": "abd::client::error",
+          "time": 0,
+          "time-micros": 0,
+          "rlimit-count": 0
+        },
+        {
+          "module": "abd::client::net_axioms",
+          "time": 0,
+          "time-micros": 0,
+          "rlimit-count": 0
+        }
+      ],
+      "smt-run": 1569,
+      "smt-run-module-times": [
+        {
+          "module": "abd::invariants::lin_queue",
+          "time": 441,
+          "time-micros": 441454,
+          "rlimit-count": 1186021,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::commit_value",
+              "mode:": "proof",
+              "time": 27,
+              "time-micros": 27932,
+              "rlimit-count": 13926,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::remove_read_lin",
+              "mode:": "proof",
+              "time": 35,
+              "time-micros": 35563,
+              "rlimit-count": 222667,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::apply_read_linearizers_at_value",
+              "mode:": "proof",
+              "time": 52,
+              "time-micros": 52179,
+              "rlimit-count": 22508,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::extract_read_completion",
+              "mode:": "proof",
+              "time": 30,
+              "time-micros": 30646,
+              "rlimit-count": 255272,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::lemma_pending_reads",
+              "mode:": "proof",
+              "time": 6,
+              "time-micros": 6134,
+              "rlimit-count": 17498,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::lemma_write_token",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4471,
+              "rlimit-count": 76255,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::insert_read_linearizer",
+              "mode:": "proof",
+              "time": 60,
+              "time-micros": 60031,
+              "rlimit-count": 13565,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::lemma_watermark_lb",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4776,
+              "rlimit-count": 6464,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::new",
+              "mode:": "proof",
+              "time": 8,
+              "time-micros": 8342,
+              "rlimit-count": 12934,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::InsertError::lower_bound",
+              "mode:": "proof",
+              "time": 1,
+              "time-micros": 1640,
+              "rlimit-count": 896,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::lemma_known_timestamps",
+              "mode:": "proof",
+              "time": 6,
+              "time-micros": 6473,
+              "rlimit-count": 83252,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::remove_write_lin",
+              "mode:": "proof",
+              "time": 34,
+              "time-micros": 34357,
+              "rlimit-count": 53847,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::InsertError::tracked_write_destruct",
+              "mode:": "proof",
+              "time": 0,
+              "time-micros": 758,
+              "rlimit-count": 84031,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::InsertError::tracked_read_destruct",
+              "mode:": "proof",
+              "time": 0,
+              "time-micros": 623,
+              "rlimit-count": 55981,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::apply_linearizers_up_to",
+              "mode:": "proof",
+              "time": 112,
+              "time-micros": 112546,
+              "rlimit-count": 134860,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::extract_write_completion",
+              "mode:": "proof",
+              "time": 19,
+              "time-micros": 19822,
+              "rlimit-count": 13734,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::tracked_committed_values",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4039,
+              "rlimit-count": 14860,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::lemma_read_token",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4970,
+              "rlimit-count": 1107,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::lemma_pending_writes",
+              "mode:": "proof",
+              "time": 5,
+              "time-micros": 5501,
+              "rlimit-count": 85884,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::LinearizationQueue::insert_write_linearizer",
+              "mode:": "proof",
+              "time": 20,
+              "time-micros": 20641,
+              "rlimit-count": 16480,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::client",
+          "time": 262,
+          "time-micros": 262625,
+          "rlimit-count": 957184,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::client::AbdPool::write",
+              "mode:": "exec",
+              "time": 110,
+              "time-micros": 110084,
+              "rlimit-count": 50083,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::client::lemma_watermark_contradiction",
+              "mode:": "proof",
+              "time": 12,
+              "time-micros": 12164,
+              "rlimit-count": 282461,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::client::AbdPool::lemma_qsize_nonempty",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3597,
+              "rlimit-count": 25071,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::client::AbdPool::quorum_size",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 123,
+              "rlimit-count": 13783,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::client::lemma_inv",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2742,
+              "rlimit-count": 205,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::client::AbdPool::read",
+              "mode:": "exec",
+              "time": 129,
+              "time-micros": 129370,
+              "rlimit-count": 326429,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::client::AbdPool::new",
+              "mode:": "exec",
+              "time": 4,
+              "time-micros": 4542,
+              "rlimit-count": 259152,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::invariants::quorum",
+          "time": 214,
+          "time-micros": 214860,
+          "rlimit-count": 383930,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_leq_implies_validity",
+              "mode:": "proof",
+              "time": 8,
+              "time-micros": 8191,
+              "rlimit-count": 5935,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_quorum_timestamp_witness",
+              "mode:": "proof",
+              "time": 35,
+              "time-micros": 35985,
+              "rlimit-count": 31858,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_quorum_lb",
+              "mode:": "proof",
+              "time": 12,
+              "time-micros": 12852,
+              "rlimit-count": 15588,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_vals",
+              "mode:": "proof",
+              "time": 19,
+              "time-micros": 19737,
+              "rlimit-count": 75545,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_quorum_witness_implies_lb",
+              "mode:": "proof",
+              "time": 40,
+              "time-micros": 40809,
+              "rlimit-count": 41534,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_leq_quorums",
+              "mode:": "proof",
+              "time": 45,
+              "time-micros": 45755,
+              "rlimit-count": 45127,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::dummy",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2628,
+              "rlimit-count": 30914,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_leq_retains_unanimity",
+              "mode:": "proof",
+              "time": 12,
+              "time-micros": 12854,
+              "rlimit-count": 7198,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_quorum_agree",
+              "mode:": "proof",
+              "time": 12,
+              "time-micros": 12395,
+              "rlimit-count": 66280,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_quorum_timestamp_is_upper_bound",
+              "mode:": "proof",
+              "time": 19,
+              "time-micros": 19539,
+              "rlimit-count": 19994,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::quorum::ServerUniverse::lemma_quorum_intersection",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4109,
+              "rlimit-count": 43957,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::invariants::committed_to",
+          "time": 154,
+          "time-micros": 154558,
+          "rlimit-count": 274162,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::alloc_value",
+              "mode:": "proof",
+              "time": 38,
+              "time-micros": 38676,
+              "rlimit-count": 24958,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::remove_allocation",
+              "mode:": "proof",
+              "time": 16,
+              "time-micros": 16183,
+              "rlimit-count": 33767,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::login",
+              "mode:": "proof",
+              "time": 20,
+              "time-micros": 20218,
+              "rlimit-count": 33151,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::agree_client_token",
+              "mode:": "proof",
+              "time": 5,
+              "time-micros": 5392,
+              "rlimit-count": 6097,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::new",
+              "mode:": "proof",
+              "time": 21,
+              "time-micros": 21683,
+              "rlimit-count": 18670,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::agree_allocation",
+              "mode:": "proof",
+              "time": 5,
+              "time-micros": 5803,
+              "rlimit-count": 49662,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::agree_commitment",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3895,
+              "rlimit-count": 6400,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::return_permission",
+              "mode:": "proof",
+              "time": 25,
+              "time-micros": 25030,
+              "rlimit-count": 5640,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::agree_commitment_submap",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3630,
+              "rlimit-count": 25306,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::committed_to::Commitments::take_permission",
+              "mode:": "proof",
+              "time": 14,
+              "time-micros": 14043,
+              "rlimit-count": 70511,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::resource::monotonic_timestamp",
+          "time": 89,
+          "time-micros": 89109,
+          "rlimit-count": 143864,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResource::extract_lower_bound",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4961,
+              "rlimit-count": 1223,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResource::join",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4645,
+              "rlimit-count": 2426,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResource::lemma_lower_bound",
+              "mode:": "proof",
+              "time": 6,
+              "time-micros": 6140,
+              "rlimit-count": 9068,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResourceValue::op_unit",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3670,
+              "rlimit-count": 59849,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResourceValue::commutative",
+              "mode:": "proof",
+              "time": 6,
+              "time-micros": 6996,
+              "rlimit-count": 30254,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResource::alloc",
+              "mode:": "proof",
+              "time": 1,
+              "time-micros": 1723,
+              "rlimit-count": 16974,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResourceValue::associative",
+              "mode:": "proof",
+              "time": 45,
+              "time-micros": 45580,
+              "rlimit-count": 7679,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResourceValue::closed_under_incl",
+              "mode:": "proof",
+              "time": 1,
+              "time-micros": 1788,
+              "rlimit-count": 2795,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResourceValue::unit_valid",
+              "mode:": "proof",
+              "time": 0,
+              "time-micros": 873,
+              "rlimit-count": 5600,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::resource::monotonic_timestamp::MonotonicTimestampResource::advance",
+              "mode:": "proof",
+              "time": 12,
+              "time-micros": 12726,
+              "rlimit-count": 7996,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::client::utils",
+          "time": 67,
+          "time-micros": 67698,
+          "rlimit-count": 189336,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::client::utils::max_from_get_replies",
+              "mode:": "exec",
+              "time": 36,
+              "time-micros": 36475,
+              "rlimit-count": 133163,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::client::utils::max_from_get_ts_replies",
+              "mode:": "exec",
+              "time": 31,
+              "time-micros": 31222,
+              "rlimit-count": 56173,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::invariants::lin_queue::pending",
+          "time": 54,
+          "time-micros": 54874,
+          "rlimit-count": 154463,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::PendingRead::new",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3088,
+              "rlimit-count": 6397,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::PendingRead::apply_linearizer",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3390,
+              "rlimit-count": 67869,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::WriteStatus::commit",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2943,
+              "rlimit-count": 6771,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::PendingWrite::apply_linearizer",
+              "mode:": "proof",
+              "time": 7,
+              "time-micros": 7259,
+              "rlimit-count": 2271,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::PendingWrite::lemma_pending_inv",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2794,
+              "rlimit-count": 8041,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::WriteStatus::tracked_destruct_allocation",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2028,
+              "rlimit-count": 5128,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::PendingWrite::new",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4487,
+              "rlimit-count": 10714,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::PendingWrite::maybe",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4309,
+              "rlimit-count": 3813,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::PendingRead::maybe",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2416,
+              "rlimit-count": 7878,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::WriteStatus::duplicate",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3524,
+              "rlimit-count": 4837,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::PendingWrite::commit",
+              "mode:": "proof",
+              "time": 14,
+              "time-micros": 14869,
+              "rlimit-count": 5469,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::WriteStatus::allocated",
+              "mode:": "proof",
+              "time": 1,
+              "time-micros": 1414,
+              "rlimit-count": 7821,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::WriteStatus::tracked_destruct_commitment",
+              "mode:": "proof",
+              "time": 0,
+              "time-micros": 567,
+              "rlimit-count": 14707,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::pending::PendingRead::lemma_pending_inv",
+              "mode:": "proof",
+              "time": 1,
+              "time-micros": 1779,
+              "rlimit-count": 2747,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::server",
+          "time": 49,
+          "time-micros": 49849,
+          "rlimit-count": 222458,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::server::RegisterServer::handle_get_timestamp",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 147,
+              "rlimit-count": 349,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::RegisterServer::handle",
+              "mode:": "exec",
+              "time": 4,
+              "time-micros": 4172,
+              "rlimit-count": 365,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::RegisterServer::handle_get",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 153,
+              "rlimit-count": 7564,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::RegisterServer::new",
+              "mode:": "exec",
+              "time": 4,
+              "time-micros": 4795,
+              "rlimit-count": 13924,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::RegisterServer::handle_write",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 140,
+              "rlimit-count": 349,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::RegisterServer::poll",
+              "mode:": "exec",
+              "time": 35,
+              "time-micros": 35782,
+              "rlimit-count": 51552,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::RegisterServer::accept",
+              "mode:": "exec",
+              "time": 4,
+              "time-micros": 4656,
+              "rlimit-count": 148355,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "",
+          "time": 46,
+          "time-micros": 46488,
+          "rlimit-count": 242333,
+          "function-breakdown": [
+            {
+              "function": "verdist::connect",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 641,
+              "rlimit-count": 1957,
+              "success": true
+            },
+            {
+              "function": "verdist::connect_all",
+              "mode:": "exec",
+              "time": 22,
+              "time-micros": 22027,
+              "rlimit-count": 37595,
+              "success": true
+            },
+            {
+              "function": "verdist::REQUEST_STDDEV_DEFAULT_MS",
+              "mode:": "spec",
+              "time": 0,
+              "time-micros": 133,
+              "rlimit-count": 155234,
+              "success": true
+            },
+            {
+              "function": "verdist::REQUEST_LATENCY_DEFAULT_MS",
+              "mode:": "spec",
+              "time": 0,
+              "time-micros": 141,
+              "rlimit-count": 15446,
+              "success": true
+            },
+            {
+              "function": "verdist::get_invariant_state",
+              "mode:": "exec",
+              "time": 16,
+              "time-micros": 16178,
+              "rlimit-count": 10709,
+              "success": true
+            },
+            {
+              "function": "verdist::run_client",
+              "mode:": "exec",
+              "time": 7,
+              "time-micros": 7365,
+              "rlimit-count": 21392,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "verdist::pool::connection_pool",
+          "time": 37,
+          "time-micros": 37211,
+          "rlimit-count": 150051,
+          "function-breakdown": [
+            {
+              "function": "verdist::verdist::pool::connection_pool::FlawlessPool::lemma_quorum_nonzero",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2229,
+              "rlimit-count": 2916,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::pool::connection_pool::FlawlessPool::conns",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 112,
+              "rlimit-count": 7698,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::pool::connection_pool::FlawlessPool::n_nodes",
+              "mode:": "exec",
+              "time": 2,
+              "time-micros": 2072,
+              "rlimit-count": 77793,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::pool::connection_pool::FlawlessPool::quorum_size",
+              "mode:": "exec",
+              "time": 4,
+              "time-micros": 4604,
+              "rlimit-count": 3533,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::pool::connection_pool::FlawlessPool::id",
+              "mode:": "exec",
+              "time": 1,
+              "time-micros": 1857,
+              "rlimit-count": 6841,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::pool::connection_pool::FlawlessPool::poll",
+              "mode:": "exec",
+              "time": 22,
+              "time-micros": 22259,
+              "rlimit-count": 43993,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::pool::connection_pool::FlawlessPool::new",
+              "mode:": "exec",
+              "time": 2,
+              "time-micros": 2208,
+              "rlimit-count": 3631,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::pool::connection_pool::lemma_pool_len",
+              "mode:": "proof",
+              "time": 1,
+              "time-micros": 1868,
+              "rlimit-count": 3646,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::server::register",
+          "time": 31,
+          "time-micros": 31002,
+          "rlimit-count": 75424,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::server::register::MonotonicRegisterInner::read",
+              "mode:": "exec",
+              "time": 3,
+              "time-micros": 3650,
+              "rlimit-count": 45423,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::register::MonotonicRegister::default",
+              "mode:": "exec",
+              "time": 2,
+              "time-micros": 2416,
+              "rlimit-count": 11502,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::register::MonotonicRegister::read",
+              "mode:": "exec",
+              "time": 3,
+              "time-micros": 3426,
+              "rlimit-count": 3651,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::register::MonotonicRegister::write",
+              "mode:": "exec",
+              "time": 8,
+              "time-micros": 8220,
+              "rlimit-count": 4861,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::register::MonotonicRegisterInner::write",
+              "mode:": "exec",
+              "time": 10,
+              "time-micros": 10765,
+              "rlimit-count": 5784,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::server::register::MonotonicRegisterInner::default",
+              "mode:": "exec",
+              "time": 2,
+              "time-micros": 2522,
+              "rlimit-count": 4203,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::invariants::lin_queue::completed",
+          "time": 21,
+          "time-micros": 21718,
+          "rlimit-count": 89475,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::invariants::lin_queue::completed::CompletedWrite::tracked_completion",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3344,
+              "rlimit-count": 9373,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::completed::CompletedRead::maybe",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2221,
+              "rlimit-count": 55417,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::completed::CompletedWrite::new",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3285,
+              "rlimit-count": 4714,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::completed::CompletedRead::new",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3103,
+              "rlimit-count": 5213,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::completed::CompletedWrite::duplicate_commitment",
+              "mode:": "proof",
+              "time": 4,
+              "time-micros": 4965,
+              "rlimit-count": 5460,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::completed::CompletedRead::tracked_completion",
+              "mode:": "proof",
+              "time": 1,
+              "time-micros": 1762,
+              "rlimit-count": 5950,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::completed::CompletedWrite::maybe",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3033,
+              "rlimit-count": 3348,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "verdist::pool::broadcast_pool",
+          "time": 20,
+          "time-micros": 20698,
+          "rlimit-count": 134893,
+          "function-breakdown": [
+            {
+              "function": "verdist::verdist::pool::broadcast_pool::BroadcastPool::new",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 135,
+              "rlimit-count": 8200,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::pool::broadcast_pool::BroadcastPool::broadcast_filter",
+              "mode:": "exec",
+              "time": 20,
+              "time-micros": 20446,
+              "rlimit-count": 119385,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::pool::broadcast_pool::BroadcastPool::broadcast",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 115,
+              "rlimit-count": 7308,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::invariants",
+          "time": 19,
+          "time-micros": 19293,
+          "rlimit-count": 10189,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::invariants::initialize_system_state",
+              "mode:": "proof",
+              "time": 19,
+              "time-micros": 19293,
+              "rlimit-count": 10189,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "verdist::rpc::rpc_channel",
+          "time": 19,
+          "time-micros": 19051,
+          "rlimit-count": 181237,
+          "function-breakdown": [
+            {
+              "function": "verdist::verdist::rpc::rpc_channel::RpcChannel::async_invoke",
+              "mode:": "exec",
+              "time": 2,
+              "time-micros": 2577,
+              "rlimit-count": 14825,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::rpc_channel::RpcChannel::poll_id",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 66,
+              "rlimit-count": 47,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::rpc_channel::RpcChannel::poll",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 93,
+              "rlimit-count": 8538,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::rpc_channel::ChannelState::empty",
+              "mode:": "exec",
+              "time": 3,
+              "time-micros": 3059,
+              "rlimit-count": 11362,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::rpc_channel::ChannelState::add_pending",
+              "mode:": "exec",
+              "time": 4,
+              "time-micros": 4358,
+              "rlimit-count": 122066,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::rpc_channel::ChannelState::add_response",
+              "mode:": "exec",
+              "time": 3,
+              "time-micros": 3860,
+              "rlimit-count": 13216,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::rpc_channel::ChannelState::move_request",
+              "mode:": "exec",
+              "time": 5,
+              "time-micros": 5035,
+              "rlimit-count": 11183,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "verdist::rpc::request_context",
+          "time": 11,
+          "time-micros": 11305,
+          "rlimit-count": 114503,
+          "function-breakdown": [
+            {
+              "function": "verdist::verdist::rpc::request_context::RequestContext::n_nodes",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 78,
+              "rlimit-count": 143,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::request_context::RequestContext::quorum_size",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 86,
+              "rlimit-count": 174,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::request_context::RequestContext::wait_for",
+              "mode:": "exec",
+              "time": 10,
+              "time-micros": 10662,
+              "rlimit-count": 106279,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::request_context::RequestContext::invalid_replies",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 91,
+              "rlimit-count": 157,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::request_context::RequestContext::tag",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 79,
+              "rlimit-count": 42,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::request_context::RequestContext::errors",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 98,
+              "rlimit-count": 244,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::request_context::RequestContext::replies",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 116,
+              "rlimit-count": 7342,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::request_context::RequestContext::new",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 91,
+              "rlimit-count": 122,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "verdist::network::channel",
+          "time": 9,
+          "time-micros": 9814,
+          "rlimit-count": 105590,
+          "function-breakdown": [
+            {
+              "function": "verdist::verdist::network::channel::BufChannel::send",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 77,
+              "rlimit-count": 26,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::BufChannel::try_recv",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 209,
+              "rlimit-count": 18576,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::BufChannel::wait",
+              "mode:": "exec",
+              "time": 2,
+              "time-micros": 2101,
+              "rlimit-count": 31,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::Channel::wait",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 92,
+              "rlimit-count": 263,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::BufChannel::id",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 122,
+              "rlimit-count": 2027,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::BufChannel::add_latency",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 89,
+              "rlimit-count": 26,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::Channel::delay",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 177,
+              "rlimit-count": 68074,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::Channel::add_latency",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 236,
+              "rlimit-count": 6675,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::BufChannel::delay",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 94,
+              "rlimit-count": 26,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::BufChannel::try_recv_tag",
+              "mode:": "exec",
+              "time": 4,
+              "time-micros": 4365,
+              "rlimit-count": 70,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::network::channel::BufChannel::new",
+              "mode:": "exec",
+              "time": 2,
+              "time-micros": 2247,
+              "rlimit-count": 9796,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::invariants::lin_queue::maybe_lin",
+          "time": 7,
+          "time-micros": 7582,
+          "rlimit-count": 56799,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::invariants::lin_queue::maybe_lin::MaybeWriteLinearized::tracked_extract_completion",
+              "mode:": "proof",
+              "time": 0,
+              "time-micros": 443,
+              "rlimit-count": 47562,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::maybe_lin::MaybeReadLinearized::tracked_extract_completion",
+              "mode:": "proof",
+              "time": 0,
+              "time-micros": 453,
+              "rlimit-count": 3654,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::maybe_lin::MaybeWriteLinearized::linearizer",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2737,
+              "rlimit-count": 4478,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::lin_queue::maybe_lin::MaybeReadLinearized::linearizer",
+              "mode:": "proof",
+              "time": 3,
+              "time-micros": 3947,
+              "rlimit-count": 1105,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::invariants::logatom",
+          "time": 5,
+          "time-micros": 5871,
+          "rlimit-count": 47612,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::invariants::logatom::ReadPerm::peek",
+              "mode:": "proof",
+              "time": 0,
+              "time-micros": 718,
+              "rlimit-count": 38909,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::logatom::WritePerm::apply",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2285,
+              "rlimit-count": 960,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::logatom::ReadPerm::apply",
+              "mode:": "proof",
+              "time": 2,
+              "time-micros": 2005,
+              "rlimit-count": 3601,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::invariants::logatom::WritePerm::peek",
+              "mode:": "proof",
+              "time": 0,
+              "time-micros": 862,
+              "rlimit-count": 4142,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::proto",
+          "time": 2,
+          "time-micros": 2503,
+          "rlimit-count": 59130,
+          "function-breakdown": [
+            {
+              "function": "verdist::abd::proto::Request::clone",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 195,
+              "rlimit-count": 5272,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::proto::Timestamp::default",
+              "mode:": "exec",
+              "time": 1,
+              "time-micros": 1448,
+              "rlimit-count": 608,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::proto::Timestamp::clone",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 137,
+              "rlimit-count": 1272,
+              "success": true
+            },
+            {
+              "function": "verdist::abd::proto::Response::clone",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 722,
+              "rlimit-count": 51978,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "verdist::rpc::replies",
+          "time": 0,
+          "time-micros": 920,
+          "rlimit-count": 44181,
+          "function-breakdown": [
+            {
+              "function": "verdist::verdist::rpc::replies::Replies::invalid_replies",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 160,
+              "rlimit-count": 194,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::replies::Replies::new",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 138,
+              "rlimit-count": 3848,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::replies::Replies::errors",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 107,
+              "rlimit-count": 177,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::replies::Replies::into_invalid_replies",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 124,
+              "rlimit-count": 194,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::replies::Replies::into_errors",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 93,
+              "rlimit-count": 28,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::replies::Replies::replies",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 153,
+              "rlimit-count": 39546,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::replies::Replies::into_replies",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 143,
+              "rlimit-count": 194,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "verdist::rpc::proto",
+          "time": 0,
+          "time-micros": 746,
+          "rlimit-count": 27088,
+          "function-breakdown": [
+            {
+              "function": "verdist::verdist::rpc::proto::Tagged::deref",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 96,
+              "rlimit-count": 37,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::proto::Tagged::into_inner",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 115,
+              "rlimit-count": 165,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::proto::Tagged::clone",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 108,
+              "rlimit-count": 126,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::proto::Tagged::tag",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 150,
+              "rlimit-count": 2396,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::proto::REQUEST_TAG",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 130,
+              "rlimit-count": 24201,
+              "success": true
+            },
+            {
+              "function": "verdist::verdist::rpc::proto::Tagged::tag",
+              "mode:": "exec",
+              "time": 0,
+              "time-micros": 146,
+              "rlimit-count": 163,
+              "success": true
+            }
+          ]
+        },
+        {
+          "module": "abd::client::error",
+          "time": 0,
+          "time-micros": 0,
+          "rlimit-count": 0,
+          "function-breakdown": []
+        },
+        {
+          "module": "abd::client::net_axioms",
+          "time": 0,
+          "time-micros": 0,
+          "rlimit-count": 0,
+          "function-breakdown": []
+        }
+      ]
+    }
+  },
+  "verus": {
+    "profile": "release",
+    "version": "0.2025.12.22.95ec04c.dirty",
+    "platform": {
+      "os": "linux",
+      "arch": "x86_64"
+    },
+    "toolchain": "1.91.0-x86_64-unknown-linux-gnu",
+    "commit": "95ec04c1198741329100b84cae4c3b49916b1c52"
+  }
+}

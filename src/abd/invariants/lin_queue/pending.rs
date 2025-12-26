@@ -124,16 +124,16 @@ impl WriteStatus {
 }
 
 pub struct PendingWrite<ML> {
-    pub lin: ML,
-    pub op: RegisterWrite,
-    pub write_status: WriteStatus,
-    pub ghost timestamp: Timestamp,
+    lin: ML,
+    op: RegisterWrite,
+    write_status: WriteStatus,
+    ghost timestamp: Timestamp,
 }
 
 pub struct PendingRead<RL> {
-    pub lin: RL,
-    pub op: RegisterRead,
-    pub ghost value: Option<u64>,
+    lin: RL,
+    op: RegisterRead,
+    ghost value: Option<u64>,
 }
 
 impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
@@ -149,22 +149,66 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
             allocation.key() == timestamp,
             allocation.value() == op.new_value,
         ensures
-            result == (PendingWrite {
-                lin,
-                op,
-                write_status: WriteStatus::Allocated { allocation },
-                timestamp,
-            }),
             result.inv(),
+            result.lin() == lin,
+            result.op() == op,
+            result.value() == op.new_value,
+            result.timestamp() == timestamp,
+            result.write_status() == (WriteStatus::Allocated { allocation }),
     {
         PendingWrite { lin, op, write_status: WriteStatus::Allocated { allocation }, timestamp }
     }
 
-    pub open spec fn inv(self) -> bool {
-        &&& self.lin.namespaces().finite()
-        &&& self.lin.pre(self.op)
-        &&& self.write_status.timestamp() == self.timestamp
-        &&& self.write_status.value() == self.op.new_value
+    pub closed spec fn inv(self) -> bool {
+        &&& self.lin().namespaces().finite()
+        &&& self.lin().pre(self.op())
+        &&& self.timestamp() == self.write_status().timestamp()
+        &&& self.value() == self.write_status().value()
+        &&& self.value() == self.op().new_value
+    }
+
+    pub proof fn lemma_pending_inv(self)
+        requires
+            self.inv()
+        ensures
+            self.lin().namespaces().finite(),
+            self.lin().pre(self.op()),
+            self.timestamp() == self.write_status().timestamp(),
+            self.value() == self.write_status().value(),
+            self.value() == self.op().new_value,
+    {}
+
+
+    pub closed spec fn lin(self) -> ML {
+        self.lin
+    }
+
+    pub closed spec fn op(self) -> RegisterWrite {
+        self.op
+    }
+
+    pub closed spec fn timestamp(self) -> Timestamp {
+        self.timestamp
+    }
+
+    pub open spec fn value(self) -> Option<u64> {
+        self.op().new_value
+    }
+
+    pub closed spec fn write_status(self) -> WriteStatus {
+        self.write_status
+    }
+
+    pub open spec fn commitment_id(self) -> int {
+        self.write_status().id()
+    }
+
+    pub open spec fn register_id(self) -> int {
+        self.op().id@
+    }
+
+    pub open spec fn namespaces(self) -> Set<int> {
+        self.lin().namespaces()
     }
 
     pub proof fn commit(tracked self) -> (tracked r: (Self, WriteCommitment))
@@ -172,14 +216,14 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
             self.inv(),
         ensures
             r.0.inv(),
-            r.0.lin == self.lin,
-            r.0.op == self.op,
-            r.0.timestamp == self.timestamp,
-            r.0.write_status is Committed,
-            r.0.write_status.id() == self.write_status.id(),
-            r.0.write_status.id() == r.1.id(),
-            r.0.write_status.timestamp() == r.1.key(),
-            r.0.write_status.value() == r.1.value(),
+            r.0.lin() == self.lin(),
+            r.0.op() == self.op(),
+            r.0.timestamp() == self.timestamp(),
+            r.0.commitment_id() == self.commitment_id(),
+            r.0.write_status() is Committed,
+            r.1.id() == r.0.commitment_id(),
+            r.1.key() == r.0.timestamp(),
+            r.1.value() == r.0.value(),
     {
         let tracked PendingWrite { lin, op, write_status, timestamp } = self;
         let tracked (write_status, dup) = write_status.commit().duplicate();
@@ -194,20 +238,19 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
     ) -> (tracked r: CompletedWrite<ML, ML::Completion>)
         requires
             self.inv(),
-            self.write_status is Committed,
-            old(register).id() == self.op.id,
-            timestamp >= self.timestamp,
+            self.write_status() is Committed,
+            self.register_id() == old(register).id(),
+            timestamp >= self.timestamp(),
         ensures
             r.inv(),
-            self.op == r.op,
-            self.timestamp == r.timestamp,
-            self.lin == r.lin,
-            self.write_status.id() == r.commitment.id(),
-            self.write_status.timestamp() == r.commitment.key(),
-            self.write_status.value() == r.commitment.value(),
+            r.op() == self.op(),
+            r.timestamp() == self.timestamp(),
+            r.value() == self.value(),
+            r.lin() == self.lin(),
+            r.commitment_id() == self.commitment_id(),
             old(register).id() == register.id(),
-            register@ == r.op.new_value,
-        opens_invariants self.lin.namespaces()
+            register@ == r.value(),
+        opens_invariants self.namespaces()
     {
         let ghost lin_copy = self.lin;
         let tracked completion = self.lin.apply(self.op, register, (), &());
@@ -229,16 +272,16 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
         ensures
             r.0.inv(),
             r.0 == (MaybeWriteLinearized::<ML, ML::Completion>::Linearizer {
-                lin: self.lin,
-                op: self.op,
-                timestamp: self.timestamp,
+                lin: self.lin(),
+                op: self.op(),
+                timestamp: self.timestamp(),
             }),
-            r.1 is Some <==> self.write_status is Allocated,
+            r.1 is Some <==> self.write_status() is Allocated,
             r.1 is Some ==> {
                 let allocation = r.1->Some_0;
-                &&& allocation.id() == self.write_status.id()
-                &&& allocation.key() == self.write_status.timestamp()
-                &&& allocation.value() == self.write_status.value()
+                &&& allocation.id() == self.commitment_id()
+                &&& allocation.key() == self.timestamp()
+                &&& allocation.value() == self.value()
             },
     {
         let tracked maybe = MaybeWriteLinearized::Linearizer {
@@ -268,15 +311,45 @@ impl<RL: ReadLinearizer<RegisterRead>> PendingRead<RL> {
             lin.namespaces().finite(),
             lin.pre(op),
         ensures
-            result == (PendingRead { lin, op, value }),
             result.inv(),
+            result.lin() == lin,
+            result.op() == op,
+            result.value() == value,
+            result.register_id() == op.id
     {
         PendingRead { lin, op, value }
     }
 
-    pub open spec fn inv(self) -> bool {
+    pub closed spec fn inv(self) -> bool {
         &&& self.lin.namespaces().finite()
         &&& self.lin.pre(self.op)
+    }
+
+    pub proof fn lemma_pending_inv(self)
+        requires
+            self.inv()
+        ensures
+            self.lin().pre(self.op())
+    {}
+
+    pub closed spec fn lin(self) -> RL {
+        self.lin
+    }
+
+    pub closed spec fn op(self) -> RegisterRead {
+        self.op
+    }
+
+    pub closed spec fn value(self) -> Option<u64> {
+        self.value
+    }
+
+    pub open spec fn register_id(self) -> int {
+        self.op().id@
+    }
+
+    pub open spec fn namespaces(self) -> Set<int> {
+        self.lin().namespaces()
     }
 
     pub proof fn apply_linearizer(
@@ -286,15 +359,15 @@ impl<RL: ReadLinearizer<RegisterRead>> PendingRead<RL> {
     ) -> (tracked r: CompletedRead<RL, RL::Completion>)
         requires
             self.inv(),
-            register.id() == self.op.id,
-            register@ == &self.value,
+            self.register_id() == register.id(),
+            self.value() == register@,
         ensures
             r.inv(),
-            self.op == r.op,
-            self.value == r.value,
-            self.lin == r.lin,
-            r.timestamp == timestamp,
-        opens_invariants self.lin.namespaces()
+            r.lin() == self.lin(),
+            r.op() == self.op(),
+            r.value() == self.value(),
+            r.timestamp() == timestamp,
+        opens_invariants self.namespaces()
     {
         let ghost lin_copy = self.lin;
         let tracked completion = self.lin.apply(self.op, register, &self.value);
@@ -307,9 +380,9 @@ impl<RL: ReadLinearizer<RegisterRead>> PendingRead<RL> {
         ensures
             r.inv(),
             r == (MaybeReadLinearized::<RL, RL::Completion>::Linearizer {
-                lin: self.lin,
-                op: self.op,
-                value: self.value,
+                lin: self.lin(),
+                op: self.op(),
+                value: self.value(),
             }),
     {
         MaybeReadLinearized::Linearizer { lin: self.lin, op: self.op, value: self.value }

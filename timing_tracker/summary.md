@@ -1,3 +1,30 @@
+# 0003: 2025-12-25 21:49:39
+
+- closed up Pending and Committed
+
+|                                     |                                          |
+|---|---|
+|                             profile |                               release    |
+|                             version |            0.2025.12.22.95ec04c.dirty    |
+|                            platform |                          linux_x86_64    |
+|                           toolchain |       1.91.0-x86_64-unknown-linux-gnu    |
+|                        verus commit | 95ec04c1198741329100b84cae4c3b49916b1c52 |
+|                            hostname |                                bertha    |
+|                           n_threads |                                    15    |
+|                  total (wall-clock) |                                  3099 ms |
+|                         total (cpu) |                                  8641 ms |
+|           verification (wall-clock) |                                  1990 ms |
+|                  verification (cpu) |                                  6706 ms |
+|                       smt run (cpu) |                                  1824 ms |
+|                         abd::client |                                  1088 ms |
+|          abd::invariants::lin_queue |                                   877 ms |
+|             abd::invariants::quorum |                                   447 ms |
+|                                     |                                   412 ms |
+|       abd::invariants::committed_to |                                   380 ms |
+|                 ellapsed wall clock |                               0:05.44    |
+
+---
+
 # 0002: 2025-12-24 22:11:08
 
 - closed up committed to

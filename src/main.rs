@@ -361,7 +361,7 @@ where
 #[allow(unused)]
 fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<PermissionU64>) -> (r: (
     Tracked<ClientCtrToken>,
-    Tracked<Arc<StateInvariant<ML, RL, ML::Completion, RL::Completion>>>,
+    Tracked<Arc<StateInvariant<ML, RL>>>,
     Tracked<RegisterView>,
 )) where
     Pool: ConnectionPool<C = C>,
@@ -431,8 +431,6 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         _,
         WritePerm,
         ReadPerm<'_>,
-        GhostVar<Option<u64>>,
-        &'_ GhostVar<Option<u64>>,
     >::new(pool, client_ctr, client_ctr_token, state_inv);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     let tracked view = view.get();

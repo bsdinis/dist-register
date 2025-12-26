@@ -51,14 +51,17 @@ pub struct StatePredicate {
     pub commitments_ids: CommitmentIds,
 }
 
-pub struct State<ML, RL, MC, RC> {
+pub struct State<ML, RL> where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+{
     pub tracked register: GhostVarAuth<Option<u64>>,
-    pub tracked linearization_queue: LinearizationQueue<ML, RL, MC, RC>,
+    pub tracked linearization_queue: LinearizationQueue<ML, RL>,
     pub tracked servers: ServerUniverse,
     pub tracked commitments: Commitments,
 }
 
-impl<ML, RL> State<ML, RL, ML::Completion, RL::Completion> where
+impl<ML, RL> State<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
@@ -69,26 +72,26 @@ impl<ML, RL> State<ML, RL, ML::Completion, RL::Completion> where
         &&& self.commitments.inv()
         &&& self.commitments.is_full()
         // id concordance
-        &&& self.linearization_queue.register_id == self.register.id()
-        &&& self.linearization_queue.committed_to.id()
+        &&& self.linearization_queue.register_id() == self.register.id()
+        &&& self.linearization_queue.committed_to_id()
             == self.commitments.commitment_id()
         // matching state
         &&& self.linearization_queue.current_value() == self.register@
         &&& self.linearization_queue.known_timestamps() == self.commitments.allocated().dom()
         &&& forall|q: Quorum|
             self.servers.valid_quorum(q) ==> {
-                self.linearization_queue.watermark@.timestamp() <= self.servers.quorum_timestamp(q)
+                self.linearization_queue.watermark() <= self.servers.quorum_timestamp(q)
             }
     }
 }
 
 impl<ML, RL> InvariantPredicate<
     StatePredicate,
-    State<ML, RL, ML::Completion, RL::Completion>,
+    State<ML, RL>,
 > for StatePredicate where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead> {
     open spec fn inv(
         p: StatePredicate,
-        state: State<ML, RL, ML::Completion, RL::Completion>,
+        state: State<ML, RL>,
     ) -> bool {
         &&& p.register_id == state.register.id()
         &&& p.lin_queue_ids == state.linearization_queue.ids()
@@ -98,16 +101,16 @@ impl<ML, RL> InvariantPredicate<
     }
 }
 
-pub type StateInvariant<ML, RL, MC, RC> = AtomicInvariant<
+pub type StateInvariant<ML, RL> = AtomicInvariant<
     StatePredicate,
-    State<ML, RL, MC, RC>,
+    State<ML, RL>,
     StatePredicate,
 >;
 
 pub type RegisterView = GhostVar<Option<u64>>;
 
 pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -> (tracked r: (
-    Arc<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
+    Arc<StateInvariant<ML, RL>>,
     RegisterView,
 )) where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
     requires
@@ -119,9 +122,9 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked servers = ServerUniverse::dummy();
     let tracked (commitments, zero_commitment) = Commitments::new(zero_perm);
-    let tracked mut linearization_queue = LinearizationQueue::dummy(register.id(), zero_commitment);
+    let tracked mut linearization_queue = LinearizationQueue::new(register.id(), zero_commitment);
 
-    commitments.agree_commitment_submap(&linearization_queue.committed_to);
+    commitments.agree_commitment_submap(linearization_queue.tracked_committed_values());
     // XXX: load bearing
     assert(linearization_queue.known_timestamps() == set![Timestamp::spec_default()]);
 
@@ -141,7 +144,7 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
 }
 
 pub axiom fn get_system_state<ML, RL>() -> (tracked r: (
-    Arc<StateInvariant<ML, RL, ML::Completion, RL::Completion>>,
+    Arc<StateInvariant<ML, RL>>,
     RegisterView,
 )) where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
     ensures

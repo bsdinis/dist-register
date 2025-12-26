@@ -141,15 +141,18 @@ pub trait AbdRegisterClient<C, ML, RL> where
 }
 
 #[allow(dead_code)]
-pub struct AbdPool<Pool, ML, RL, WC, RC> {
+pub struct AbdPool<Pool, ML, RL> where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+{
     pool: Pool,
     register_id: Ghost<int>,
-    state_inv: Tracked<Arc<StateInvariant<ML, RL, WC, RC>>>,
+    state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     client_ctr_token: Tracked<ClientCtrToken>,
     client_ctr: PAtomicU64,
 }
 
-impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> where
+impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
     ML: MutLinearizer<RegisterWrite>,
@@ -159,7 +162,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL, ML::Completion, RL::Completion> wher
         pool: Pool,
         client_ctr: PAtomicU64,
         client_ctr_token: Tracked<ClientCtrToken>,
-        state_inv: Tracked<Arc<StateInvariant<ML, RL, ML::Completion, RL::Completion>>>,
+        state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     ) -> (r: Self)
         requires
             pool.n() > 0,
@@ -223,8 +226,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
     Pool,
     ML,
     RL,
-    ML::Completion,
-    RL::Completion,
 > where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
@@ -325,12 +326,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             let tracked comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
-                    let ghost old_watermark = state.linearization_queue.watermark@.timestamp();
+                    let ghost old_watermark = state.linearization_queue.watermark();
                     let ghost old_known = state.linearization_queue.known_timestamps();
 
                     let ghost old_servers = state.servers;
-                    let tracked (quorum, mut commitment) = axiom_get_unanimous_replies(replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to.id());
-                    old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark@.timestamp());
+                    let tracked (quorum, mut commitment) = axiom_get_unanimous_replies(replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to_id());
+                    old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                     state.commitments.agree_commitment(&commitment);
 
@@ -339,9 +340,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
                     if max_ts > old_watermark {
                         state.servers.lemma_quorum_lb(quorum, max_ts);
-                        assert(state.linearization_queue.watermark@.timestamp() == max_ts);
+                        assert(state.linearization_queue.watermark() == max_ts);
                     } else {
-                        assert(state.linearization_queue.watermark@.timestamp() == old_watermark);
+                        assert(state.linearization_queue.watermark() == old_watermark);
                     }
 
                     comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark, commitment);
@@ -414,23 +415,23 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let tracked comp;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                let ghost old_watermark = state.linearization_queue.watermark;
+                let ghost old_watermark = state.linearization_queue.watermark();
                 let ghost old_known = state.linearization_queue.known_timestamps();
 
                 let ghost old_servers = state.servers;
-                let tracked (quorum, commitment) = axiom_writeback_unanimous_replies(replies, wb_replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to.id());
-                old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark@.timestamp());
+                let tracked (quorum, commitment) = axiom_writeback_unanimous_replies(replies, wb_replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to_id());
+                old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                 state.commitments.agree_commitment(&commitment);
 
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                 let tracked watermark = state.linearization_queue.apply_linearizers_up_to(&mut state.register, max_ts);
 
-                if max_ts > old_watermark@.timestamp() {
+                if max_ts > old_watermark {
                     state.servers.lemma_quorum_lb(quorum, max_ts);
-                    assert(state.linearization_queue.watermark@.timestamp() == max_ts);
+                    assert(state.linearization_queue.watermark() == max_ts);
                 } else {
-                    assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
+                    assert(old_watermark == state.linearization_queue.watermark());
                 }
 
                 comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark, commitment);
@@ -485,12 +486,13 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             proof {
                 let ghost old_known = state.linearization_queue.known_timestamps();
 
-                let tracked allocation_opt = if proph_ts > state.linearization_queue.watermark@.timestamp() {
+                let tracked allocation_opt = if proph_ts > state.linearization_queue.watermark() {
                     let tracked mut allocation = state.commitments.alloc_value(self.client_ctr_token.borrow_mut(), proph_ts, op.new_value, perm);
                     state.commitments.agree_allocation(&allocation);
 
                     // XXX: load bearing
                     assert(!state.linearization_queue.known_timestamps().contains(proph_ts));
+                    state.linearization_queue.lemma_known_timestamps();
 
                     Some(allocation)
                 } else {
@@ -504,7 +506,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                 assert(token_res is Ok ==> state.linearization_queue.known_timestamps() == old_known.insert(proph_ts));
             }
             // XXX: debug assert
-            assert(state.commitments.inv());
             assert(state.inv());
         });
         let ghost proph_ts = Timestamp {
@@ -551,6 +552,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                                 lincomp = MaybeWriteLinearized::linearizer(err_lin, op, proph_ts);
                             }
                         }
+                        // XXX: debug assert
+                        assert(state.inv());
                     });
 
                     return Err(
@@ -586,7 +589,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             proof {
                 let ghost old_servers = state.servers;
                 let tracked quorum = axiom_get_ts_replies(replies, &mut state.servers, max_ts);
-                old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark@.timestamp());
+                old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                 let tracked mut tk = lemma_watermark_contradiction(
                     token_res,
@@ -638,26 +641,24 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
                 let tracked comp;
                 proof {
                     let ghost old_known = state.linearization_queue.known_timestamps();
-
-                    token.agree(&state.linearization_queue.write_token_map);
-                    state.linearization_queue.lemma_write_token_is_in_queue(&token);
-
-                    let ghost old_watermark = state.linearization_queue.watermark;
-
+                    let ghost old_watermark = state.linearization_queue.watermark();
                     let ghost old_servers = state.servers;
+
+                    state.linearization_queue.lemma_write_token(&token);
+
                     let tracked quorum = axiom_write_replies(replies, &mut state.servers, exec_ts);
-                    old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark@.timestamp());
+                    old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                     state.commitments.agree_commitment(&commitment);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     let tracked resource = state.linearization_queue.apply_linearizers_up_to(&mut state.register, exec_ts);
 
-                    if exec_ts > old_watermark@.timestamp() {
+                    if exec_ts > old_watermark {
                         state.servers.lemma_quorum_lb(quorum, exec_ts);
-                        assert(state.linearization_queue.watermark@.timestamp() == exec_ts);
+                        assert(state.linearization_queue.watermark() == exec_ts);
                     } else {
-                        assert(old_watermark@.timestamp() == state.linearization_queue.watermark@.timestamp());
+                        assert(old_watermark == state.linearization_queue.watermark());
                     }
 
                     comp = state.linearization_queue.extract_write_completion(token, resource);
@@ -678,7 +679,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 }
 
 pub proof fn lemma_inv<Pool, C, ML, RL>(
-    c: AbdPool<Pool, ML, RL, ML::Completion, RL::Completion>,
+    c: AbdPool<Pool, ML, RL>,
 ) where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
@@ -695,7 +696,7 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
     timestamp: Timestamp,
     lin: ML,
     op: RegisterWrite,
-    tracked state: &invariants::State<ML, RL, ML::Completion, RL::Completion>,
+    tracked state: &invariants::State<ML, RL>,
     tracked quorum: Quorum,
 ) -> (tracked tok: LinWriteToken<ML>) where
     ML: MutLinearizer<RegisterWrite>,
@@ -710,14 +711,14 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
             &&& tok.key() == timestamp
             &&& tok.value().lin == lin
             &&& tok.value().op == op
-            &&& tok.id() == state.linearization_queue.write_token_map.id()
+            &&& tok.id() == state.linearization_queue.write_token_id()
         },
         token_res is Err ==> ({
             let err = token_res->Err_0;
             let watermark_lb = token_res->Err_0->w_watermark_lb;
             &&& err is WriteWatermarkContradiction
             &&& timestamp <= watermark_lb@.timestamp()
-            &&& watermark_lb.loc() == state.linearization_queue.watermark.loc()
+            &&& watermark_lb.loc() == state.linearization_queue.watermark_id()
             &&& watermark_lb@ is LowerBound
         }),
     ensures
@@ -725,7 +726,7 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
         tok.key() == timestamp,
         tok.value().lin == lin,
         tok.value().op == op,
-        tok.id() == state.linearization_queue.write_token_map.id(),
+        tok.id() == state.linearization_queue.write_token_id(),
         token_res is Ok,
 {
     if &token_res is Err {
@@ -740,10 +741,10 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
         // proph_ts <= watermark_old
         assert(timestamp <= watermark_lb@.timestamp());
         // watermark_old <= curr_watermark
-        watermark_lb.lemma_lower_bound(&state.linearization_queue.watermark);
-        assert(watermark_lb@.timestamp() <= state.linearization_queue.watermark@.timestamp());
+        state.linearization_queue.lemma_watermark_lb(&mut watermark_lb);
+        assert(watermark_lb@.timestamp() <= state.linearization_queue.watermark());
         // curr_watermark <= quorum.timestamp() (forall valid quorums)
-        assert(state.linearization_queue.watermark@.timestamp() <= state.servers.quorum_timestamp(
+        assert(state.linearization_queue.watermark() <= state.servers.quorum_timestamp(
             quorum,
         ));
         // quorum.timestamp() < proph_ts (by construction)

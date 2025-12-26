@@ -1,3 +1,32 @@
+# 0004: 2025-12-26 07:27:30
+
+- closed up LinearizationQueue
+
+probable regression -- maybe leaning more on lemmas would be good
+
+|                                     |                                          |
+|---|---|
+|                             profile |                               release    |
+|                             version |            0.2025.12.22.95ec04c.dirty    |
+|                            platform |                          linux_x86_64    |
+|                           toolchain |       1.91.0-x86_64-unknown-linux-gnu    |
+|                        verus commit | 95ec04c1198741329100b84cae4c3b49916b1c52 |
+|                            hostname |                                bertha    |
+|                           n_threads |                                    15    |
+|                  total (wall-clock) |                                  4463 ms |
+|                         total (cpu) |                                 10414 ms |
+|           verification (wall-clock) |                                  2669 ms |
+|                  verification (cpu) |                                  7263 ms |
+|                       smt run (cpu) |                                  2000 ms |
+|          abd::invariants::lin_queue |                                  1212 ms |
+|                         abd::client |                                  1026 ms |
+|             abd::invariants::quorum |                                   488 ms |
+|       abd::invariants::committed_to |                                   427 ms |
+|                                     |                                   416 ms |
+|                 ellapsed wall clock |                               0:04.98    |
+
+---
+
 # 0003: 2025-12-25 21:49:39
 
 - closed up Pending and Committed

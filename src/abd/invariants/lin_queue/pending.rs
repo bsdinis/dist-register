@@ -123,14 +123,14 @@ impl WriteStatus {
     }
 }
 
-pub struct PendingWrite<ML> {
+pub struct PendingWrite<ML: MutLinearizer<RegisterWrite>> {
     lin: ML,
     op: RegisterWrite,
     write_status: WriteStatus,
     ghost timestamp: Timestamp,
 }
 
-pub struct PendingRead<RL> {
+pub struct PendingRead<RL: ReadLinearizer<RegisterRead>> {
     lin: RL,
     op: RegisterRead,
     ghost value: Option<u64>,
@@ -169,15 +169,15 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
 
     pub proof fn lemma_pending_inv(self)
         requires
-            self.inv()
+            self.inv(),
         ensures
             self.lin().namespaces().finite(),
             self.lin().pre(self.op()),
             self.timestamp() == self.write_status().timestamp(),
             self.value() == self.write_status().value(),
             self.value() == self.op().new_value,
-    {}
-
+    {
+    }
 
     pub closed spec fn lin(self) -> ML {
         self.lin
@@ -235,7 +235,7 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
         tracked self,
         tracked register: &mut GhostVarAuth<Option<u64>>,
         timestamp: Timestamp,
-    ) -> (tracked r: CompletedWrite<ML, ML::Completion>)
+    ) -> (tracked r: CompletedWrite<ML>)
         requires
             self.inv(),
             self.write_status() is Committed,
@@ -315,7 +315,7 @@ impl<RL: ReadLinearizer<RegisterRead>> PendingRead<RL> {
             result.lin() == lin,
             result.op() == op,
             result.value() == value,
-            result.register_id() == op.id
+            result.register_id() == op.id,
     {
         PendingRead { lin, op, value }
     }
@@ -327,10 +327,11 @@ impl<RL: ReadLinearizer<RegisterRead>> PendingRead<RL> {
 
     pub proof fn lemma_pending_inv(self)
         requires
-            self.inv()
+            self.inv(),
         ensures
-            self.lin().pre(self.op())
-    {}
+            self.lin().pre(self.op()),
+    {
+    }
 
     pub closed spec fn lin(self) -> RL {
         self.lin
@@ -356,7 +357,7 @@ impl<RL: ReadLinearizer<RegisterRead>> PendingRead<RL> {
         tracked self,
         tracked register: &GhostVarAuth<Option<u64>>,
         timestamp: Timestamp,
-    ) -> (tracked r: CompletedRead<RL, RL::Completion>)
+    ) -> (tracked r: CompletedRead<RL>)
         requires
             self.inv(),
             self.register_id() == register.id(),

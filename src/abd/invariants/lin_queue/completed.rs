@@ -14,23 +14,23 @@ use vstd::tokens::frac::GhostVarAuth;
 
 verus! {
 
-pub struct CompletedWrite<ML, MC> {
-    completion: MC,
+pub struct CompletedWrite<ML: MutLinearizer<RegisterWrite>> {
+    completion: ML::Completion,
     op: RegisterWrite,
     commitment: WriteCommitment,
     ghost lin: ML,
     ghost timestamp: Timestamp,
 }
 
-pub struct CompletedRead<RL, RC> {
-    completion: RC,
+pub struct CompletedRead<RL: ReadLinearizer<RegisterRead>> {
+    completion: RL::Completion,
     op: RegisterRead,
     ghost lin: RL,
     ghost value: Option<u64>,
     ghost timestamp: Timestamp,
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML, ML::Completion> {
+impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
     pub proof fn new(
         tracked completion: ML::Completion,
         tracked op: RegisterWrite,
@@ -105,7 +105,7 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML, ML::Completion> {
             self.completion() == old(self).completion(),
             r.id() == self.commitment_id(),
             r.key() == self.timestamp(),
-            r.value() == self.value()
+            r.value() == self.value(),
     {
         self.commitment.duplicate()
     }
@@ -135,13 +135,13 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML, ML::Completion> {
             self.inv(),
         ensures
             r == self.completion(),
-            self.lin().post(self.op(), (), self.completion())
+            self.lin().post(self.op(), (), self.completion()),
     {
         self.completion
     }
 }
 
-impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL, RL::Completion> {
+impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL> {
     pub proof fn new(
         tracked completion: RL::Completion,
         tracked op: RegisterRead,
@@ -215,7 +215,7 @@ impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL, RL::Completion> {
             self.inv(),
         ensures
             r == self.completion(),
-            self.lin().post(self.op(), self.value(), self.completion())
+            self.lin().post(self.op(), self.value(), self.completion()),
     {
         self.completion
     }

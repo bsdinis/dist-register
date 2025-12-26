@@ -58,9 +58,7 @@ pub enum WriteError<ML, MC> {
 impl<ML> WriteError<ML, ML::Completion> where ML: MutLinearizer<RegisterWrite> {
     pub open spec fn inv(self) -> bool {
         match self {
-            WriteError::FailedFirstQuorum { lincomp, .. } => {
-                lincomp@.inv()
-            },
+            WriteError::FailedFirstQuorum { lincomp, .. } => { lincomp@.inv() },
             WriteError::FailedSecondQuorum { token, commitment, timestamp, .. } => {
                 &&& token@.key() == timestamp
                 &&& commitment@.key() == timestamp

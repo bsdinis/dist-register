@@ -43,7 +43,6 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
             commitment.key() == timestamp,
             commitment.value() == op.new_value,
         ensures
-            r.inv(),
             r.lin() == lin,
             r.completion() == completion,
             r.op() == op,
@@ -53,6 +52,7 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
         CompletedWrite { completion, op, commitment, lin, timestamp }
     }
 
+    #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
         &&& self.lin.post(self.op, (), self.completion)
         &&& self.commitment.key() == self.timestamp
@@ -92,10 +92,7 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
     }
 
     pub proof fn duplicate_commitment(tracked &mut self) -> (tracked r: WriteCommitment)
-        requires
-            old(self).inv(),
         ensures
-            self.inv(),
             self.timestamp() == old(self).timestamp(),
             self.value() == old(self).value(),
             self.lin() == old(self).lin(),
@@ -107,12 +104,11 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
             r.key() == self.timestamp(),
             r.value() == self.value(),
     {
+        use_type_invariant(&*self);
         self.commitment.duplicate()
     }
 
     pub proof fn maybe(tracked self) -> (tracked r: MaybeWriteLinearized<ML, ML::Completion>)
-        requires
-            self.inv(),
         ensures
             r.inv(),
             r == (MaybeWriteLinearized::Completion {
@@ -122,6 +118,7 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
                 timestamp: self.timestamp(),
             }),
     {
+        use_type_invariant(&self);
         MaybeWriteLinearized::Completion {
             completion: self.completion,
             lin: self.lin,
@@ -131,12 +128,11 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
     }
 
     pub proof fn tracked_completion(tracked self) -> (tracked r: ML::Completion)
-        requires
-            self.inv(),
         ensures
             r == self.completion(),
             self.lin().post(self.op(), (), self.completion()),
     {
+        use_type_invariant(&self);
         self.completion
     }
 }
@@ -152,7 +148,6 @@ impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL> {
         requires
             lin.post(op, value, completion),
         ensures
-            r.inv(),
             r.lin() == lin,
             r.completion() == completion,
             r.op() == op,
@@ -162,6 +157,7 @@ impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL> {
         CompletedRead { completion, value, lin, op, timestamp }
     }
 
+    #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
         &&& self.lin.post(self.op, self.value, self.completion)
     }
@@ -191,8 +187,6 @@ impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL> {
     }
 
     pub proof fn maybe(tracked self) -> (tracked r: MaybeReadLinearized<RL, RL::Completion>)
-        requires
-            self.inv(),
         ensures
             r.inv(),
             r == (MaybeReadLinearized::<RL, RL::Completion>::Completion {
@@ -202,6 +196,7 @@ impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL> {
                 value: self.value(),
             }),
     {
+        use_type_invariant(&self);
         MaybeReadLinearized::Completion {
             completion: self.completion,
             op: self.op,
@@ -211,12 +206,11 @@ impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL> {
     }
 
     pub proof fn tracked_completion(tracked self) -> (tracked r: RL::Completion)
-        requires
-            self.inv(),
         ensures
             r == self.completion(),
             self.lin().post(self.op(), self.value(), self.completion()),
     {
+        use_type_invariant(&self);
         self.completion
     }
 }

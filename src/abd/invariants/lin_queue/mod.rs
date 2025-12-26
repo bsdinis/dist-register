@@ -188,7 +188,6 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                 let comp = self.completed_writes[ts];
                 &&& ts <= self.watermark@.timestamp()
                 &&& self.committed_to@.contains_key(ts)
-                &&& comp.inv()
                 &&& comp.timestamp() == ts
                 &&& comp.value() == self.committed_to@[ts]
                 &&& comp.lin() == self.write_token_map@[ts].lin
@@ -200,7 +199,6 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             self.pending_writes.contains_key(ts) ==> {
                 let pending = self.pending_writes[ts];
                 &&& ts > self.watermark@.timestamp()
-                &&& pending.inv()
                 &&& pending.timestamp() == ts
                 &&& pending.register_id() == self.register_id
                 &&& pending.commitment_id() == self.committed_to.id()
@@ -233,7 +231,6 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                 let comp = self.completed_reads[key];
                 let token = self.read_token_map@[key];
                 &&& self.committed_to@.contains_key(comp.timestamp())
-                &&& comp.inv()
                 &&& comp.value() == key.0
                 &&& comp.register_id() == self.register_id
                 &&& comp.lin() == token.lin
@@ -270,7 +267,6 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             self.pending_reads.contains_key(key) ==> {
                 let pending = self.pending_reads[key];
                 let token = self.read_token_map@[key];
-                &&& pending.inv()
                 &&& pending.value() == key.0
                 &&& pending.lin() == token.lin
                 &&& pending.op() == token.op

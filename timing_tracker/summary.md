@@ -1,3 +1,30 @@
+# 0005: 2025-12-26 07:52:09
+
+- moved Pending and Committed to use type_invariant
+
+|                                     |                                          |
+|---|---|
+|                             profile |                               release    |
+|                             version |            0.2025.12.22.95ec04c.dirty    |
+|                            platform |                          linux_x86_64    |
+|                           toolchain |       1.91.0-x86_64-unknown-linux-gnu    |
+|                        verus commit | 95ec04c1198741329100b84cae4c3b49916b1c52 |
+|                            hostname |                                bertha    |
+|                           n_threads |                                    15    |
+|                  total (wall-clock) |                                  4395 ms |
+|                         total (cpu) |                                 10322 ms |
+|           verification (wall-clock) |                                  2627 ms |
+|                  verification (cpu) |                                  7165 ms |
+|                       smt run (cpu) |                                  1956 ms |
+|          abd::invariants::lin_queue |                                  1122 ms |
+|                         abd::client |                                  1019 ms |
+|             abd::invariants::quorum |                                   470 ms |
+|                                     |                                   421 ms |
+|       abd::invariants::committed_to |                                   404 ms |
+|                 ellapsed wall clock |                               0:04.92    |
+
+---
+
 # 0004: 2025-12-26 07:27:30
 
 - closed up LinearizationQueue

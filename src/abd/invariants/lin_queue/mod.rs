@@ -6,8 +6,10 @@ use crate::abd::invariants::committed_to::WriteAllocation;
 use crate::abd::invariants::committed_to::WriteCommitment;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
-use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
+use crate::abd::timestamp::Timestamp;
+
+use crate::abd::min::MinOrd;
 
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
@@ -24,6 +26,10 @@ use vstd::tokens::map::GhostPointsTo;
 
 #[allow(unused_imports)]
 use vstd::assert_by_contradiction;
+
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::default::DefaultSpec;
+
 use vstd::prelude::*;
 
 mod completed;
@@ -39,22 +45,22 @@ pub use pending::PendingWrite;
 
 verus! {
 
-pub tracked enum InsertError<ML, RL> {
+pub tracked enum InsertError<ML, RL, Id> {
     WriteWatermarkContradiction {
         // LowerBound resource saying that the watermark is bigger than the timestamp
-        tracked w_watermark_lb: MonotonicTimestampResource,
+        tracked w_watermark_lb: MonotonicTimestampResource<Id>,
         // Linearizer to return to user on error
         tracked w_lin: ML,
     },
     ReadWatermarkContradiction {
         // LowerBound resource saying that the watermark is bigger than the timestamp
-        tracked r_watermark_lb: MonotonicTimestampResource,
+        tracked r_watermark_lb: MonotonicTimestampResource<Id>,
         // Linearizer to return to user on error
         tracked r_lin: RL,
     },
 }
 
-impl<ML, RL> InsertError<ML, RL> {
+impl<ML, RL, Id> InsertError<ML, RL, Id> {
     pub proof fn tracked_write_destruct(tracked self) -> (tracked r: ML)
         requires
             self is WriteWatermarkContradiction,
@@ -79,7 +85,7 @@ impl<ML, RL> InsertError<ML, RL> {
         }
     }
 
-    pub proof fn lower_bound(tracked self) -> (tracked r: MonotonicTimestampResource)
+    pub proof fn lower_bound(tracked self) -> (tracked r: MonotonicTimestampResource<Id>)
         requires
             ({
                 ||| self is WriteWatermarkContradiction
@@ -96,42 +102,43 @@ impl<ML, RL> InsertError<ML, RL> {
     }
 }
 
-pub struct LinearizationQueue<ML, RL> where
+#[verifier::reject_recursive_types(Id)]
+pub struct LinearizationQueue<ML, RL, Id: MinOrd> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 {
     // commitment to values
-    committed_to: GhostPersistentSubmap<Timestamp, Option<u64>>,
+    committed_to: GhostPersistentSubmap<Timestamp<Id>, Option<u64>>,
     // completed operations
-    completed_writes: Map<Timestamp, CompletedWrite<ML>>,
+    completed_writes: Map<Timestamp<Id>, CompletedWrite<ML, Id>>,
     // completed operations
-    completed_reads: Map<(Option<u64>, nat), CompletedRead<RL>>,
+    completed_reads: Map<(Option<u64>, nat), CompletedRead<RL, Id>>,
     // pending operations
-    pending_writes: Map<Timestamp, PendingWrite<ML>>,
+    pending_writes: Map<Timestamp<Id>, PendingWrite<ML, Id>>,
     // completed operations
     pending_reads: Map<(Option<u64>, nat), PendingRead<RL>>,
     // Why we need a token maps in addition to the completed + pending operations
     //
     // The values in the completed + pending are possibly all changed with apply_linearizer
     // This would require all Tokens to be passed, which is impossible
-    write_token_map: GhostMapAuth<Timestamp, WriteTokenVal<ML>>,
-    read_token_map: GhostMapAuth<(Option<u64>, nat), ReadTokenVal<RL>>,
+    write_token_map: GhostMapAuth<Timestamp<Id>, WriteTokenVal<ML>>,
+    read_token_map: GhostMapAuth<(Option<u64>, nat), ReadTokenVal<RL, Id>>,
     // counter for next read op
     next_read_op: nat,
     // everything up to the watermark is guaranteed to be applied
-    watermark: MonotonicTimestampResource,
+    watermark: MonotonicTimestampResource<Id>,
     // This is the register this lin queue refers to
     ghost register_id: int,
 }
 
-pub type LinWriteToken<ML> = GhostPointsTo<Timestamp, WriteTokenVal<ML>>;
+pub type LinWriteToken<ML, Id> = GhostPointsTo<Timestamp<Id>, WriteTokenVal<ML>>;
 
-pub type LinReadToken<RL> = GhostPointsTo<(Option<u64>, nat), ReadTokenVal<RL>>;
+pub type LinReadToken<RL, Id> = GhostPointsTo<(Option<u64>, nat), ReadTokenVal<RL, Id>>;
 
-pub struct ReadTokenVal<RL> {
+pub struct ReadTokenVal<RL, Id> {
     pub ghost lin: RL,
     pub ghost op: RegisterRead,
-    pub tracked min_ts: MonotonicTimestampResource,
+    pub tracked min_ts: MonotonicTimestampResource<Id>,
 }
 
 pub struct WriteTokenVal<ML> {
@@ -149,9 +156,10 @@ pub struct LinQueueIds {
 }
 
 // Specs
-impl<ML, RL> LinearizationQueue<ML, RL> where
+impl<ML, RL, Id> LinearizationQueue<ML, RL, Id> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
+    Id: MinOrd,
 {
     // basic invariant
     // - always true, asserts facts that are always true
@@ -164,9 +172,9 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         &&& self.pending_writes.dom().finite()
         &&& self.pending_reads.dom().finite()
         &&& self.committed_to@.contains_key(self.watermark@.timestamp())
-        &&& forall|ts: Timestamp|
+        &&& forall|ts: Timestamp<Id>|
             #[trigger] self.committed_to@.contains_key(ts) ==> ts <= self.watermark@.timestamp()
-        &&& forall|ts: Timestamp|
+        &&& forall|ts: Timestamp<Id>|
             #[trigger] self.write_token_map@.contains_key(ts) && ts <= self.watermark@.timestamp()
                 ==> self.committed_to@.contains_key(ts)
     }
@@ -183,7 +191,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         &&& self.completed_writes.dom() <= self.committed_to@.dom()
         &&& self.completed_writes.dom().disjoint(self.pending_writes.dom())
         &&& self.committed_to@.dom().disjoint(self.pending_writes.dom())
-        &&& forall|ts: Timestamp|
+        &&& forall|ts: Timestamp<Id>|
             #[trigger] self.completed_writes.contains_key(ts) ==> {
                 let comp = self.completed_writes[ts];
                 &&& ts <= self.watermark@.timestamp()
@@ -195,7 +203,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                 &&& comp.commitment_id() == self.committed_to.id()
                 &&& comp.register_id() == self.register_id
             }
-        &&& forall|ts: Timestamp|
+        &&& forall|ts: Timestamp<Id>|
             #[trigger] self.pending_writes.contains_key(ts) ==> {
                 let pending = self.pending_writes[ts];
                 &&& ts > self.watermark@.timestamp()
@@ -271,7 +279,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                 &&& pending.lin() == token.lin
                 &&& pending.op() == token.op
                 &&& pending.register_id() == self.register_id
-                &&& forall|ts: Timestamp|
+                &&& forall|ts: Timestamp<Id>|
                     {
                         &&& #[trigger] self.committed_to@.contains_key(ts)
                         &&& token.min_ts@.timestamp() <= ts
@@ -318,7 +326,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         self.register_id
     }
 
-    pub closed spec fn watermark(self) -> Timestamp
+    pub closed spec fn watermark(self) -> Timestamp<Id>
         recommends
             self.basic_inv(),
     {
@@ -332,42 +340,42 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         self.committed_to@[self.watermark@.timestamp()]
     }
 
-    pub open spec fn known_timestamps(self) -> Set<Timestamp>
+    pub open spec fn known_timestamps(self) -> Set<Timestamp<Id>>
         recommends
             self.basic_inv(),
     {
         self.committed_values().dom().union(self.pending_writes().dom())
     }
 
-    pub closed spec fn committed_values(self) -> Map<Timestamp, Option<u64>>
+    pub closed spec fn committed_values(self) -> Map<Timestamp<Id>, Option<u64>>
         recommends
             self.inv(),
     {
         self.committed_to@
     }
 
-    pub closed spec fn outstanding_writes(self) -> Map<Timestamp, WriteTokenVal<ML>>
+    pub closed spec fn outstanding_writes(self) -> Map<Timestamp<Id>, WriteTokenVal<ML>>
         recommends
             self.inv(),
     {
         self.write_token_map@
     }
 
-    pub closed spec fn outstanding_reads(self) -> Map<(Option<u64>, nat), ReadTokenVal<RL>>
+    pub closed spec fn outstanding_reads(self) -> Map<(Option<u64>, nat), ReadTokenVal<RL, Id>>
         recommends
             self.inv(),
     {
         self.read_token_map@
     }
 
-    pub closed spec fn pending_writes(self) -> Map<Timestamp, PendingWrite<ML>>
+    pub closed spec fn pending_writes(self) -> Map<Timestamp<Id>, PendingWrite<ML, Id>>
         recommends
             self.inv(),
     {
         self.pending_writes
     }
 
-    pub closed spec fn completed_writes(self) -> Map<Timestamp, CompletedWrite<ML>>
+    pub closed spec fn completed_writes(self) -> Map<Timestamp<Id>, CompletedWrite<ML, Id>>
         recommends
             self.inv(),
     {
@@ -381,7 +389,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         self.pending_reads
     }
 
-    pub closed spec fn completed_reads(self) -> Map<(Option<u64>, nat), CompletedRead<RL>>
+    pub closed spec fn completed_reads(self) -> Map<(Option<u64>, nat), CompletedRead<RL, Id>>
         recommends
             self.inv(),
     {
@@ -389,7 +397,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     }
 
     /// Show that if there is a lowerbound with the same id as the watermark it is <= the watermark
-    pub proof fn lemma_watermark_lb(tracked &self, tracked lb: &mut MonotonicTimestampResource)
+    pub proof fn lemma_watermark_lb(tracked &self, tracked lb: &mut MonotonicTimestampResource<Id>)
         requires
             self.inv(),
             old(lb)@ is LowerBound,
@@ -403,7 +411,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     }
 
     /// Show that if we have a write token for a key, then it exists
-    pub proof fn lemma_write_token(tracked &self, tracked token: &LinWriteToken<ML>)
+    pub proof fn lemma_write_token(tracked &self, tracked token: &LinWriteToken<ML, Id>)
         requires
             self.inv(),
             token.id() == self.write_token_id(),
@@ -418,7 +426,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     }
 
     /// Show that if we have a read token for a key, then it exists
-    pub proof fn lemma_read_token(tracked &self, tracked token: &LinReadToken<RL>)
+    pub proof fn lemma_read_token(tracked &self, tracked token: &LinReadToken<RL, Id>)
         requires
             self.inv(),
             token.id() == self.read_token_id(),
@@ -434,7 +442,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
 
 
     /// Get the tracked submap that corresponds to the committed_values
-    pub proof fn tracked_committed_values(tracked &self) -> (tracked r: &GhostPersistentSubmap<Timestamp, Option<u64>>)
+    pub proof fn tracked_committed_values(tracked &self) -> (tracked r: &GhostPersistentSubmap<Timestamp<Id>, Option<u64>>)
         requires
             self.inv(),
         ensures
@@ -455,21 +463,22 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     {}
 }
 
-impl<ML, RL> LinearizationQueue<ML, RL> where
+impl<ML, RL, Id> LinearizationQueue<ML, RL, Id> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
+    Id: MinOrd
  {
-    pub proof fn new(register_id: int, tracked zero_commitment: WriteCommitment) -> (tracked result:
+    pub proof fn new(register_id: int, tracked zero_commitment: WriteCommitment<Id>) -> (tracked result:
         Self)
         requires
-            zero_commitment.key() == Timestamp::spec_default(),
+            zero_commitment.key() == Timestamp::<Id>::spec_minimum(),
             zero_commitment.value() == None::<u64>,
         ensures
             result.inv(),
             result.register_id() == register_id,
             result.committed_to_id() == zero_commitment.id(),
-            result.watermark() == Timestamp::spec_default(),
-            result.committed_values() == map![Timestamp::spec_default() => None::<u64>],
+            result.watermark() == Timestamp::<Id>::spec_minimum(),
+            result.committed_values() == map![Timestamp::<Id>::spec_minimum() => None::<u64>],
             result.current_value() == None::<u64>,
             result.outstanding_reads().is_empty(),
             result.outstanding_writes().is_empty(),
@@ -506,9 +515,9 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         tracked &mut self,
         tracked lin: ML,
         tracked op: RegisterWrite,
-        timestamp: Timestamp,
-        tracked allocation_opt: Option<WriteAllocation>,
-    ) -> (tracked r: Result<LinWriteToken<ML>, InsertError<ML, RL>>)
+        timestamp: Timestamp<Id>,
+        tracked allocation_opt: Option<WriteAllocation<Id>>,
+    ) -> (tracked r: Result<LinWriteToken<ML, Id>, InsertError<ML, RL, Id>>)
         requires
             old(self).inv(),
             lin.pre(op),
@@ -555,6 +564,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                 &&& watermark_lb@ is LowerBound
             }),
     {
+        admit(); // TODO(id)
         if timestamp <= self.watermark@.timestamp() {
             return Err(
                 InsertError::WriteWatermarkContradiction {
@@ -587,7 +597,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         tracked op: RegisterRead,
         value: Option<u64>,
         tracked register: &GhostVarAuth<Option<u64>>,
-    ) -> (tracked token: LinReadToken<RL>)
+    ) -> (tracked token: LinReadToken<RL, Id>)
         requires
             old(self).inv(),
             lin.pre(op),
@@ -642,13 +652,14 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             self.pending_reads.dom(),
         ));
 
+        admit(); // TODO(id)
         token
     }
 
     pub proof fn commit_value(
         tracked &mut self,
-        tracked write_token: &mut LinWriteToken<ML>,
-    ) -> (tracked r: WriteCommitment)
+        tracked write_token: &mut LinWriteToken<ML, Id>,
+    ) -> (tracked r: WriteCommitment<Id>)
         requires
             old(self).inv(),
             old(write_token).id() == old(self).write_token_id(),
@@ -699,14 +710,14 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         commitment
     }
 
-    pub open spec fn pending_writes_up_to(self, max_timestamp: Timestamp) -> (r: Set<Timestamp>)
+    pub open spec fn pending_writes_up_to(self, max_timestamp: Timestamp<Id>) -> (r: Set<Timestamp<Id>>)
         recommends
             self.inv(),
     {
-        self.pending_writes().dom().filter(|ts: Timestamp| ts <= max_timestamp)
+        self.pending_writes().dom().filter(|ts: Timestamp<Id>| ts <= max_timestamp)
     }
 
-    proof fn lemma_pending_writes(self, max_timestamp: Timestamp)
+    proof fn lemma_pending_writes(self, max_timestamp: Timestamp<Id>)
         requires
             self.inv(),
         ensures
@@ -714,7 +725,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             self.pending_writes_up_to(max_timestamp) <= self.pending_writes.dom(),
             self.pending_writes_up_to(max_timestamp).len() <= self.pending_writes.dom().len(),
     {
-        self.pending_writes.dom().lemma_len_filter(|ts: Timestamp| ts <= max_timestamp);
+        self.pending_writes.dom().lemma_len_filter(|ts: Timestamp<Id>| ts <= max_timestamp);
     }
 
     pub open spec fn pending_reads_with_value(self, value: Option<u64>) -> (r: Set<
@@ -746,8 +757,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     pub proof fn apply_linearizers_up_to(
         tracked &mut self,
         tracked register: &mut GhostVarAuth<Option<u64>>,
-        max_timestamp: Timestamp,
-    ) -> (tracked r: MonotonicTimestampResource)
+        max_timestamp: Timestamp<Id>,
+    ) -> (tracked r: MonotonicTimestampResource<Id>)
         requires
             old(self).inv(),
             old(register).id() == old(self).register_id(),
@@ -778,6 +789,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         decreases old(self).pending_writes_up_to(max_timestamp).len(),
         opens_invariants Set::new(|id: int| id != super::state_inv_id())
     {
+        admit(); // TODO(id)
         let pending_writes = self.pending_writes_up_to(max_timestamp);
         self.lemma_pending_writes(max_timestamp);
         assert(pending_writes.finite());
@@ -791,8 +803,9 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             }
             return self.watermark.extract_lower_bound();
         }
-        let ts_leq = |a: Timestamp, b: Timestamp| a <= b;
+        let ts_leq = |a: Timestamp<Id>, b: Timestamp<Id>| a <= b;
         let next_ts = pending_writes.find_unique_minimal(ts_leq);
+        assume(vstd::relations::total_ordering(ts_leq)); // TODO(id)
         pending_writes.find_unique_minimal_ensures(ts_leq);
 
         // take linearizer, apply, move watermark, place in completed
@@ -819,12 +832,13 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             self.pending_writes.dom(),
         ));
 
-        assert forall|ts: Timestamp| #[trigger] self.pending_writes.contains_key(ts)
+        assert forall|ts: Timestamp<Id>| #[trigger] self.pending_writes.contains_key(ts)
             implies ts > self.watermark@.timestamp() by {
             assert_by_contradiction!(ts > self.watermark@.timestamp(), {
                 if ts > old_watermark && ts < next_ts {
                     pending_writes.lemma_minimal_equivalent_least(ts_leq, next_ts);
                     assert(ts_leq(next_ts, ts)); // CONTRADICTION
+                    assume(false); // TODO(id)
                 }
             });
         }
@@ -836,6 +850,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         assert(self.pending_writes_up_to(max_timestamp) == old(self).pending_writes_up_to(
             max_timestamp,
         ).remove(next_ts));
+        admit(); // TODO(id)
         self.apply_linearizers_up_to(register, max_timestamp)
     }
 
@@ -877,7 +892,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             assert forall|key: (Option<u64>, nat)| #[trigger] self.pending_reads.contains_key(key) implies {
                 let pending = self.pending_reads[key];
                 let token = self.read_token_map@[key];
-                forall|ts: Timestamp| {
+                forall|ts: Timestamp<Id>| {
                     &&& token.min_ts@.timestamp() <= ts
                     &&& ts <= self.watermark@.timestamp()
                     &&& #[trigger] self.committed_to@.contains_key(ts)
@@ -887,7 +902,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             } by {
                 let pending = self.pending_reads[key];
                 let token = self.read_token_map@[key];
-                assert forall|ts: Timestamp| {
+                assert forall|ts: Timestamp<Id>| {
                     &&& token.min_ts@.timestamp() <= ts
                     &&& ts <= self.watermark@.timestamp()
                     &&& #[trigger] self.committed_to@.contains_key(ts)
@@ -926,8 +941,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     /// Return the completion of the write at timestamp - removing it from the sequence
     pub proof fn extract_write_completion(
         tracked &mut self,
-        tracked token: LinWriteToken<ML>,
-        tracked resource: MonotonicTimestampResource,
+        tracked token: LinWriteToken<ML, Id>,
+        tracked resource: MonotonicTimestampResource<Id>,
     ) -> (tracked r: ML::Completion)
         requires
             old(self).inv(),
@@ -949,6 +964,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                 lin.post(op, (), r)
             }),
     {
+        admit(); // TODO(id)
         token.agree(&self.write_token_map);
         self.watermark.lemma_lower_bound(&resource);
 
@@ -966,10 +982,10 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     /// Return the completion of a read at the timestamp - removing it from the sequence
     pub proof fn extract_read_completion(
         tracked &mut self,
-        tracked token: LinReadToken<RL>,
-        exec_timestamp: Timestamp,
-        tracked resource: MonotonicTimestampResource,
-        tracked mut commitment: WriteCommitment,
+        tracked token: LinReadToken<RL, Id>,
+        exec_timestamp: Timestamp<Id>,
+        tracked resource: MonotonicTimestampResource<Id>,
+        tracked mut commitment: WriteCommitment<Id>,
     ) -> (tracked r: RL::Completion)
         requires
             old(self).inv(),
@@ -995,6 +1011,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             self.pending_writes() == old(self).pending_writes(),
             token.value().lin.post(token.value().op, token.key().0, r),
     {
+        admit(); // TODO(id)
         token.agree(&self.read_token_map);
         self.watermark.lemma_lower_bound(&resource);
         commitment.intersection_agrees_submap(&self.committed_to);
@@ -1014,8 +1031,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     /// Remove the linearizer/completion from the queue (for error cases)
     pub proof fn remove_write_lin(
         tracked &mut self,
-        tracked token: LinWriteToken<ML>,
-    ) -> (tracked r: (MaybeWriteLinearized<ML, ML::Completion>, Option<WriteAllocation>))
+        tracked token: LinWriteToken<ML, Id>,
+    ) -> (tracked r: (MaybeWriteLinearized<ML, ML::Completion, Id>, Option<WriteAllocation<Id>>))
         requires
             old(self).inv(),
             token.id() == old(self).write_token_id(),
@@ -1067,7 +1084,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     }
 
     /// Remove the linearizer/completion from the queue (for error cases)
-    pub proof fn remove_read_lin(tracked &mut self, tracked token: LinReadToken<RL>) -> (tracked r:
+    pub proof fn remove_read_lin(tracked &mut self, tracked token: LinReadToken<RL, Id>) -> (tracked r:
         MaybeReadLinearized<RL, RL::Completion>)
         requires
             old(self).inv(),
@@ -1087,7 +1104,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     {
         token.agree(&self.read_token_map);
 
-        let completed = exists|ts: Timestamp|
+        let completed = exists|ts: Timestamp<Id>|
             {
                 &&& token.value().min_ts@.timestamp() <= ts
                 &&& ts <= self.watermark@.timestamp()
@@ -1112,7 +1129,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
 }
 
 } // verus!
-impl<ML, RL> std::fmt::Debug for InsertError<ML, RL> {
+impl<ML, RL, Id> std::fmt::Debug for InsertError<ML, RL, Id> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InsertError::WriteWatermarkContradiction { .. } => {

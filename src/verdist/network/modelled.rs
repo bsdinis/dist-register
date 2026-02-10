@@ -44,6 +44,7 @@ pub struct ServerChannel<R, S> {
 impl<R, S: Clone> Channel for ClientChannel<R, S> {
     type R = R;
     type S = S;
+    type Id = u64;
 
     fn try_recv(&self) -> Result<R, crate::verdist::network::error::TryRecvError> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
@@ -80,6 +81,7 @@ impl<R, S: Clone> Channel for ClientChannel<R, S> {
 impl<R, S: Clone> Channel for ServerChannel<R, S> {
     type R = R;
     type S = S;
+    type Id = u64;
 
     fn try_recv(&self) -> Result<R, crate::verdist::network::error::TryRecvError> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {

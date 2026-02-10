@@ -1,17 +1,20 @@
 #![allow(unused, non_shorthand_field_patterns)]
 
+#[cfg(verus_keep_ghost)]
+use crate::abd::min::MinOrd;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
-use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::server::register::MonotonicRegister;
 use crate::abd::server::register::MonotonicRegisterInner;
+use crate::abd::timestamp::Timestamp;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::modelled::ModelledConnector;
 use crate::verdist::rpc::proto::Tagged;
 
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use vstd::prelude::*;
@@ -35,23 +38,26 @@ struct LowerBoundPredicate {
     loc: Ghost<int>,
 }
 
-impl vstd::rwlock::RwLockPredicate<Tracked<MonotonicTimestampResource>> for LowerBoundPredicate {
-    closed spec fn inv(self, lb: Tracked<MonotonicTimestampResource>) -> bool {
+impl<Id: MinOrd> vstd::rwlock::RwLockPredicate<Tracked<MonotonicTimestampResource<Id>>> for LowerBoundPredicate {
+    closed spec fn inv(self, lb: Tracked<MonotonicTimestampResource<Id>>) -> bool {
         lb@@ is LowerBound && lb@.loc() == self.loc
     }
 }
 
 #[verifier::reject_recursive_types(C)]
-pub struct RegisterServer<L, C> {
+pub struct RegisterServer<L, C, Id>
+    where Id: Hash + MinOrd
+{
     id: u64,
     listener: L,
-    connected: RwLock<HashMap<u64, C>, EmptyCond>,
-    register: MonotonicRegister,
+    connected: RwLock<HashMap<Id, C>, EmptyCond>,
+    register: MonotonicRegister<Id>,
 }
 
-impl<L, C> RegisterServer<L, C> where
+impl<L, C, Id> RegisterServer<L, C, Id> where
     L: Listener<C>,
-    C: Channel<R = Tagged<Request>, S = Tagged<Response>>,
+    C: Channel<R = Tagged<Request<Id>>, S = Tagged<Response<Id>>, Id = Id>,
+    Id: Hash + MinOrd + Clone,
  {
     pub fn new(listener: L, id: u64) -> (r: Self)
         ensures
@@ -79,7 +85,7 @@ impl<L, C> RegisterServer<L, C> where
         handle.release_write(guard);
     }
 
-    fn handle_get(&self) -> Response
+    fn handle_get(&self) -> Response<Id>
         requires
             self.inv(),
     {
@@ -88,7 +94,7 @@ impl<L, C> RegisterServer<L, C> where
         Response::Get { val, timestamp, lb: resource }
     }
 
-    fn handle_get_timestamp(&self) -> Response
+    fn handle_get_timestamp(&self) -> Response<Id>
         requires
             self.inv(),
     {
@@ -97,7 +103,7 @@ impl<L, C> RegisterServer<L, C> where
         Response::GetTimestamp { timestamp, lb: resource }
     }
 
-    fn handle_write(&self, val: Option<u64>, timestamp: Timestamp) -> Response
+    fn handle_write(&self, val: Option<u64>, timestamp: Timestamp<Id>) -> Response<Id>
         requires
             self.inv(),
     {
@@ -106,23 +112,24 @@ impl<L, C> RegisterServer<L, C> where
         Response::Write { lb }
     }
 
-    fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response>
+    fn handle(&self, request: Tagged<Request<Id>>, _client_id: &Id) -> Tagged<Response<Id>>
         requires
             self.inv(),
     {
+        let tag = request.tag;
         match request.into_inner() {
             Request::Get => {
                 let inner = self.handle_get();
 
-                Tagged { tag: request.tag, inner }
+                Tagged { tag, inner }
             },
             Request::GetTimestamp => {
                 let inner = self.handle_get_timestamp();
-                Tagged { tag: request.tag, inner }
+                Tagged { tag, inner }
             },
             Request::Write { val, timestamp } => {
                 let inner = self.handle_write(val, timestamp);
-                Tagged { tag: request.tag, inner }
+                Tagged { tag, inner }
             },
         }
     }
@@ -162,14 +169,14 @@ impl<L, C> RegisterServer<L, C> where
         {
             match channel.try_recv() {
                 Ok(req) => {
-                    let response = self.handle(req, *id);
+                    let response = self.handle(req, id);
                     if channel.send(&response).is_err() {
-                        drop.push(*id);
+                        drop.push(id.clone());
                     }
                 },
                 Err(crate::verdist::network::error::TryRecvError::Empty) => {},
                 Err(crate::verdist::network::error::TryRecvError::Disconnected) => {
-                    drop.push(*id);
+                    drop.push(id.clone());
                 },
             }
         }
@@ -185,7 +192,9 @@ impl<L, C> RegisterServer<L, C> where
 }
 
 } // verus!
-pub fn run_modelled_server(id: u64) -> ModelledConnector<Tagged<Response>, Tagged<Request>> {
+pub fn run_modelled_server(
+    id: u64,
+) -> ModelledConnector<Tagged<Response<u64>>, Tagged<Request<u64>>> {
     let (listener, connector) = crate::verdist::network::modelled::listen_channel(id);
     std::thread::spawn(move || {
         let server = RegisterServer::new(listener, id);

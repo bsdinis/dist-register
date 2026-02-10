@@ -11,26 +11,40 @@ use vstd::tokens::map::GhostPersistentPointsTo;
 use vstd::tokens::map::GhostPersistentSubmap;
 use vstd::tokens::map::GhostPointsTo;
 
-use crate::abd::proto::Timestamp;
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::default::DefaultSpec;
+
+use crate::abd::min::MinOrd;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
 
 verus! {
 
-pub type WriteCommitment = GhostPersistentPointsTo<Timestamp, Option<u64>>;
+pub type WriteCommitment<Id> = GhostPersistentPointsTo<Timestamp<Id>, Option<u64>>;
 
-pub type WriteAllocation = GhostPointsTo<Timestamp, Option<u64>>;
+pub type WriteAllocation<Id> = GhostPointsTo<Timestamp<Id>, Option<u64>>;
 
-pub type CommitmentAuthMap = GhostMapAuth<Timestamp, Option<u64>>;
+pub type CommitmentAuthMap<Id> = GhostMapAuth<Timestamp<Id>, Option<u64>>;
 
-pub type ClientCtrToken = GhostPointsTo<u64, (u64, int)>;
+pub type ClientCtrToken<Id> = GhostPointsTo<Id, (u64, int)>;
 
-pub struct Commitments {
-    commitment_auth: GhostMapAuth<Timestamp, Option<u64>>,
-    client_ctr_auth: GhostMapAuth<u64, (u64, int)>,
-    client_perm: Map<u64, PermissionU64>,
-    zero_client: ClientCtrToken,
-    ghost missing_perm: Option<(u64, int)>,
+#[verifier::reject_recursive_types(Id)]
+pub struct Commitments<Id> {
+    /// Map from a timestamp and the value it has committed to writing
+    commitment_auth: GhostMapAuth<Timestamp<Id>, Option<u64>>,
+
+    /// Map from client ID to the (ctr, ctr location)
+    client_ctr_auth: GhostMapAuth<Id, (u64, int)>,
+
+    /// Map from clinet ID to counter permission (tied to the client_ctr_auth and the missing perm)
+    client_perm: Map<Id, PermissionU64>,
+
+    /// The token for the zeroth client (the client that writes the original value)
+    zero_client: ClientCtrToken<Id>,
+
+    /// The (Id, permission location) that has been taken by a client (temporarily)
+    ghost missing_perm: Option<(Id, int)>,
 }
 
 pub struct CommitmentIds {
@@ -38,18 +52,18 @@ pub struct CommitmentIds {
     pub client_ctr_id: int,
 }
 
-impl Commitments {
+impl<Id: MinOrd> Commitments<Id> {
     // TODO(type_inv): move this type to having a #[verifier::type_invariant]
     // Problem: verus does not supoprt opening the type invariant. which precludes maintaining the type
     // Without it, there is no way of atomically update members here
     pub closed spec fn inv(self) -> bool {
-        &&& self.commitment_auth@.contains_pair(Timestamp::spec_default(), None)
+        &&& self.commitment_auth@.contains_pair(Timestamp::<Id>::spec_minimum(), None)
         &&& self.missing_perm is None ==> { self.client_ctr_auth@.dom() == self.client_perm.dom() }
         &&& self.missing_perm is Some ==> {
             let missing_client = self.missing_perm->Some_0.0;
             self.client_ctr_auth@.dom() == self.client_perm.dom().insert(missing_client)
         }
-        &&& forall|client_id: u64|
+        &&& forall|client_id: Id|
             {
                 &&& #[trigger] self.client_ctr_auth@.contains_key(client_id)
                 &&& #[trigger] self.client_perm.contains_key(client_id)
@@ -57,16 +71,16 @@ impl Commitments {
                 &&& self.client_ctr_auth@[client_id].0 == self.client_perm[client_id].value()
                 &&& self.client_ctr_auth@[client_id].1 == self.client_perm[client_id].id()
             }
-        &&& forall|ts: Timestamp|
+        &&& forall|ts: Timestamp<Id>|
             #[trigger] self.commitment_auth@.contains_key(ts) ==> {
                 &&& self.client_ctr_auth@.contains_key(ts.client_id)
                 &&& ts.client_ctr < self.client_ctr_auth@[ts.client_id].0
             }
             // client 0 is reserved for the original write -- it never writes anything else
         &&& self.zero_client.id() == self.client_map_id()
-        &&& self.zero_client.key() == 0
+        &&& self.zero_client.key() == Id::spec_minimum()
         &&& self.zero_client.value().0 == 1
-        &&& self.client_perm.contains_key(0)  // 0 cannot be missing
+        &&& self.client_perm.contains_key(Id::spec_minimum())  // 0 cannot be missing
 
     }
 
@@ -78,7 +92,7 @@ impl Commitments {
         self.missing_perm is None
     }
 
-    pub closed spec fn missing_perm(self) -> (u64, int)
+    pub closed spec fn missing_perm(self) -> (Id, int)
         recommends
             !self.is_full(),
     {
@@ -93,21 +107,21 @@ impl Commitments {
         self.client_ctr_auth.id()
     }
 
-    pub closed spec fn allocated(self) -> Map<Timestamp, Option<u64>> {
+    pub closed spec fn allocated(self) -> Map<Timestamp<Id>, Option<u64>> {
         self.commitment_auth.view()
     }
 
-    pub closed spec fn client_map(self) -> Map<u64, (u64, int)> {
+    pub closed spec fn client_map(self) -> Map<Id, (u64, int)> {
         self.client_ctr_auth@
     }
 
-    pub closed spec fn client_perm(self) -> Map<u64, PermissionU64> {
+    pub closed spec fn client_perm(self) -> Map<Id, PermissionU64> {
         self.client_perm
     }
 
     pub proof fn new(tracked zero_perm: PermissionU64) -> (tracked r: (
-        Commitments,
-        WriteCommitment,
+        Commitments<Id>,
+        WriteCommitment<Id>,
     ))
         requires
             zero_perm.value() == 1,
@@ -115,26 +129,26 @@ impl Commitments {
             r.0.is_full(),
             r.0.inv(),
             r.0.commitment_id() == r.1.id(),
-            r.0.allocated() == map![Timestamp::spec_default() => None::<u64>],
-            r.0.client_map() == map![0u64 => (1u64, zero_perm.id())],
-            r.0.client_perm() == map![0u64 => zero_perm],
-            r.1.key() == Timestamp::spec_default(),
+            r.0.allocated() == map![Timestamp::<Id>::spec_minimum() => None::<u64>],
+            r.0.client_map() == map![Id::spec_minimum() => (1u64, zero_perm.id())],
+            r.0.client_perm() == map![Id::spec_minimum() => zero_perm],
+            r.1.key() == Timestamp::<Id>::spec_minimum(),
             r.1.value() == None::<u64>,
     {
         let tracked (commitment_auth, zero_submap) = GhostMapAuth::new(
-            map![Timestamp::spec_default() => None],
+            map![Timestamp::<Id>::spec_minimum() => None],
         );
         let tracked mut zero_commitment = zero_submap.points_to();
         zero_commitment.agree(&commitment_auth);
 
         let tracked (client_ctr_auth, zero_client_submap) = GhostMapAuth::new(
-            map![0 => (1, zero_perm.id())],
+            map![Id::spec_minimum() => (1, zero_perm.id())],
         );
         let tracked mut zero_client = zero_client_submap.points_to();
         zero_client.agree(&client_ctr_auth);
 
         let tracked mut client_perm = Map::tracked_empty();
-        client_perm.tracked_insert(0u64, zero_perm);
+        client_perm.tracked_insert(Id::spec_minimum(), zero_perm);
 
         let tracked commitments = Commitments {
             commitment_auth,
@@ -148,9 +162,9 @@ impl Commitments {
 
     pub proof fn login(
         tracked &mut self,
-        client_id: u64,
+        client_id: Id,
         tracked client_perm: PermissionU64,
-    ) -> (tracked r: ClientCtrToken)
+    ) -> (tracked r: ClientCtrToken<Id>)
         requires
             old(self).inv(),
             old(self).is_full(),
@@ -175,7 +189,7 @@ impl Commitments {
 
     pub proof fn take_permission(
         tracked &mut self,
-        tracked client_token: &ClientCtrToken,
+        tracked client_token: &ClientCtrToken<Id>,
     ) -> (tracked r: PermissionU64)
         requires
             old(self).inv(),
@@ -204,11 +218,11 @@ impl Commitments {
 
     pub proof fn alloc_value(
         tracked &mut self,
-        tracked client_token: &mut ClientCtrToken,
-        timestamp: Timestamp,
+        tracked client_token: &mut ClientCtrToken<Id>,
+        timestamp: Timestamp<Id>,
         value: Option<u64>,
         tracked client_perm: PermissionU64,
-    ) -> (tracked r: WriteAllocation)
+    ) -> (tracked r: WriteAllocation<Id>)
         requires
             old(self).inv(),
             !old(self).is_full(),
@@ -252,7 +266,7 @@ impl Commitments {
 
     pub proof fn return_permission(
         tracked &mut self,
-        tracked client_token: &mut ClientCtrToken,
+        tracked client_token: &mut ClientCtrToken<Id>,
         tracked client_perm: PermissionU64,
     )
         requires
@@ -289,7 +303,7 @@ impl Commitments {
         self.missing_perm = None;
     }
 
-    pub proof fn agree_commitment(tracked &self, tracked commitment: &WriteCommitment)
+    pub proof fn agree_commitment(tracked &self, tracked commitment: &WriteCommitment<Id>)
         requires
             self.inv(),
             self.is_full(),
@@ -302,7 +316,7 @@ impl Commitments {
 
     pub proof fn agree_commitment_submap(
         tracked &self,
-        tracked commitments: &GhostPersistentSubmap<Timestamp, Option<u64>>,
+        tracked commitments: &GhostPersistentSubmap<Timestamp<Id>, Option<u64>>,
     )
         requires
             self.inv(),
@@ -314,7 +328,7 @@ impl Commitments {
         commitments.agree(&self.commitment_auth);
     }
 
-    pub proof fn agree_allocation(tracked &self, tracked allocation: &WriteAllocation)
+    pub proof fn agree_allocation(tracked &self, tracked allocation: &WriteAllocation<Id>)
         requires
             self.inv(),
             self.is_full(),
@@ -327,8 +341,8 @@ impl Commitments {
 
     pub proof fn remove_allocation(
         tracked &mut self,
-        tracked allocation: WriteAllocation,
-        tracked client_ctr_token: &ClientCtrToken,
+        tracked allocation: WriteAllocation<Id>,
+        tracked client_ctr_token: &ClientCtrToken<Id>,
     )
         requires
             old(self).inv(),
@@ -348,7 +362,7 @@ impl Commitments {
         self.commitment_auth.delete_points_to(allocation);
     }
 
-    pub proof fn agree_client_token(tracked &self, tracked client_ctr_token: &ClientCtrToken)
+    pub proof fn agree_client_token(tracked &self, tracked client_ctr_token: &ClientCtrToken<Id>)
         requires
             self.inv(),
             self.is_full(),

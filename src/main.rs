@@ -18,8 +18,10 @@ use abd::invariants::logatom::RegisterWrite;
 use abd::invariants::logatom::WritePerm;
 use abd::invariants::RegisterView;
 use abd::invariants::StateInvariant;
-use abd::proto::Timestamp;
+#[cfg(verus_keep_ghost)]
+use abd::min::MinOrd;
 use abd::server::run_modelled_server;
+use abd::timestamp::Timestamp;
 use verdist::network::channel::BufChannel;
 use verdist::network::channel::Channel;
 use verdist::network::channel::Connector;
@@ -55,7 +57,7 @@ struct Args {
     client_id: u64,
 }
 
-impl<ML, RL> From<ConnectError> for Error<ML, ML::Completion, RL, RL::Completion>
+impl<ML, RL, Id> From<ConnectError> for Error<ML, ML::Completion, RL, RL::Completion, Id>
 where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -65,8 +67,8 @@ where
     }
 }
 
-impl<ML, RL> From<abd::client::error::ReadError<RL, RL::Completion>>
-    for Error<ML, ML::Completion, RL, RL::Completion>
+impl<ML, RL, Id> From<abd::client::error::ReadError<RL, RL::Completion>>
+    for Error<ML, ML::Completion, RL, RL::Completion, Id>
 where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -76,18 +78,18 @@ where
     }
 }
 
-impl<ML, RL> From<abd::client::error::WriteError<ML, ML::Completion>>
-    for Error<ML, ML::Completion, RL, RL::Completion>
+impl<ML, RL, Id> From<abd::client::error::WriteError<ML, ML::Completion, Id>>
+    for Error<ML, ML::Completion, RL, RL::Completion, Id>
 where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 {
-    fn from(value: abd::client::error::WriteError<ML, ML::Completion>) -> Self {
+    fn from(value: abd::client::error::WriteError<ML, ML::Completion, Id>) -> Self {
         Error::AbdWrite(value)
     }
 }
 
-impl<ML, RL> std::error::Error for Error<ML, ML::Completion, RL, RL::Completion>
+impl<ML, RL, Id> std::error::Error for Error<ML, ML::Completion, RL, RL::Completion, Id>
 where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -101,7 +103,7 @@ where
     }
 }
 
-impl<ML, RL> std::fmt::Display for Error<ML, ML::Completion, RL, RL::Completion>
+impl<ML, RL, Id> std::fmt::Display for Error<ML, ML::Completion, RL, RL::Completion, Id>
 where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -115,7 +117,7 @@ where
     }
 }
 
-impl<ML, RL> std::fmt::Debug for Error<ML, ML::Completion, RL, RL::Completion>
+impl<ML, RL, Id> std::fmt::Debug for Error<ML, ML::Completion, RL, RL::Completion, Id>
 where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -131,10 +133,11 @@ where
 
 verus! {
 
-enum Error<ML, MC, RL, RC> {
+#[verifier::reject_recursive_types(Id)]
+enum Error<ML, MC, RL, RC, Id> {
     Connection(ConnectError),
     AbdRead(abd::client::error::ReadError<RL, RC>),
-    AbdWrite(abd::client::error::WriteError<ML, MC>),
+    AbdWrite(abd::client::error::WriteError<ML, MC, Id>),
 }
 
 #[verifier::external_trait_specification]
@@ -165,36 +168,37 @@ fn report_quorum_size(quorum_size: usize) {
 
 #[verifier::external_body]
 #[allow(unused)]
-fn report_read(client_id: u64, r: (Option<u64>, Timestamp)) {
+fn report_read<Id: std::fmt::Debug>(client_id: Id, r: (Option<u64>, Timestamp<Id>)) {
     eprintln!(
-        "client {client_id:3} read finished: {:20}",
+        "client {client_id:3?} read finished: {:20}",
         format!("{r:?}")
     );
 }
 
 #[verifier::external_body]
 #[allow(unused)]
-fn report_err<E: std::error::Error>(client_id: u64, e: &E) {
-    eprintln!("client {client_id:3} failed: {e:20?}");
+fn report_err<Id: std::fmt::Debug, E: std::error::Error>(client_id: Id, e: &E) {
+    eprintln!("client {client_id:3?} failed: {e:20?}");
 }
 
 #[verifier::external_body]
 #[allow(unused)]
-fn report_write(client_id: u64, val: Option<u64>) {
+fn report_write<Id: std::fmt::Debug>(client_id: Id, val: Option<u64>) {
     eprintln!(
-        "client {client_id:3} write finished: {:20}",
+        "client {client_id:3?} write finished: {:20}",
         format!("{val:?}")
     );
 }
 
-fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
+fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: &<C as Channel>::Id) -> Result<
     BufChannel<C>,
     ConnectError,
 > where
     Conn: Connector<C>,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+    C: Channel<R = Tagged<abd::proto::Response<<C as Channel>::Id>>, S = Tagged<abd::proto::Request<<C as Channel>::Id>>>,
+    C::Id: Clone
  {
-    let mut channel = connector.connect(client_id)?;
+    let mut channel = connector.connect(client_id.clone())?;
     if !args.no_delay {
         channel.add_latency(
             std::time::Duration::from_millis(REQUEST_LATENCY_DEFAULT_MS),
@@ -204,13 +208,13 @@ fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
     Ok(BufChannel::new(channel))
 }
 
-fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r: Result<
+fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: &C::Id) -> (r: Result<
     Vec<BufChannel<C>>,
     ConnectError,
 >) where
     Conn: Connector<C>,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
-
+    C: Channel<R = Tagged<abd::proto::Response<<C as Channel>::Id>>, S = Tagged<abd::proto::Request<<C as Channel>::Id>>>,
+    C::Id: Clone
     ensures
         r is Ok ==> connectors.len() == r->Ok_0.len(),
 {
@@ -360,14 +364,15 @@ where
 
 #[allow(unused)]
 fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<PermissionU64>) -> (r: (
-    Tracked<ClientCtrToken>,
-    Tracked<Arc<StateInvariant<ML, RL>>>,
+    Tracked<ClientCtrToken<C::Id>>,
+    Tracked<Arc<StateInvariant<ML, RL, C::Id>>>,
     Tracked<RegisterView>,
 )) where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+    C: Channel<R = Tagged<abd::proto::Response<<C as Channel>::Id>>, S = Tagged<abd::proto::Request<<C as Channel>::Id>>>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
+    C::Id: MinOrd
 
     requires
         client_perm@.value() == 0,
@@ -381,7 +386,7 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<Permis
     let tracked state_inv;
     let tracked view;
     proof {
-        let tracked (s, v) = invariants::get_system_state::<ML, RL>();
+        let tracked (s, v) = invariants::get_system_state::<ML, RL, C::Id>();
         state_inv = s;
         view = v;
     }
@@ -403,19 +408,20 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<Permis
     (Tracked(client_ctr_token), Tracked(state_inv), Tracked(view))
 }
 
-fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
+fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn], client_id: &C::Id) -> Result<
     (),
-    Error<WritePerm, GhostVar<Option<u64>>, ReadPerm<'a>, &'a GhostVar<Option<u64>>>,
+    Error<WritePerm, GhostVar<Option<u64>>, ReadPerm<'a>, &'a GhostVar<Option<u64>>, C::Id>,
 > where
     Conn: Connector<C> + Send + Sync,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+    C: Channel<R = Tagged<abd::proto::Response<<C as Channel>::Id>>, S = Tagged<abd::proto::Request<<C as Channel>::Id>>>,
     C: Sync + Send,
+    C::Id: MinOrd + Clone
 
     requires
         connectors.len() > 0,
 {
-    let pool = connect_all(&args, connectors, 0)?;
-    let pool = FlawlessPool::new(pool, 0);
+    let pool = connect_all(&args, connectors, client_id)?;
+    let pool = FlawlessPool::new(pool, client_id.clone());
     assert(pool.n() == connectors.len()) by {
         verdist::pool::connection_pool::lemma_pool_len(pool);
     }
@@ -431,6 +437,7 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         _,
         WritePerm,
         ReadPerm<'_>,
+        C::Id
     >::new(pool, client_ctr, client_ctr_token, state_inv);
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     let tracked view = view.get();
@@ -641,7 +648,7 @@ fn main() {
 
     let connectors: Vec<_> = (0..args.n_servers).map(run_modelled_server).collect();
 
-    run_client(args, &connectors).expect("error");
+    run_client(args, &connectors, &0).expect("error");
 
     // let realtime_order = realtime(&trace);
     // println!("realtime ordering:\n{realtime_order:?}");

@@ -4,7 +4,7 @@ use crate::abd::invariants::lin_queue::maybe_lin::MaybeReadLinearized;
 #[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::maybe_lin::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::{RegisterRead, RegisterWrite};
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
 
@@ -14,29 +14,31 @@ use vstd::tokens::frac::GhostVarAuth;
 
 verus! {
 
-pub struct CompletedWrite<ML: MutLinearizer<RegisterWrite>> {
+#[verifier::reject_recursive_types(Id)]
+pub struct CompletedWrite<ML: MutLinearizer<RegisterWrite>, Id: Eq> {
     completion: ML::Completion,
     op: RegisterWrite,
-    commitment: WriteCommitment,
+    commitment: WriteCommitment<Id>,
     ghost lin: ML,
-    ghost timestamp: Timestamp,
+    ghost timestamp: Timestamp<Id>,
 }
 
-pub struct CompletedRead<RL: ReadLinearizer<RegisterRead>> {
+#[verifier::reject_recursive_types(Id)]
+pub struct CompletedRead<RL: ReadLinearizer<RegisterRead>, Id: Eq> {
     completion: RL::Completion,
     op: RegisterRead,
     ghost lin: RL,
     ghost value: Option<u64>,
-    ghost timestamp: Timestamp,
+    ghost timestamp: Timestamp<Id>,
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
+impl<ML: MutLinearizer<RegisterWrite>, Id: Eq> CompletedWrite<ML, Id> {
     pub proof fn new(
         tracked completion: ML::Completion,
         tracked op: RegisterWrite,
-        tracked commitment: WriteCommitment,
+        tracked commitment: WriteCommitment<Id>,
         lin: ML,
-        timestamp: Timestamp,
+        timestamp: Timestamp<Id>,
     ) -> (tracked r: Self)
         requires
             lin.post(op, (), completion),
@@ -71,7 +73,7 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
         self.op
     }
 
-    pub closed spec fn timestamp(self) -> Timestamp {
+    pub closed spec fn timestamp(self) -> Timestamp<Id> {
         self.timestamp
     }
 
@@ -79,7 +81,7 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
         self.op().new_value
     }
 
-    pub closed spec fn commitment(self) -> WriteCommitment {
+    pub closed spec fn commitment(self) -> WriteCommitment<Id> {
         self.commitment
     }
 
@@ -91,7 +93,7 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
         self.commitment().id()
     }
 
-    pub proof fn duplicate_commitment(tracked &mut self) -> (tracked r: WriteCommitment)
+    pub proof fn duplicate_commitment(tracked &mut self) -> (tracked r: WriteCommitment<Id>)
         ensures
             self.timestamp() == old(self).timestamp(),
             self.value() == old(self).value(),
@@ -108,7 +110,7 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
         self.commitment.duplicate()
     }
 
-    pub proof fn maybe(tracked self) -> (tracked r: MaybeWriteLinearized<ML, ML::Completion>)
+    pub proof fn maybe(tracked self) -> (tracked r: MaybeWriteLinearized<ML, ML::Completion, Id>)
         ensures
             r.inv(),
             r == (MaybeWriteLinearized::Completion {
@@ -137,13 +139,13 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
     }
 }
 
-impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL> {
+impl<RL: ReadLinearizer<RegisterRead>, Id: Eq> CompletedRead<RL, Id> {
     pub proof fn new(
         tracked completion: RL::Completion,
         tracked op: RegisterRead,
         lin: RL,
         value: Option<u64>,
-        timestamp: Timestamp,
+        timestamp: Timestamp<Id>,
     ) -> (tracked r: Self)
         requires
             lin.post(op, value, completion),
@@ -174,7 +176,7 @@ impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL> {
         self.op
     }
 
-    pub closed spec fn timestamp(self) -> Timestamp {
+    pub closed spec fn timestamp(self) -> Timestamp<Id> {
         self.timestamp
     }
 

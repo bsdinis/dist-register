@@ -30,12 +30,12 @@ pub trait ConnectionPool {
     >;
 
     #[allow(unused)]
-    fn id(&self) -> (r: u64)
+    fn id(&self) -> (r: &<Self::C as Channel>::Id)
         ensures
             r == self.pool_id(),
     ;
 
-    spec fn pool_id(self) -> u64;
+    spec fn pool_id(self) -> <Self::C as Channel>::Id;
 
     fn conns(&self) -> &[Self::C];
 
@@ -48,13 +48,13 @@ pub trait ConnectionPool {
 }
 
 #[allow(unused)]
-pub struct FlawlessPool<C> {
+pub struct FlawlessPool<C, Id> {
     pool: Vec<C>,
-    id: u64,
+    id: Id,
 }
 
-impl<C> FlawlessPool<C> where C: Channel, C::S: TaggedMessage {
-    pub fn new(pool: Vec<C>, id: u64) -> (r: Self)
+impl<C, Id> FlawlessPool<C, Id> where C: Channel<Id=Id>, C::S: TaggedMessage {
+    pub fn new(pool: Vec<C>, id: Id) -> (r: Self)
         ensures
             r._n() == pool.len(),
     {
@@ -66,7 +66,7 @@ impl<C> FlawlessPool<C> where C: Channel, C::S: TaggedMessage {
     }
 }
 
-pub proof fn lemma_pool_len<C: Channel>(pool: FlawlessPool<BufChannel<C>>) where
+pub proof fn lemma_pool_len<C: Channel>(pool: FlawlessPool<BufChannel<C>, C::Id>) where
     C::S: TaggedMessage,
     C::R: TaggedMessage,
 
@@ -75,7 +75,7 @@ pub proof fn lemma_pool_len<C: Channel>(pool: FlawlessPool<BufChannel<C>>) where
 {
 }
 
-impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where C: Channel, C::R: TaggedMessage {
+impl<C> ConnectionPool for FlawlessPool<BufChannel<C>, C::Id> where C: Channel, C::R: TaggedMessage {
     type C = BufChannel<C>;
 
     fn conns(&self) -> &[Self::C] {
@@ -114,11 +114,11 @@ impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where C: Channel, C::R: T
         v
     }
 
-    fn id(&self) -> u64 {
-        self.id
+    fn id(&self) -> &C::Id {
+        &self.id
     }
 
-    closed spec fn pool_id(self) -> u64 {
+    closed spec fn pool_id(self) -> C::Id {
         self.id
     }
 

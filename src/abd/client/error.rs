@@ -4,7 +4,7 @@ use crate::abd::invariants::lin_queue::LinWriteToken;
 use crate::abd::invariants::lin_queue::MaybeReadLinearized;
 use crate::abd::invariants::lin_queue::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::RegisterWrite;
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::logatom::MutLinearizer;
 use vstd::prelude::*;
@@ -36,26 +36,27 @@ pub enum ReadError<RL, RC> {
 /// The only way an ABD write fails is when a quorum is known to be unatainable
 /// This happens when a connection reset happens
 /// In this case, the error is exposed to the client
-pub enum WriteError<ML, MC> {
+#[verifier::reject_recursive_types(Id)]
+pub enum WriteError<ML, MC, Id> {
     // The first phase of the write failed
     // In this case the write never physicially started, so we can get the MaybeLinearized
     FailedFirstQuorum {
         obtained: usize,
         required: usize,
-        lincomp: Tracked<MaybeWriteLinearized<ML, MC>>,
+        lincomp: Tracked<MaybeWriteLinearized<ML, MC, Id>>,
     },
     // The second phase of the write failed
     // In this case the write is physically ongoing, so we can only return a token into the queue
     FailedSecondQuorum {
         obtained: usize,
         required: usize,
-        timestamp: Timestamp,
-        token: Tracked<LinWriteToken<ML>>,
-        commitment: Tracked<WriteCommitment>,
+        timestamp: Timestamp<Id>,
+        token: Tracked<LinWriteToken<ML, Id>>,
+        commitment: Tracked<WriteCommitment<Id>>,
     },
 }
 
-impl<ML> WriteError<ML, ML::Completion> where ML: MutLinearizer<RegisterWrite> {
+impl<ML, Id: Eq> WriteError<ML, ML::Completion, Id> where ML: MutLinearizer<RegisterWrite> {
     pub open spec fn inv(self) -> bool {
         match self {
             WriteError::FailedFirstQuorum { lincomp, .. } => { lincomp@.inv() },
@@ -69,11 +70,9 @@ impl<ML> WriteError<ML, ML::Completion> where ML: MutLinearizer<RegisterWrite> {
 }
 
 impl<RL, RC> std::error::Error for ReadError<RL, RC> {
-
 }
 
-impl<ML, MC> std::error::Error for WriteError<ML, MC> {
-
+impl<ML, MC, Id> std::error::Error for WriteError<ML, MC, Id> {
 }
 
 } // verus!
@@ -111,7 +110,7 @@ impl<RL, RC> std::fmt::Display for ReadError<RL, RC> {
     }
 }
 
-impl<ML, MC> std::fmt::Debug for WriteError<ML, MC> {
+impl<ML, MC, Id> std::fmt::Debug for WriteError<ML, MC, Id> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WriteError::FailedFirstQuorum {
@@ -132,7 +131,7 @@ impl<ML, MC> std::fmt::Debug for WriteError<ML, MC> {
     }
 }
 
-impl<ML, MC> std::fmt::Display for WriteError<ML, MC> {
+impl<ML, MC, Id> std::fmt::Display for WriteError<ML, MC, Id> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WriteError::FailedFirstQuorum { obtained, required, .. } => {

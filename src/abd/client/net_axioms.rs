@@ -4,8 +4,9 @@ use crate::abd::invariants::committed_to::WriteCommitment;
 use crate::abd::invariants::quorum::Quorum;
 #[allow(unused_imports)]
 use crate::abd::invariants::quorum::ServerUniverse;
+use crate::abd::min::MinOrd;
 #[allow(unused_imports)]
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
 
@@ -15,14 +16,14 @@ verus! {
 //
 // (they allows duplication of resources)
 //
-pub axiom fn axiom_get_unanimous_replies(
-    replies: &[(usize, (Timestamp, Option<u64>))],
-    tracked map: &mut ServerUniverse,
-    min_ts: Timestamp,
-    max_ts: Timestamp,
+pub axiom fn axiom_get_unanimous_replies<Id: MinOrd>(
+    replies: &[(usize, (Timestamp<Id>, Option<u64>))],
+    tracked map: &mut ServerUniverse<Id>,
+    min_ts: Timestamp<Id>,
+    max_ts: Timestamp<Id>,
     max_val: Option<u64>,
     commitment_id: int,
-) -> (tracked r: (Quorum, WriteCommitment))
+) -> (tracked r: (Quorum, WriteCommitment<Id>))
     requires
         old(
             map,
@@ -55,15 +56,15 @@ pub axiom fn axiom_get_unanimous_replies(
         r.1.id() == commitment_id,
 ;
 
-pub axiom fn axiom_writeback_unanimous_replies(
-    get_replies: &[(usize, (Timestamp, Option<u64>))],
+pub axiom fn axiom_writeback_unanimous_replies<Id: MinOrd>(
+    get_replies: &[(usize, (Timestamp<Id>, Option<u64>))],
     wb_replies: &[(usize, ())],
-    tracked map: &mut ServerUniverse,
-    min_ts: Timestamp,
-    max_ts: Timestamp,
+    tracked map: &mut ServerUniverse<Id>,
+    min_ts: Timestamp<Id>,
+    max_ts: Timestamp<Id>,
     max_val: Option<u64>,
     commitment_id: int,
-) -> (tracked r: (Quorum, WriteCommitment))
+) -> (tracked r: (Quorum, WriteCommitment<Id>))
     requires
         old(
             map,
@@ -106,10 +107,10 @@ pub axiom fn axiom_writeback_unanimous_replies(
         r.1.id() == commitment_id,
 ;
 
-pub axiom fn axiom_get_ts_replies(
-    replies: &[(usize, Timestamp)],
-    tracked map: &mut ServerUniverse,
-    max_ts: Timestamp,
+pub axiom fn axiom_get_ts_replies<Id: MinOrd>(
+    replies: &[(usize, Timestamp<Id>)],
+    tracked map: &mut ServerUniverse<Id>,
+    max_ts: Timestamp<Id>,
 ) -> (tracked r: Quorum)
     requires
         old(map).inv(),
@@ -138,10 +139,10 @@ pub axiom fn axiom_get_ts_replies(
         map.quorum_timestamp(r) == max_ts,
 ;
 
-pub axiom fn axiom_write_replies(
+pub axiom fn axiom_write_replies<Id: MinOrd>(
     replies: &[(usize, ())],
-    tracked map: &mut ServerUniverse,
-    exec_ts: Timestamp,
+    tracked map: &mut ServerUniverse<Id>,
+    exec_ts: Timestamp<Id>,
 ) -> (tracked r: Quorum)
     requires
         old(

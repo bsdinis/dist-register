@@ -17,8 +17,7 @@ pub struct BroadcastPool<'a, Pool> {
 impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     Pool: ConnectionPool,
     Pool::C: Channel<S = Tagged<Request>>,
-    <Pool::C as Channel>::R: TaggedMessage + std::fmt::Debug,
-    Request: Clone + std::fmt::Debug,
+    <Pool::C as Channel>::R: TaggedMessage,
  {
     pub fn new(pool: &'a Pool) -> BroadcastPool<'a, Pool> {
         BroadcastPool { pool }

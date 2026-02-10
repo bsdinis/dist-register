@@ -10,7 +10,8 @@ use crate::abd::invariants::lin_queue::MaybeReadLinearized;
 use crate::abd::invariants::lin_queue::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
-use crate::abd::proto::Timestamp;
+use crate::abd::min::MinOrd;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
@@ -21,12 +22,13 @@ use vstd::tokens::frac::GhostVarAuth;
 
 verus! {
 
-pub enum WriteStatus {
-    Allocated { allocation: WriteAllocation },
-    Committed { commitment: WriteCommitment },
+#[verifier::reject_recursive_types(Id)]
+pub enum WriteStatus<Id> {
+    Allocated { allocation: WriteAllocation<Id> },
+    Committed { commitment: WriteCommitment<Id> },
 }
 
-impl WriteStatus {
+impl<Id: Eq> WriteStatus<Id> {
     pub open spec fn id(self) -> int {
         match self {
             WriteStatus::Allocated { allocation } => allocation.id(),
@@ -34,7 +36,7 @@ impl WriteStatus {
         }
     }
 
-    pub open spec fn timestamp(self) -> Timestamp {
+    pub open spec fn timestamp(self) -> Timestamp<Id> {
         match self {
             WriteStatus::Allocated { allocation } => allocation.key(),
             WriteStatus::Committed { commitment } => commitment.key(),
@@ -48,7 +50,7 @@ impl WriteStatus {
         }
     }
 
-    proof fn allocated(tracked allocation: WriteAllocation) -> (tracked r: WriteStatus)
+    proof fn allocated(tracked allocation: WriteAllocation<Id>) -> (tracked r: WriteStatus<Id>)
         ensures
             r is Allocated,
             r->allocation == allocation,
@@ -74,7 +76,7 @@ impl WriteStatus {
         WriteStatus::Committed { commitment }
     }
 
-    proof fn duplicate(tracked self) -> (tracked r: (Self, WriteCommitment))
+    proof fn duplicate(tracked self) -> (tracked r: (Self, WriteCommitment<Id>))
         requires
             self is Committed,
         ensures
@@ -96,7 +98,7 @@ impl WriteStatus {
         }
     }
 
-    proof fn tracked_destruct_commitment(tracked self) -> (tracked r: WriteCommitment)
+    proof fn tracked_destruct_commitment(tracked self) -> (tracked r: WriteCommitment<Id>)
         requires
             self is Committed,
         ensures
@@ -109,7 +111,7 @@ impl WriteStatus {
         }
     }
 
-    proof fn tracked_destruct_allocation(tracked self) -> (tracked r: WriteAllocation)
+    proof fn tracked_destruct_allocation(tracked self) -> (tracked r: WriteAllocation<Id>)
         requires
             self is Allocated,
         ensures
@@ -123,11 +125,12 @@ impl WriteStatus {
     }
 }
 
-pub struct PendingWrite<ML: MutLinearizer<RegisterWrite>> {
+#[verifier::reject_recursive_types(Id)]
+pub struct PendingWrite<ML: MutLinearizer<RegisterWrite>, Id: MinOrd> {
     lin: ML,
     op: RegisterWrite,
-    write_status: WriteStatus,
-    ghost timestamp: Timestamp,
+    write_status: WriteStatus<Id>,
+    ghost timestamp: Timestamp<Id>,
 }
 
 pub struct PendingRead<RL: ReadLinearizer<RegisterRead>> {
@@ -136,12 +139,12 @@ pub struct PendingRead<RL: ReadLinearizer<RegisterRead>> {
     ghost value: Option<u64>,
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
+impl<ML: MutLinearizer<RegisterWrite>, Id: MinOrd> PendingWrite<ML, Id> {
     pub proof fn new(
         tracked lin: ML,
         tracked op: RegisterWrite,
-        tracked allocation: WriteAllocation,
-        timestamp: Timestamp,
+        tracked allocation: WriteAllocation<Id>,
+        timestamp: Timestamp<Id>,
     ) -> (tracked result: Self)
         requires
             lin.namespaces().finite(),
@@ -186,7 +189,7 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
         self.op
     }
 
-    pub closed spec fn timestamp(self) -> Timestamp {
+    pub closed spec fn timestamp(self) -> Timestamp<Id> {
         self.timestamp
     }
 
@@ -194,7 +197,7 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
         self.op().new_value
     }
 
-    pub closed spec fn write_status(self) -> WriteStatus {
+    pub closed spec fn write_status(self) -> WriteStatus<Id> {
         self.write_status
     }
 
@@ -210,7 +213,7 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
         self.lin().namespaces()
     }
 
-    pub proof fn commit(tracked self) -> (tracked r: (Self, WriteCommitment))
+    pub proof fn commit(tracked self) -> (tracked r: (Self, WriteCommitment<Id>))
         ensures
             r.0.lin() == self.lin(),
             r.0.op() == self.op(),
@@ -231,8 +234,8 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
     pub proof fn apply_linearizer(
         tracked self,
         tracked register: &mut GhostVarAuth<Option<u64>>,
-        timestamp: Timestamp,
-    ) -> (tracked r: CompletedWrite<ML>)
+        timestamp: Timestamp<Id>,
+    ) -> (tracked r: CompletedWrite<ML, Id>)
         requires
             self.write_status() is Committed,
             self.register_id() == old(register).id(),
@@ -260,11 +263,11 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
     }
 
     pub proof fn maybe(tracked self) -> (tracked r: (
-        MaybeWriteLinearized<ML, ML::Completion>,
-        Option<WriteAllocation>,
+        MaybeWriteLinearized<ML, ML::Completion, Id>,
+        Option<WriteAllocation<Id>>,
     ))
         ensures
-            r.0 == (MaybeWriteLinearized::<ML, ML::Completion>::Linearizer {
+            r.0 == (MaybeWriteLinearized::<ML, ML::Completion, Id>::Linearizer {
                 lin: self.lin(),
                 op: self.op(),
                 timestamp: self.timestamp(),
@@ -346,11 +349,11 @@ impl<RL: ReadLinearizer<RegisterRead>> PendingRead<RL> {
         self.lin().namespaces()
     }
 
-    pub proof fn apply_linearizer(
+    pub proof fn apply_linearizer<Id: Eq>(
         tracked self,
         tracked register: &GhostVarAuth<Option<u64>>,
-        timestamp: Timestamp,
-    ) -> (tracked r: CompletedRead<RL>)
+        timestamp: Timestamp<Id>,
+    ) -> (tracked r: CompletedRead<RL, Id>)
         requires
             self.register_id() == register.id(),
             self.value() == register@,

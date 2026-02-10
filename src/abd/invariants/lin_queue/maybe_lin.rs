@@ -1,5 +1,5 @@
 use crate::abd::invariants::logatom::{RegisterRead, RegisterWrite};
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
 
@@ -9,12 +9,12 @@ use vstd::tokens::frac::GhostVarAuth;
 
 verus! {
 
-pub enum MaybeWriteLinearized<ML, MC> {
-    Linearizer { lin: ML, ghost op: RegisterWrite, ghost timestamp: Timestamp },
+pub enum MaybeWriteLinearized<ML, MC, Id> {
+    Linearizer { lin: ML, ghost op: RegisterWrite, ghost timestamp: Timestamp<Id> },
     Completion {
         completion: MC,
         ghost op: RegisterWrite,
-        ghost timestamp: Timestamp,
+        ghost timestamp: Timestamp<Id>,
         ghost lin: ML,
     },
 }
@@ -24,17 +24,17 @@ pub enum MaybeReadLinearized<RL, RC> {
     Completion { completion: RC, ghost op: RegisterRead, ghost value: Option<u64>, ghost lin: RL },
 }
 
-impl<ML: MutLinearizer<RegisterWrite>> MaybeWriteLinearized<ML, ML::Completion> {
+impl<ML: MutLinearizer<RegisterWrite>, Id> MaybeWriteLinearized<ML, ML::Completion, Id> {
     pub proof fn linearizer(
         tracked lin: ML,
         op: RegisterWrite,
-        timestamp: Timestamp,
+        timestamp: Timestamp<Id>,
     ) -> (tracked result: Self)
         requires
             lin.namespaces().finite(),
             lin.pre(op),
         ensures
-            result == (MaybeWriteLinearized::<ML, ML::Completion>::Linearizer {
+            result == (MaybeWriteLinearized::<ML, ML::Completion, Id>::Linearizer {
                 lin,
                 op,
                 timestamp,
@@ -64,7 +64,7 @@ impl<ML: MutLinearizer<RegisterWrite>> MaybeWriteLinearized<ML, ML::Completion> 
         }
     }
 
-    pub open spec fn timestamp(self) -> Timestamp {
+    pub open spec fn timestamp(self) -> Timestamp<Id> {
         match self {
             MaybeWriteLinearized::Linearizer { timestamp, .. } => timestamp,
             MaybeWriteLinearized::Completion { timestamp, .. } => timestamp,

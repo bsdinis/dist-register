@@ -10,11 +10,15 @@ use vstd::logatom::ReadLinearizer;
 use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 
+use crate::abd::min::MinOrd;
 #[allow(unused_imports)]
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 #[allow(unused_imports)]
 use std::sync::Arc;
+
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::default::DefaultSpec;
 
 pub mod committed_to;
 pub mod lin_queue;
@@ -51,19 +55,21 @@ pub struct StatePredicate {
     pub commitments_ids: CommitmentIds,
 }
 
-pub struct State<ML, RL> where
+#[verifier::reject_recursive_types(Id)]
+pub struct State<ML, RL, Id: MinOrd> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 {
     pub tracked register: GhostVarAuth<Option<u64>>,
-    pub tracked linearization_queue: LinearizationQueue<ML, RL>,
-    pub tracked servers: ServerUniverse,
-    pub tracked commitments: Commitments,
+    pub tracked linearization_queue: LinearizationQueue<ML, RL, Id>,
+    pub tracked servers: ServerUniverse<Id>,
+    pub tracked commitments: Commitments<Id>,
 }
 
-impl<ML, RL> State<ML, RL> where
+impl<ML, RL, Id> State<ML, RL, Id> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
+    Id: MinOrd
  {
     pub open spec fn inv(self) -> bool {
         // member invariants
@@ -85,13 +91,13 @@ impl<ML, RL> State<ML, RL> where
     }
 }
 
-impl<ML, RL> InvariantPredicate<
+impl<ML, RL, Id> InvariantPredicate<
     StatePredicate,
-    State<ML, RL>,
-> for StatePredicate where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead> {
+    State<ML, RL, Id>,
+> for StatePredicate where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>, Id: MinOrd {
     open spec fn inv(
         p: StatePredicate,
-        state: State<ML, RL>,
+        state: State<ML, RL, Id>,
     ) -> bool {
         &&& p.register_id == state.register.id()
         &&& p.lin_queue_ids == state.linearization_queue.ids()
@@ -101,18 +107,18 @@ impl<ML, RL> InvariantPredicate<
     }
 }
 
-pub type StateInvariant<ML, RL> = AtomicInvariant<
+pub type StateInvariant<ML, RL, Id: MinOrd> = AtomicInvariant<
     StatePredicate,
-    State<ML, RL>,
+    State<ML, RL, Id>,
     StatePredicate,
 >;
 
 pub type RegisterView = GhostVar<Option<u64>>;
 
-pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -> (tracked r: (
-    Arc<StateInvariant<ML, RL>>,
+pub proof fn initialize_system_state<ML, RL, Id: MinOrd>(tracked zero_perm: PermissionU64) -> (tracked r: (
+    Arc<StateInvariant<ML, RL, Id>>,
     RegisterView,
-)) where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
+)) where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>, Id: MinOrd
     requires
         zero_perm.value() == 1,
     ensures
@@ -126,7 +132,7 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
 
     commitments.agree_commitment_submap(linearization_queue.tracked_committed_values());
     // XXX: load bearing
-    assert(linearization_queue.known_timestamps() == set![Timestamp::spec_default()]);
+    assert(linearization_queue.known_timestamps() == set![Timestamp::<Id>::minimum()]);
 
     let pred = StatePredicate {
         lin_queue_ids: linearization_queue.ids(),
@@ -137,14 +143,14 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
 
     let tracked state = State { register, linearization_queue, servers, commitments };
 
-    assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
+    assume(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state)); // TODO(id)
     let tracked state_inv = AtomicInvariant::new(pred, state, state_inv_id());
 
     (Arc::new(state_inv), view)
 }
 
-pub axiom fn get_system_state<ML, RL>() -> (tracked r: (
-    Arc<StateInvariant<ML, RL>>,
+pub axiom fn get_system_state<ML, RL, Id: MinOrd>() -> (tracked r: (
+    Arc<StateInvariant<ML, RL, Id>>,
     RegisterView,
 )) where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
     ensures

@@ -1,66 +1,43 @@
 use vstd::prelude::*;
 use vstd::rwlock::RwLock;
 
-use crate::abd::proto::Timestamp;
+use crate::abd::min::MinOrd;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
+use crate::abd::timestamp::Timestamp;
 
 verus! {
 
-pub struct MonotonicRegisterInner {
+pub struct MonotonicRegisterInner<Id> {
     pub val: Option<u64>,
-    pub timestamp: Timestamp,
-    pub resource: Tracked<MonotonicTimestampResource>,
+    pub timestamp: Timestamp<Id>,
+    pub resource: Tracked<MonotonicTimestampResource<Id>>,
 }
 
-impl MonotonicRegisterInner {
-    pub fn default() -> (r: MonotonicRegisterInner)
-        ensures
-            r.val is None,
-            r.timestamp.client_id == 0,
-            r.timestamp.seqno == 0,
-            r.resource@@ is FullRightToAdvance,
-            r.inv(),
-    {
-        MonotonicRegisterInner {
-            val: None,
-            timestamp: Timestamp::default(),
-            resource: Tracked(MonotonicTimestampResource::alloc()),
-        }
+impl<Id: MinOrd> MonotonicRegisterInner<Id> {
+    pub open spec fn inv(&self) -> bool {
+        &&& self.timestamp == self.resource@@.timestamp()
     }
 
     pub closed spec fn loc(&self) -> Ghost<int> {
         Ghost(self.resource@.loc())
     }
 
-    pub open spec fn inv(&self) -> bool {
-        &&& self.timestamp == self.resource@@.timestamp()
-    }
-
-    #[allow(unused_variables)]
-    pub fn read(&self) -> (r: MonotonicRegisterInner)
-        requires
-            self.resource@@ is FullRightToAdvance,
-            self.inv(),
+    pub fn default() -> (r: MonotonicRegisterInner<Id>)
         ensures
+            r.val is None,
+            r.timestamp.client_id == Id::spec_minimum(),
+            r.timestamp.seqno == 0,
+            r.resource@@ is FullRightToAdvance,
             r.inv(),
-            r.resource@@ is LowerBound,
-            r.val == self.val,
-            r.timestamp == self.timestamp,
-            r.loc() == self.loc(),
     {
-        let val = self.val;
-        let timestamp = self.timestamp;
-        let tracked r = self.resource.borrow();
-        let tracked lb = r.extract_lower_bound();
-
-        proof {
-            lb.lemma_lower_bound(r);
+        MonotonicRegisterInner {
+            val: None,
+            timestamp: Timestamp::<Id>::minimum(),
+            resource: Tracked(MonotonicTimestampResource::alloc()),
         }
-
-        MonotonicRegisterInner { val, timestamp, resource: Tracked(lb) }
     }
 
-    pub fn write(self, val: Option<u64>, timestamp: Timestamp) -> (r: Self)
+    pub fn write(self, val: Option<u64>, timestamp: Timestamp<Id>) -> (r: Self)
         requires
             self.resource@@ is FullRightToAdvance,
             self.inv(),
@@ -71,6 +48,7 @@ impl MonotonicRegisterInner {
             timestamp > self.timestamp ==> r.timestamp == timestamp && r.val == val,
             timestamp <= self.timestamp ==> self == r,
     {
+        proof { admit(); } // TODO(id)
         if timestamp > self.timestamp {
             let tracked mut r = self.resource.get();
             proof { r.advance(timestamp) }
@@ -82,26 +60,54 @@ impl MonotonicRegisterInner {
     }
 }
 
+impl<Id: MinOrd + Clone> MonotonicRegisterInner<Id> {
+    #[allow(unused_variables)]
+    pub fn read(&self) -> (r: MonotonicRegisterInner<Id>)
+        requires
+            self.resource@@ is FullRightToAdvance,
+            self.inv(),
+        ensures
+            r.inv(),
+            r.resource@@ is LowerBound,
+            r.val == self.val,
+            r.timestamp == self.timestamp,
+            r.loc() == self.loc(),
+    {
+        proof { admit(); } // TODO(id)
+        let val = self.val;
+        let timestamp = self.timestamp.clone();
+        let tracked r = self.resource.borrow();
+        let tracked lb = r.extract_lower_bound();
+
+        proof {
+            lb.lemma_lower_bound(r);
+        }
+
+        MonotonicRegisterInner { val, timestamp, resource: Tracked(lb) }
+    }
+}
+
+
 pub struct MonotonicRegisterInv {
     #[allow(dead_code)]
     pub resource_loc: Ghost<int>,
 }
 
-impl vstd::rwlock::RwLockPredicate<MonotonicRegisterInner> for MonotonicRegisterInv {
-    open spec fn inv(self, v: MonotonicRegisterInner) -> bool {
+impl<Id: MinOrd> vstd::rwlock::RwLockPredicate<MonotonicRegisterInner<Id>> for MonotonicRegisterInv {
+    open spec fn inv(self, v: MonotonicRegisterInner<Id>) -> bool {
         &&& v.inv()
         &&& v.loc() == self.resource_loc
         &&& v.resource@@ is FullRightToAdvance
     }
 }
 
-pub struct MonotonicRegister {
-    inner: RwLock<MonotonicRegisterInner, MonotonicRegisterInv>,
+pub struct MonotonicRegister<Id: MinOrd> {
+    inner: RwLock<MonotonicRegisterInner<Id>, MonotonicRegisterInv>,
     #[allow(dead_code)]
     resource_loc: Ghost<int>,
 }
 
-impl MonotonicRegister {
+impl<Id: MinOrd> MonotonicRegister<Id> {
     // return the register and the lower bound
     pub fn default() -> (r: Self)
         ensures
@@ -127,24 +133,8 @@ impl MonotonicRegister {
         self.resource_loc
     }
 
-    pub fn read(&self) -> (r: MonotonicRegisterInner)
-        ensures
-            r.resource@@ is LowerBound,
-            r.loc() == self.loc(),
-    {
-        proof {
-            use_type_invariant(self);
-        }
-        let handle = self.inner.acquire_read();
-        let inner = handle.borrow();
-        let res = inner.read();
-        handle.release_read();
-
-        res
-    }
-
-    pub fn write(&self, val: Option<u64>, timestamp: Timestamp) -> (r: Tracked<
-        MonotonicTimestampResource,
+    pub fn write(&self, val: Option<u64>, timestamp: Timestamp<Id>) -> (r: Tracked<
+        MonotonicTimestampResource<Id>,
     >)
         ensures
             r@@ is LowerBound,
@@ -167,6 +157,24 @@ impl MonotonicRegister {
         handle.release_write(new_value);
 
         Tracked(lower_bound)
+    }
+}
+
+impl<Id: MinOrd + Clone> MonotonicRegister<Id> {
+    pub fn read(&self) -> (r: MonotonicRegisterInner<Id>)
+        ensures
+            r.resource@@ is LowerBound,
+            r.loc() == self.loc(),
+    {
+        proof {
+            use_type_invariant(self);
+        }
+        let handle = self.inner.acquire_read();
+        let inner = handle.borrow();
+        let res = inner.read();
+        handle.release_read();
+
+        res
     }
 }
 

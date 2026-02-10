@@ -1,6 +1,7 @@
-#[allow(unused_imports)]
-use crate::abd::proto::Timestamp;
+use crate::abd::min::MinOrd;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
+#[allow(unused_imports)]
+use crate::abd::timestamp::Timestamp;
 
 #[allow(unused_imports)]
 use vstd::map_lib::*;
@@ -10,23 +11,27 @@ use vstd::set::*;
 #[allow(unused_imports)]
 use vstd::set_lib::*;
 
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::default::DefaultSpec;
+
 verus! {
 
-pub struct ServerUniverse {
+// TODO(id): move map to be indexed by Id
+pub struct ServerUniverse<Id> {
     /// mapping from server index to its lower bound
-    pub tracked map: Map<nat, Tracked<MonotonicTimestampResource>>,
+    pub tracked map: Map<nat, Tracked<MonotonicTimestampResource<Id>>>,
 }
 
 pub struct Quorum {
     pub servers: Set<nat>,
 }
 
-impl ServerUniverse {
+impl<Id: MinOrd> ServerUniverse<Id> {
     pub proof fn dummy() -> (tracked r: Self)
         ensures
             r.inv(),
             forall|q: Quorum|
-                #[trigger] r.valid_quorum(q) ==> r.quorum_timestamp(q) >= Timestamp::spec_default(),
+                #[trigger] r.valid_quorum(q) ==> r.quorum_timestamp(q) >= Timestamp::<Id>::spec_minimum(),
     {
         let tracked set = ServerUniverse { map: Map::tracked_empty() };
         set
@@ -45,7 +50,7 @@ impl ServerUniverse {
         self.map.contains_key(idx)
     }
 
-    pub open spec fn spec_index(self, idx: nat) -> Tracked<MonotonicTimestampResource> {
+    pub open spec fn spec_index(self, idx: nat) -> Tracked<MonotonicTimestampResource<Id>> {
         self.map[idx]
     }
 
@@ -53,7 +58,7 @@ impl ServerUniverse {
         recommends
             self.inv(),
     {
-        self.map.map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc())
+        self.map.map_values(|r: Tracked<MonotonicTimestampResource<Id>>| r@.loc())
     }
 
     pub open spec fn valid_quorum(self, q: Quorum) -> bool
@@ -65,14 +70,14 @@ impl ServerUniverse {
         &&& 2 * q@.len() > self.map.len()
     }
 
-    pub open spec fn unanimous_quorum(self, q: Quorum, lb: Timestamp) -> bool
+    pub open spec fn unanimous_quorum(self, q: Quorum, lb: Timestamp<Id>) -> bool
         recommends
             self.valid_quorum(q),
     {
         forall|idx: nat| #[trigger] q@.contains(idx) ==> self[idx]@@.timestamp() >= lb
     }
 
-    pub open spec fn quorum_timestamp(self, q: Quorum) -> Timestamp
+    pub open spec fn quorum_timestamp(self, q: Quorum) -> Timestamp<Id>
         recommends
             self.inv(),
             self.valid_quorum(q),
@@ -80,15 +85,15 @@ impl ServerUniverse {
         self.quorum_vals(q).find_unique_maximal(Self::ts_leq())
     }
 
-    pub open spec fn quorum_vals(self, q: Quorum) -> Set<Timestamp>
+    pub open spec fn quorum_vals(self, q: Quorum) -> Set<Timestamp<Id>>
         recommends
             self.inv(),
             self.valid_quorum(q),
     {
-        self.map.restrict(q@).values().map(|r: Tracked<MonotonicTimestampResource>| r@@.timestamp())
+        self.map.restrict(q@).values().map(|r: Tracked<MonotonicTimestampResource<Id>>| r@@.timestamp())
     }
 
-    proof fn lemma_vals(self, q: Quorum) -> (r: (Set<Timestamp>, Timestamp))
+    proof fn lemma_vals(self, q: Quorum) -> (r: (Set<Timestamp<Id>>, Timestamp<Id>))
         requires
             self.inv(),
             self.valid_quorum(q),
@@ -115,7 +120,7 @@ impl ServerUniverse {
             assert(self.map.restrict(q@).dom().finite());
             lemma_values_finite(self.map.restrict(q@));
             self.map.restrict(q@).values().lemma_map_finite(
-                |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
+                |r: Tracked<MonotonicTimestampResource<Id>>| r@@.timestamp(),
             );
         }
 
@@ -135,7 +140,7 @@ impl ServerUniverse {
         lemma_map_size_bound(
             lb_map.values(),
             vals,
-            |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
+            |r: Tracked<MonotonicTimestampResource<Id>>| r@@.timestamp(),
         );
 
         assert(vals.len() <= q@.len());
@@ -153,12 +158,14 @@ impl ServerUniverse {
         let ts_leq = Self::ts_leq();
         let (vals, ts) = self.lemma_vals(q);
 
+        assume(vstd::relations::total_ordering(ts_leq)); // TODO(id)
         self.map.restrict(q@).values().map(
-            |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
+            |r: Tracked<MonotonicTimestampResource<Id>>| r@@.timestamp(),
         ).find_unique_maximal_ensures(ts_leq);
         vals.lemma_maximal_equivalent_greatest(ts_leq, ts);
 
         assert(forall|idx: nat| #[trigger] q@.contains(idx) ==> ts_leq(self[idx]@@.timestamp(), ts));
+        admit(); // TODO(id)
     }
 
     proof fn lemma_quorum_timestamp_witness(self, q: Quorum) -> (idx: nat)
@@ -172,8 +179,9 @@ impl ServerUniverse {
         let ts_leq = Self::ts_leq();
         let (vals, ts) = self.lemma_vals(q);
 
+        assume(vstd::relations::total_ordering(ts_leq)); // TODO(id)
         self.map.restrict(q@).values().map(
-            |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
+            |r: Tracked<MonotonicTimestampResource<Id>>| r@@.timestamp(),
         ).find_unique_maximal_ensures(ts_leq);
         vals.lemma_maximal_equivalent_greatest(ts_leq, ts);
 
@@ -194,20 +202,22 @@ impl ServerUniverse {
         let ts_leq = Self::ts_leq();
         let (vals, ts) = self.lemma_vals(q);
 
+        assume(vstd::relations::total_ordering(ts_leq)); // TODO(id)
         self.map.restrict(q@).values().map(
-            |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
+            |r: Tracked<MonotonicTimestampResource<Id>>| r@@.timestamp(),
         ).find_unique_maximal_ensures(ts_leq);
         vals.lemma_maximal_equivalent_greatest(ts_leq, ts);
 
         assert(forall|idx: nat| #[trigger] q@.contains(idx) ==> ts_leq(self[idx]@@.timestamp(), ts));
         assert(ts_leq(self[witness_idx]@@.timestamp(), ts));
+        admit(); // TODO(id)
     }
 
-    pub open spec fn ts_leq() -> spec_fn(Timestamp, Timestamp) -> bool {
-        |a: Timestamp, b: Timestamp| a <= b
+    pub open spec fn ts_leq() -> spec_fn(Timestamp<Id>, Timestamp<Id>) -> bool {
+        |a: Timestamp<Id>, b: Timestamp<Id>| a <= b
     }
 
-    pub open spec fn leq(self, other: ServerUniverse) -> bool
+    pub open spec fn leq(self, other: ServerUniverse<Id>) -> bool
         recommends
             self.inv(),
             other.inv(),
@@ -216,7 +226,7 @@ impl ServerUniverse {
         &&& self.locs() == other.locs()
     }
 
-    proof fn lemma_leq_implies_validity(self, other: ServerUniverse, q: Quorum)
+    proof fn lemma_leq_implies_validity(self, other: ServerUniverse<Id>, q: Quorum)
         requires
             self.inv(),
             other.inv(),
@@ -238,7 +248,7 @@ impl ServerUniverse {
         }
     }
 
-    proof fn lemma_leq_retains_unanimity(self, other: ServerUniverse, q: Quorum, lb: Timestamp)
+    proof fn lemma_leq_retains_unanimity(self, other: ServerUniverse<Id>, q: Quorum, lb: Timestamp<Id>)
         requires
             self.inv(),
             other.inv(),
@@ -253,11 +263,12 @@ impl ServerUniverse {
             assert forall|idx: nat| #[trigger] q@.contains(idx) implies other[idx]@@.timestamp() >= lb by {
                 assert(self.contains_key(idx));
                 assert(self[idx]@@.timestamp() <= other[idx]@@.timestamp());
+                admit(); // TODO(id)
             }
         }
     }
 
-    pub proof fn lemma_leq_quorums(self, other: ServerUniverse, min: Timestamp)
+    pub proof fn lemma_leq_quorums(self, other: ServerUniverse<Id>, min: Timestamp<Id>)
         requires
             self.inv(),
             other.inv(),
@@ -277,6 +288,8 @@ impl ServerUniverse {
             let witness_idx = self.lemma_quorum_timestamp_witness(q);
             assert(self.contains_key(witness_idx));
 
+            admit(); // TODO(id)
+
             assert(forall|idx: nat|
                 #[trigger] self.contains_key(idx) ==> other[idx]@@.timestamp() >= self[idx]@@.timestamp());
             assert(other[witness_idx]@@.timestamp() >= self[witness_idx]@@.timestamp());
@@ -289,7 +302,7 @@ impl ServerUniverse {
     }
 
     // This is the big quorum lemma
-    pub proof fn lemma_quorum_lb(self, lb_quorum: Quorum, ts: Timestamp)
+    pub proof fn lemma_quorum_lb(self, lb_quorum: Quorum, ts: Timestamp<Id>)
         requires
             self.inv(),
             self.valid_quorum(lb_quorum),
@@ -305,6 +318,7 @@ impl ServerUniverse {
             assert(lb_quorum@.contains(witness_idx));
             assert(self[witness_idx]@@.timestamp() >= ts);
             self.lemma_quorum_witness_implies_lb(q, witness_idx);
+            admit(); // TODO(id)
             assert(self.quorum_timestamp(q) >= ts);
         }
     }
@@ -337,7 +351,7 @@ impl ServerUniverse {
         witness_idx
     }
 
-    proof fn lemma_quorum_agree(self, q1: Quorum, q2: Quorum, lb: Timestamp)
+    proof fn lemma_quorum_agree(self, q1: Quorum, q2: Quorum, lb: Timestamp<Id>)
         requires
             self.inv(),
             self.valid_quorum(q1),

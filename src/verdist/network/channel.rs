@@ -43,14 +43,14 @@ pub assume_specification[ default_delay ]() -> (a: (Duration, Duration))
 
 pub trait Channel {
     type R;
-
-    type S: Clone;
+    type S: Clone; // TODO(bsdinis): remove clone bound
+    type Id;
 
     fn try_recv(&self) -> Result<Self::R, TryRecvError>;
 
     fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>>;
 
-    fn id(&self) -> u64;
+    fn id(&self) -> Self::Id;
 
     fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {
     }
@@ -70,7 +70,7 @@ pub trait Listener<C> where C: Channel {
 }
 
 pub trait Connector<C> where C: Channel {
-    fn connect(&self, id: u64) -> Result<C, ConnectError>;
+    fn connect(&self, id: C::Id) -> Result<C, ConnectError>;
 }
 
 pub struct BufChannel<C: Channel> {
@@ -111,10 +111,10 @@ impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
 
 impl<C: Channel> Channel for BufChannel<C> {
     type R = C::R;
-
     type S = C::S;
+    type Id = C::Id;
 
-    fn id(&self) -> u64 {
+    fn id(&self) -> Self::Id {
         self.channel.id()
     }
 

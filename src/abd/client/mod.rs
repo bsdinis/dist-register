@@ -25,6 +25,7 @@ use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::BroadcastPool;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
+use crate::verdist::rpc::Replies;
 
 pub mod error;
 mod net_axioms;
@@ -196,11 +197,13 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         &&& self.client_ctr_token@.value().1 == self.client_ctr.id()
     }
 
-    pub fn quorum_size(&self) -> usize {
+    pub fn quorum_size(&self) -> (r: usize)
+        ensures r == self.qsize()
+    {
         self.pool.quorum_size()
     }
 
-    spec fn qsize(self) -> nat {
+    pub closed spec fn qsize(self) -> nat {
         self.pool.qsize()
     }
 
@@ -272,9 +275,15 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             assert(state.inv());
         });
 
+        let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
+        #[allow(unused_parens)]
         let quorum_res = bpool.broadcast(Request::Get).wait_for(
-            |s| s.replies().len() >= s.quorum_size(),
+            (|s| -> (r: bool)
+                ensures r ==> s.spec_len() >= qsize,
+            {
+                s.len() >= self.quorum_size()
+            }),
             |r|
                 match r.clone().into_inner() {
                     Response::Get { timestamp, val, .. } => Ok((timestamp, val)),
@@ -305,7 +314,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
         // check early return
         let replies = quorum.replies();
-        assume(replies.len() == self.qsize());  // TODO(assume/network)
         proof {
             self.lemma_qsize_nonempty();
         }
@@ -358,6 +366,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         }
         // non-unanimous read: write-back
 
+        let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
         let replies_result = bpool.broadcast_filter(
@@ -378,10 +387,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         )
         // bellow is error handling + type handling + logging stuff
         .wait_for(
-            (|s|
-                requires
-                    s.replies.len() + n_max_ts < usize::MAX,
-                { s.replies.len() + n_max_ts >= s.quorum_size() }),
+            (|s| -> (r: bool)
+                ensures r ==> s.spec_len() + n_max_ts >= qsize
+                {
+                    assume(s.spec_len() + n_max_ts < usize::MAX); // XXX: integer overflow
+                    s.len() + n_max_ts >= self.quorum_size()
+                }),
             |r|
                 match r.deref() {
                     Response::Write { .. } => Ok(()),
@@ -515,10 +526,13 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         };
 
         let quorum = {
+            let ghost qsize = self.qsize();
             let bpool = BroadcastPool::new(&self.pool);
-
+            #[allow(unused_parens)]
             let quorum_res = bpool.broadcast(Request::GetTimestamp).wait_for(
-                |s| s.replies().len() >= s.quorum_size(),
+                (|s| -> (r: bool)
+                    ensures r ==> s.spec_len() >= qsize
+                 { s.len() >= self.quorum_size() }),
                 |r|
                     match r.deref() {
                         Response::GetTimestamp { timestamp, .. } => Ok(*timestamp),
@@ -568,7 +582,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         };
 
         let replies = quorum.replies();
-        assume(replies.len() == self.qsize());  // TODO(assume/network)
         proof {
             self.lemma_qsize_nonempty();
         }
@@ -610,8 +623,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
 
         {
             let bpool = BroadcastPool::new(&self.pool);
+            let ghost qsize = self.qsize();
             let quorum_res = bpool.broadcast(Request::Write { val, timestamp: exec_ts }).wait_for(
-                |s| s.replies().len() >= s.quorum_size(),
+                (|s| -> (r: bool)
+                    ensures r ==> s.spec_len() >= qsize
+                 { s.len() >= self.quorum_size() }),
                 |r|
                     match r.deref() {
                         Response::Write { .. } => Ok(()),

@@ -27,6 +27,7 @@ pub struct ClientChannel<R, S> {
     tx: Sender<S>,
     rx: Receiver<R>,
     client_id: u64,
+    server_id: u64,
     faulty: AtomicBool,
     avg_latency: std::time::Duration,
     stddev_latency: std::time::Duration,
@@ -35,6 +36,7 @@ pub struct ClientChannel<R, S> {
 pub struct ServerChannel<R, S> {
     tx: Sender<S>,
     rx: Receiver<R>,
+    client_id: u64,
     server_id: u64,
     faulty: AtomicBool,
     avg_latency: std::time::Duration,
@@ -63,8 +65,8 @@ impl<R, S: Clone> Channel for ClientChannel<R, S> {
         Ok(())
     }
 
-    fn id(&self) -> u64 {
-        self.client_id
+    fn remote_id(&self) -> u64 {
+        self.server_id
     }
 
     fn add_latency(&mut self, avg: std::time::Duration, stddev: std::time::Duration) {
@@ -99,8 +101,8 @@ impl<R, S: Clone> Channel for ServerChannel<R, S> {
         Ok(())
     }
 
-    fn id(&self) -> u64 {
-        self.server_id
+    fn remote_id(&self) -> u64 {
+        self.client_id
     }
 
     fn add_latency(&mut self, avg: std::time::Duration, stddev: std::time::Duration) {
@@ -114,11 +116,12 @@ impl<R, S: Clone> Channel for ServerChannel<R, S> {
 }
 
 impl<R, S> ClientChannel<R, S> {
-    pub fn new(client_id: u64, tx: Sender<S>, rx: Receiver<R>) -> Self {
+    pub fn new(client_id: u64, server_id: u64, tx: Sender<S>, rx: Receiver<R>) -> Self {
         ClientChannel {
             tx,
             rx,
             client_id,
+            server_id,
             faulty: AtomicBool::new(false),
             avg_latency: Default::default(),
             stddev_latency: Default::default(),
@@ -127,11 +130,12 @@ impl<R, S> ClientChannel<R, S> {
 }
 
 impl<R, S> ServerChannel<R, S> {
-    pub fn new(server_id: u64, tx: Sender<S>, rx: Receiver<R>) -> Self {
+    pub fn new(server_id: u64, client_id: u64, tx: Sender<S>, rx: Receiver<R>) -> Self {
         ServerChannel {
             tx,
             rx,
             server_id,
+            client_id,
             faulty: AtomicBool::new(false),
             avg_latency: Default::default(),
             stddev_latency: Default::default(),
@@ -156,7 +160,7 @@ impl<R, S: Clone> Listener<ClientChannel<R, S>> for ModelledListener<R, S> {
             .send((self.id, req_tx, resp_rx))
             .map_err(|_| TryListenError::Disconnected)?;
 
-        Ok(ClientChannel::new(client_id, resp_tx, req_rx))
+        Ok(ClientChannel::new(client_id, self.id, resp_tx, req_rx))
     }
 }
 
@@ -165,7 +169,7 @@ impl<R, S: Clone> Connector<ServerChannel<R, S>> for ModelledConnector<R, S> {
         eprintln!("[client|{id:>3}]: connecting from client");
         self.registering_tx.send(id).map_err(|_| ConnectError)?;
         let (server_id, tx, rx) = self.connection_rx.recv().map_err(|_| ConnectError)?;
-        Ok(ServerChannel::new(server_id, tx, rx))
+        Ok(ServerChannel::new(server_id, id, tx, rx))
     }
 }
 

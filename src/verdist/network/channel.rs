@@ -41,6 +41,9 @@ pub assume_specification[ park_thread ](mean: Duration, std_dev: Duration)
 pub assume_specification[ default_delay ]() -> (a: (Duration, Duration))
 ;
 
+/// A reliable and typed channel
+///
+/// The spec is in the type -- by virtue of having a type `R` the receiver learns something
 pub trait Channel {
     type R;
 
@@ -50,7 +53,7 @@ pub trait Channel {
 
     fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>>;
 
-    fn id(&self) -> u64;
+    fn remote_id(&self) -> u64;
 
     fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {
     }
@@ -114,8 +117,8 @@ impl<C: Channel> Channel for BufChannel<C> {
 
     type S = C::S;
 
-    fn id(&self) -> u64 {
-        self.channel.id()
+    fn remote_id(&self) -> u64 {
+        self.channel.remote_id()
     }
 
     fn try_recv(&self) -> Result<Self::R, TryRecvError> {

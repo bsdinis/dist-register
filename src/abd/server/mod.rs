@@ -75,7 +75,7 @@ impl<L, C> RegisterServer<L, C> where
             self.inv(),
     {
         let (mut guard, handle) = self.connected.acquire_write();
-        guard.insert(channel.id(), channel);
+        guard.insert(channel.remote_id(), channel);
         handle.release_write(guard);
     }
 
@@ -185,10 +185,10 @@ impl<L, C> RegisterServer<L, C> where
 }
 
 } // verus!
-pub fn run_modelled_server(id: u64) -> ModelledConnector<Tagged<Response>, Tagged<Request>> {
-    let (listener, connector) = crate::verdist::network::modelled::listen_channel(id);
+pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Tagged<Response>, Tagged<Request>> {
+    let (listener, connector) = crate::verdist::network::modelled::listen_channel(server_id);
     std::thread::spawn(move || {
-        let server = RegisterServer::new(listener, id);
+        let server = RegisterServer::new(listener, server_id);
         let server = Arc::new(server);
         tracing::info!("starting server {}", server.id);
 

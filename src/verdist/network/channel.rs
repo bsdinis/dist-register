@@ -52,7 +52,7 @@ pub trait Channel {
     type S: Clone;
 
     /// Id of the channel
-    type Id; // Id of the channel itself
+    type Id: Ord; // Id of the channel itself
 
     fn try_recv(&self) -> Result<Self::R, TryRecvError>;
 
@@ -83,6 +83,7 @@ pub trait Connector<C> where C: Channel {
 
 pub struct BufChannel<C: Channel> {
     channel: C,
+    #[allow(dead_code)]
     buffered: RwLock<HashMap<u64, C::R>, EmptyCond>,
 }
 
@@ -93,6 +94,7 @@ impl<C: Channel> BufChannel<C> {
 }
 
 impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
+    #[allow(dead_code)]
     pub fn try_recv_tag(&self, tag: u64) -> Result<Option<C::R>, TryRecvError> {
         let (mut guard, handle) = self.buffered.acquire_write();
         if let Some(r) = guard.remove(&tag) {

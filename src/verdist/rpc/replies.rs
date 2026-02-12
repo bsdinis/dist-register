@@ -1,28 +1,66 @@
 #![allow(dead_code)]
+use std::collections::BTreeMap;
+
 use crate::verdist::network::error::TryRecvError;
 
+use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 
 verus! {
 
-pub struct Replies<T, R> {
-    replies: Vec<(usize, T)>,
-    invalid_replies: Vec<(usize, R)>,
-    errors: Vec<(usize, TryRecvError)>,
+pub struct Replies<ChanId, T, R, Pred>
+    where Pred: InvariantPredicate<Pred, RepliesView<ChanId, T, R>>,
+          ChanId: Ord,
+{
+    replies: BTreeMap<ChanId, T>,
+    invalid_replies: BTreeMap<ChanId, R>,
+    errors: BTreeMap<ChanId, TryRecvError>,
+    pred: Ghost<Pred>,
 }
 
-impl<T, R> Replies<T, R> {
-    pub fn new() -> Self {
-        Replies { replies: Vec::new(), invalid_replies: Vec::new(), errors: Vec::new() }
-    }
+#[verifier::reject_recursive_types(ChanId)]
+pub struct RepliesView<ChanId, T, R> {
+    pub replies: Map<ChanId, T>,
+    pub invalid_replies: Map<ChanId, R>,
+    pub errors: Map<ChanId, TryRecvError>,
+}
 
-    pub fn with_capacity(n: usize) -> Self {
-        Replies { replies: Vec::with_capacity(n), invalid_replies: Vec::new(), errors: Vec::new() }
+impl<ChanId, T, R> RepliesView<ChanId, T, R> {
+    pub open spec fn empty() -> Self {
+        RepliesView {
+            replies: Map::empty(),
+            invalid_replies: Map::empty(),
+            errors: Map::empty(),
+        }
+    }
+}
+
+impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred>
+    where Pred: InvariantPredicate<Pred, RepliesView<ChanId, T, R>>,
+          ChanId: Ord
+{
+    pub closed spec fn view(self) -> RepliesView<ChanId, T, R> {
+        RepliesView {
+            replies: self.replies@,
+            invalid_replies: self.invalid_replies@,
+            errors: self.errors@,
+        }
+    }
+    pub fn new(pred: Ghost<Pred>) -> (r: Self)
+        requires
+            Pred::inv(pred@, RepliesView::empty()),
+            vstd::std_specs::btree::obeys_key_model::<ChanId>(),
+        ensures
+            r@ == RepliesView::<ChanId, T, R>::empty()
+    {
+        Replies { replies: BTreeMap::new(), invalid_replies: BTreeMap::new(), errors: BTreeMap::new(), pred }
     }
 
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
-        self.replies.len() + self.invalid_replies.len() + self.errors.len() <= usize::MAX
+        &&& self.replies.len() + self.invalid_replies.len() + self.errors.len() <= usize::MAX
+        &&& Pred::inv(self.pred@, self@)
+        &&& vstd::std_specs::btree::obeys_key_model::<ChanId>()
     }
 
     pub fn len(&self) -> (r: usize)
@@ -42,52 +80,99 @@ impl<T, R> Replies<T, R> {
         self.replies.len() + self.invalid_replies.len() + self.errors.len()
     }
 
-    pub fn replies(&self) -> (r: &[(usize, T)])
+    pub fn replies(&self) -> (r: &BTreeMap<ChanId, T>)
         ensures r.len() == self.spec_len()
     {
-        self.replies.as_slice()
+        &self.replies
     }
 
-    pub fn into_replies(self) -> (r: Vec<(usize, T)>)
+    pub fn into_replies(self) -> (r: BTreeMap<ChanId, T>)
         ensures r.len() == self.spec_len()
     {
         self.replies
     }
 
-    pub fn invalid_replies(&self) -> &[(usize, R)] {
-        self.invalid_replies.as_slice()
+    pub fn invalid_replies(&self) -> &BTreeMap<ChanId, R> {
+        &self.invalid_replies
     }
 
-    pub fn into_invalid_replies(self) -> Vec<(usize, R)> {
+    pub fn into_invalid_replies(self) -> BTreeMap<ChanId, R> {
         self.invalid_replies
     }
 
-    pub fn errors(&self) -> &[(usize, TryRecvError)] {
-        self.errors.as_slice()
+    pub fn errors(&self) -> &BTreeMap<ChanId, TryRecvError> {
+        &self.errors
     }
 
-    pub fn into_errors(self) -> Vec<(usize, TryRecvError)> {
+    pub fn into_errors(self) -> BTreeMap<ChanId, TryRecvError> {
         self.errors
     }
 
-    pub fn push_reply(&mut self, idx: usize, v: T)
+    pub fn insert_reply(&mut self, id: ChanId, v: T)
         ensures
-            self.spec_len() == old(self).spec_len() + 1
+            self@.replies == old(self)@.replies.insert(id, v),
+            self@.invalid_replies == old(self)@.invalid_replies,
+            self@.errors == old(self)@.errors,
     {
+        proof {
+            use_type_invariant(&*self);
+        }
+        // XXX: integer overflow
         assume(self.replies.len() + self.invalid_replies.len() + self.errors.len() < usize::MAX);
-        self.replies.push((idx, v))
+        assume(Pred::inv(self.pred@, RepliesView {
+            replies: self@.replies.insert(id, v),
+            invalid_replies: self@.invalid_replies,
+            errors: self@.errors,
+        }));
+        Self::insert_helper(&mut self.replies, id, v);
     }
 
-    pub fn push_invalid_reply(&mut self, idx: usize, resp: R)
+    pub fn insert_invalid_reply(&mut self, id: ChanId, resp: R)
+        ensures
+            self@.replies == old(self)@.replies,
+            self@.invalid_replies == old(self)@.invalid_replies.insert(id, resp),
+            self@.errors == old(self)@.errors,
     {
+        proof {
+            use_type_invariant(&*self);
+        }
         assume(self.replies.len() + self.invalid_replies.len() + self.errors.len() < usize::MAX);
-        self.invalid_replies.push((idx, resp))
+        assume(Pred::inv(self.pred@, RepliesView {
+            replies: self@.replies,
+            invalid_replies: self@.invalid_replies.insert(id, resp),
+            errors: self@.errors,
+        }));
+        Self::insert_helper(&mut self.invalid_replies, id, resp);
     }
 
-    pub fn push_error(&mut self, idx: usize, resp: TryRecvError)
+    pub fn insert_error(&mut self, id: ChanId, resp: TryRecvError)
+        ensures
+            self@.replies == old(self)@.replies,
+            self@.invalid_replies == old(self)@.invalid_replies,
+            self@.errors == old(self)@.errors.insert(id, resp),
     {
+        proof {
+            use_type_invariant(&*self);
+        }
         assume(self.replies.len() + self.invalid_replies.len() + self.errors.len() < usize::MAX);
-        self.errors.push((idx, resp))
+        assume(Pred::inv(self.pred@, RepliesView {
+            replies: self@.replies,
+            invalid_replies: self@.invalid_replies,
+            errors: self@.errors.insert(id, resp),
+        }));
+        Self::insert_helper(&mut self.errors, id, resp);
+    }
+
+    // This helps bypass the no_unwind requirement on Self, which has a type invariant
+    fn insert_helper<K: Ord, V>(map: &mut BTreeMap<K, V>, k: K, v: V)
+        requires
+            vstd::std_specs::btree::obeys_key_model::<K>()
+        ensures
+            map@ == old(map)@.insert(k, v)
+        no_unwind
+    {
+        broadcast use vstd::std_specs::btree::group_btree_axioms;
+        map.insert(k, v);
     }
 }
 

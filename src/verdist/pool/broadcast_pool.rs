@@ -4,8 +4,11 @@ use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
 use crate::verdist::rpc::proto::TaggedMessage;
+use crate::verdist::rpc::replies::RepliesView;
+use crate::verdist::rpc::Replies;
 use crate::verdist::rpc::RequestContext;
 
+use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 
 verus! {
@@ -24,28 +27,43 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         BroadcastPool { pool }
     }
 
-    pub fn broadcast_filter<F: Fn(usize) -> bool, T>(
+    pub fn broadcast_filter<F: Fn(<Pool::C as Channel>::Id) -> bool, T, Pred>(
         self,
         request: Request,
+        pred: Ghost<Pred>,
         filter_fn: F,
-    ) -> RequestContext<'a, Pool, T> {
+    ) -> RequestContext<'a, Pool, T, Pred>
+        where Pred: InvariantPredicate<Pred, RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>>
+        requires
+            forall |id| filter_fn.requires((id,)),
+            Pred::inv(pred@, RepliesView::empty()),
+            vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
+    {
         let tagged = Tagged::tag(request);
         let conns = self.pool.conns();
-        for idx in 0..conns.len() {
-            assume(filter_fn.requires((idx,)));
-            if filter_fn(idx) {
-                let channel = &conns[idx];
+        for idx in 0..conns.len()
+            invariant
+                forall |id| filter_fn.requires((id,))
+        {
+            let channel = &conns[idx];
+            if filter_fn(channel.id()) {
                 let _res = channel.send(&tagged);
             }
         }
-        RequestContext::new(self.pool, tagged.tag())
+        RequestContext::new(self.pool, tagged.tag(), pred)
     }
 
-    pub fn broadcast<T>(
+    pub fn broadcast<T, Pred>(
         self,
         request: <<Pool::C as Channel>::S as TaggedMessage>::Inner,
-    ) -> RequestContext<'a, Pool, T> {
-        self.broadcast_filter(request, |_s| true)
+        pred: Ghost<Pred>,
+    ) -> RequestContext<'a, Pool, T, Pred>
+        where Pred: InvariantPredicate<Pred, RepliesView<<Pool::C as Channel>::Id,T, <Pool::C as Channel>::R>>
+        requires
+            Pred::inv(pred@, RepliesView::empty()),
+            vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
+    {
+        self.broadcast_filter(request, pred, |_s| true)
     }
 }
 

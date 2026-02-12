@@ -7,7 +7,12 @@ use crate::abd::invariants::quorum::ServerUniverse;
 #[allow(unused_imports)]
 use crate::abd::proto::Timestamp;
 
+#[allow(unused_imports)]
+use std::collections::BTreeMap;
+
 use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd::std_specs::btree::BTreeMapAdditionalSpecFns;
 
 verus! {
 
@@ -16,7 +21,7 @@ verus! {
 // (they allows duplication of resources)
 //
 pub axiom fn axiom_get_unanimous_replies(
-    replies: &[(usize, (Timestamp, Option<u64>))],
+    replies: &BTreeMap<(u64, u64), (Timestamp, Option<u64>)>,
     tracked map: &mut ServerUniverse,
     min_ts: Timestamp,
     max_ts: Timestamp,
@@ -37,27 +42,23 @@ pub axiom fn axiom_get_unanimous_replies(
         map.locs() == old(map).locs(),
         map.valid_quorum(r.0),
         r.0.inv(),
-        forall|k: nat| #![trigger map.contains_key(k)] #![trigger old(map)[k]] #![trigger map[k]]
-            map.contains_key(k) ==> {
-                // this is derivable if replies come with lower bounds
-                &&& old(map)[k]@@.timestamp() <= map[k]@@.timestamp()
-                &&& exists|idx: nat|
-                    0 <= idx < replies.len() && #[trigger] replies[idx as int].0 == k ==> {
-                        map[k]@@.timestamp() == replies[idx as int].1.0
-                    }
-                &&& !(exists|idx: nat| 0 <= idx < replies.len() && #[trigger] replies[idx as int].0 == k) ==> {
-                    map[k] == old(map)[k]
-                }
+        // this is derivable if replies come with lower bounds
+        old(map).leq(*map),
+        forall|k: (u64, u64)| #![trigger map.contains_key(k.1 as nat)] #![trigger old(map)[k.1 as nat]] #![trigger map[k.1 as nat]]
+            map.contains_key(k.1 as nat) ==> {
+                &&& old(map)[k.1 as nat]@@.timestamp() <= map[k.1 as nat]@@.timestamp()
+                &&& replies@.contains_key(k) ==> map[k.1 as nat]@@.timestamp() == replies[k].0
+                &&& !replies@.contains_key(k) ==> map[k.1 as nat] == old(map)[k.1 as nat]
             },
-        forall|k: nat| #[trigger] r.0@.contains(k) ==> map[k]@@.timestamp() == max_ts,
+        forall|k| #[trigger] r.0@.contains(k) ==> map[k]@@.timestamp() == max_ts,
         min_ts <= max_ts,
         r.1@ == (max_ts, max_val),
         r.1.id() == commitment_id,
 ;
 
 pub axiom fn axiom_writeback_unanimous_replies(
-    get_replies: &[(usize, (Timestamp, Option<u64>))],
-    wb_replies: &[(usize, ())],
+    get_replies: &BTreeMap<(u64, u64), (Timestamp, Option<u64>)>,
+    wb_replies: &BTreeMap<(u64, u64), ()>,
     tracked map: &mut ServerUniverse,
     min_ts: Timestamp,
     max_ts: Timestamp,
@@ -80,66 +81,61 @@ pub axiom fn axiom_writeback_unanimous_replies(
         map.inv(),
         r.0.inv(),
         map.valid_quorum(r.0),
-        forall|k: nat| #![trigger map.contains_key(k)] #![trigger old(map)[k]] #![trigger map[k]]
-            map.contains_key(k) ==> {
-                // this is derivable if replies come with lower bounds
-                &&& old(map)[k]@@.timestamp() <= map[k]@@.timestamp()
-                &&& exists|g_idx: nat|
-                    0 <= g_idx < get_replies.len() && #[trigger] get_replies[g_idx as int].0 == k ==> {
-                        let get_ts = get_replies[g_idx as int].1.0;
+        // this is derivable if replies come with lower bounds
+        old(map).leq(*map),
+        forall|k: (u64, u64)| #![trigger map.contains_key(k.1 as nat)] #![trigger old(map)[k.1 as nat]] #![trigger map[k.1 as nat]]
+            map.contains_key(k.1 as nat) ==> {
+                &&& get_replies@.contains_key(k) ==> {
+                        let get_ts = get_replies[k].0;
                         ({
-                            ||| get_ts == max_ts ==> map[k]@@.timestamp() == get_ts
-                            ||| exists|wb_idx: nat|
-                                0 <= wb_idx < wb_replies.len() && #[trigger] wb_replies[wb_idx as int].0 == k
-                                    ==> { map[k]@@.timestamp() == max_ts }
-                        }) && r.0@.contains(k)
-                    }
-                &&& !(exists|idx: nat|
-                    0 <= idx < get_replies.len() && #[trigger] get_replies[idx as int].0 == k) ==> {
-                    &&& map[k] == old(map)[k]
-                    &&& !r.0@.contains(k)
+                            ||| get_ts == max_ts ==> map[k.1 as nat]@@.timestamp() == get_ts
+                            ||| wb_replies@.contains_key(k) ==> map[k.1 as nat]@@.timestamp() == max_ts
+                        }) && r.0@.contains(k.1 as nat)
+                }
+                &&& !get_replies@.contains_key(k) ==> {
+                    &&& map[k.1 as nat] == old(map)[k.1 as nat]
+                    &&& !r.0@.contains(k.1 as nat)
                 }
             },
-        forall|k: nat| #[trigger] r.0@.contains(k) ==> map[k]@@.timestamp() == max_ts,
+        forall|k| #[trigger] r.0@.contains(k) ==> map[k]@@.timestamp() == max_ts,
         min_ts <= max_ts,
         r.1@ == (max_ts, max_val),
         r.1.id() == commitment_id,
 ;
 
 pub axiom fn axiom_get_ts_replies(
-    replies: &[(usize, Timestamp)],
+    replies: &BTreeMap<(u64, u64), Timestamp>,
     tracked map: &mut ServerUniverse,
     max_ts: Timestamp,
 ) -> (tracked r: Quorum)
     requires
         old(map).inv(),
-        exists|idx: int| 0 <= idx < replies.len() ==> #[trigger] replies[idx].1 == max_ts,
-        forall|idx: int| 0 <= idx < replies.len() ==> #[trigger] replies[idx].1 <= max_ts,
+        exists|k: (u64, u64)| #[trigger] replies@.contains_key(k) ==> replies[k] == max_ts,
+        forall|k: (u64, u64)| #[trigger] replies@.contains_key(k) ==> replies[k] <= max_ts,
     ensures
         map.dom() == old(map).dom(),
         map.locs() == old(map).locs(),
         map.inv(),
         r.inv(),
         map.valid_quorum(r),
-        forall|k: nat| #![trigger map.contains_key(k)] #![trigger old(map)[k]] #![trigger map[k]]
-            map.contains_key(k) ==> {
-                // this is derivable if replies come with lower bounds
-                &&& old(map)[k]@@.timestamp() <= map[k]@@.timestamp()
-                &&& exists|idx: int|
-                    0 <= idx < replies.len() && #[trigger] replies[idx].0 == k ==> {
-                        &&& map[k]@@.timestamp() == replies[idx].1
-                        &&& r@.contains(k)
+        // this is derivable if replies come with lower bounds
+        old(map).leq(*map),
+        forall|k: (u64, u64)| #![trigger map.contains_key(k.1 as nat)] #![trigger old(map)[k.1 as nat]] #![trigger map[k.1 as nat]]
+            map.contains_key(k.1 as nat) ==> {
+                &&& replies@.contains_key(k) ==> {
+                        &&& map[k.1 as nat]@@.timestamp() == replies[k]
+                        &&& r@.contains(k.1 as nat)
                     }
-                &&& !(exists|idx: int| 0 <= idx < replies.len() && #[trigger] replies[idx].0 == k) ==> {
-                    &&& map[k] == old(map)[k]
-                    &&& !r@.contains(k)
+                &&& !replies@.contains_key(k) ==> {
+                    &&& map[k.1 as nat] == old(map)[k.1 as nat]
+                    &&& !r@.contains(k.1 as nat)
                 }
             },
         map.quorum_timestamp(r) == max_ts,
 ;
 
 pub axiom fn axiom_write_replies(
-    replies: &[(usize, ())],
+    replies: &BTreeMap<(u64, u64), ()>,
     tracked map: &mut ServerUniverse,
     exec_ts: Timestamp,
 ) -> (tracked r: Quorum)
@@ -156,21 +152,20 @@ pub axiom fn axiom_write_replies(
         map.inv(),
         r.inv(),
         map.valid_quorum(r),
-        forall|k: nat| #![trigger map.contains_key(k)] #![trigger old(map)[k]] #![trigger map[k]]
-            map.contains_key(k) ==> {
-                // this is derivable if replies come with lower bounds
-                &&& old(map)[k]@@.timestamp() <= map.map[k]@@.timestamp()
-                &&& exists|idx: nat|
-                    0 <= idx < replies.len() && #[trigger] replies[idx as int].0 == k ==> {
-                        &&& map[k]@@.timestamp() >= exec_ts
-                        &&& r@.contains(k)
+        // this is derivable if replies come with lower bounds
+        old(map).leq(*map),
+        forall|k: (u64, u64)| #![trigger map.contains_key(k.1 as nat)] #![trigger old(map)[k.1 as nat]] #![trigger map[k.1 as nat]]
+            map.contains_key(k.1 as nat) ==> {
+                &&& replies@.contains_key(k) ==> {
+                        &&& map[k.1 as nat]@@.timestamp() >= exec_ts
+                        &&& r@.contains(k.1 as nat)
                     }
-                &&& !(exists|idx: nat| 0 <= idx < replies.len() && #[trigger] replies[idx as int].0 == k) ==> {
-                    &&& map[k] == old(map)[k]
-                    &&& !r@.contains(k)
+                &&& !replies@.contains_key(k) ==> {
+                    &&& map[k.1 as nat] == old(map)[k.1 as nat]
+                    &&& !r@.contains(k.1 as nat)
                 }
             },
-        forall|k: nat| #[trigger] r@.contains(k) ==> map[k]@@.timestamp() >= exec_ts,
+        forall|k| #[trigger] r@.contains(k) ==> map[k]@@.timestamp() >= exec_ts,
 ;
 
 } // verus!

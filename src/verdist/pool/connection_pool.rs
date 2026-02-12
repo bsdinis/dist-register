@@ -6,6 +6,7 @@ use vstd::prelude::*;
 
 verus! {
 
+#[allow(dead_code)]
 type Resp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
 
 pub trait ConnectionPool {
@@ -25,8 +26,9 @@ pub trait ConnectionPool {
 
     spec fn qsize(self) -> nat;
 
+    #[allow(dead_code)]
     fn poll(&self, request_id: u64) -> Vec<
-        (usize, Result<Option<Resp<Self>>, crate::verdist::network::error::TryRecvError>),
+        (<Self::C as Channel>::Id, Result<Option<Resp<Self>>, crate::verdist::network::error::TryRecvError>),
     >;
 
     #[allow(unused)]
@@ -99,7 +101,7 @@ impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where C: Channel, C::R: T
     }
 
     fn poll(&self, request_tag: u64) -> Vec<
-        (usize, Result<Option<C::R>, crate::verdist::network::error::TryRecvError>),
+        (C::Id, Result<Option<C::R>, crate::verdist::network::error::TryRecvError>),
     > {
         let conns = self.conns();
 
@@ -108,7 +110,7 @@ impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where C: Channel, C::R: T
         for idx in 0..conns.len() {
             let channel = &conns[idx];
             let res = channel.try_recv_tag(request_tag);
-            v.push((idx, res));
+            v.push((channel.id(), res));
         }
 
         v

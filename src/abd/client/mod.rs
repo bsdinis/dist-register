@@ -25,11 +25,13 @@ use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::BroadcastPool;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
-use crate::verdist::rpc::Replies;
 
 pub mod error;
 mod net_axioms;
+mod net_invs;
 mod utils;
+
+use net_invs::*;
 
 use vstd::atomic::PAtomicU64;
 #[allow(unused_imports)]
@@ -41,6 +43,7 @@ use vstd::proph::Prophecy;
 #[allow(unused_imports)]
 use vstd::tokens::frac::GhostVarAuth;
 
+use std::hash::Hash;
 use std::sync::Arc;
 
 #[allow(unused_imports)]
@@ -231,7 +234,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
     RL,
 > where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
+    C: Channel<R = Tagged<Response>, S = Tagged<Request>, Id = (u64, u64)>,
+    C::Id: Eq + Hash,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
@@ -278,7 +282,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
-        let quorum_res = bpool.broadcast(Request::Get).wait_for(
+        let quorum_res = bpool.broadcast::<_, GetInv>(Request::Get, Ghost(GetInv{})).wait_for(
             (|s| -> (r: bool)
                 ensures r ==> s.spec_len() >= qsize,
             {
@@ -369,21 +373,10 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
-        let replies_result = bpool.broadcast_filter(
+        let replies_result = bpool.broadcast_filter::<_, _, WritebackInv>(
             Request::Write { val: max_val, timestamp: max_ts },
-            // writeback to replicas that did not have the maximum timestamp
-            |idx|
-                {
-                    let q_iter = quorum.replies().iter();
-                    for (nidx, (ts, _val)) in q_iter {
-                        if idx == *nidx && (ts.seqno != max_ts.seqno || ts.client_id
-                            != max_ts.client_id) {
-                            return true;
-                        }
-                    }
-
-                    false
-                },
+            Ghost(WritebackInv{}),
+            |id| replies.get(&id).map(|ts_v| ts_v.0 != max_ts).unwrap_or(false)
         )
         // bellow is error handling + type handling + logging stuff
         .wait_for(
@@ -529,7 +522,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             let ghost qsize = self.qsize();
             let bpool = BroadcastPool::new(&self.pool);
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast(Request::GetTimestamp).wait_for(
+            let quorum_res = bpool.broadcast::<_, GetTimestampInv>(Request::GetTimestamp, Ghost(GetTimestampInv{})).wait_for(
                 (|s| -> (r: bool)
                     ensures r ==> s.spec_len() >= qsize
                  { s.len() >= self.quorum_size() }),
@@ -624,7 +617,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         {
             let bpool = BroadcastPool::new(&self.pool);
             let ghost qsize = self.qsize();
-            let quorum_res = bpool.broadcast(Request::Write { val, timestamp: exec_ts }).wait_for(
+            #[allow(unused_parens)]
+            let quorum_res = bpool.broadcast::<_, WriteInv>(Request::Write { val, timestamp: exec_ts }, Ghost(WriteInv{})).wait_for(
                 (|s| -> (r: bool)
                     ensures r ==> s.spec_len() >= qsize
                  { s.len() >= self.quorum_size() }),
@@ -698,10 +692,9 @@ pub proof fn lemma_inv<Pool, C, ML, RL>(
     c: AbdPool<Pool, ML, RL>,
 ) where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
+    C: Channel<R = Tagged<Response>, S = Tagged<Request>, Id = (u64, u64)>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-
     ensures
         c._inv() <==> c.inv(),
 {

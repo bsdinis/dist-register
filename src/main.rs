@@ -408,7 +408,7 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     Error<WritePerm, GhostVar<Option<u64>>, ReadPerm<'a>, &'a GhostVar<Option<u64>>>,
 > where
     Conn: Connector<C> + Send + Sync,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>, Id = (u64, u64)>,
     C: Sync + Send,
 
     requires

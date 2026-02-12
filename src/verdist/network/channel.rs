@@ -45,15 +45,20 @@ pub assume_specification[ default_delay ]() -> (a: (Duration, Duration))
 ///
 /// The spec is in the type -- by virtue of having a type `R` the receiver learns something
 pub trait Channel {
+    /// Type being received
     type R;
 
+    /// Type being sent
     type S: Clone;
+
+    /// Id of the channel
+    type Id; // Id of the channel itself
 
     fn try_recv(&self) -> Result<Self::R, TryRecvError>;
 
     fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>>;
 
-    fn remote_id(&self) -> u64;
+    fn id(&self) -> Self::Id;
 
     fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {
     }
@@ -114,11 +119,11 @@ impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
 
 impl<C: Channel> Channel for BufChannel<C> {
     type R = C::R;
-
     type S = C::S;
+    type Id = C::Id;
 
-    fn remote_id(&self) -> u64 {
-        self.channel.remote_id()
+    fn id(&self) -> Self::Id {
+        self.channel.id()
     }
 
     fn try_recv(&self) -> Result<Self::R, TryRecvError> {

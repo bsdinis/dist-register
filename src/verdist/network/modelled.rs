@@ -46,6 +46,7 @@ pub struct ServerChannel<R, S> {
 impl<R, S: Clone> Channel for ClientChannel<R, S> {
     type R = R;
     type S = S;
+    type Id = (u64, u64);
 
     fn try_recv(&self) -> Result<R, crate::verdist::network::error::TryRecvError> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
@@ -65,8 +66,8 @@ impl<R, S: Clone> Channel for ClientChannel<R, S> {
         Ok(())
     }
 
-    fn remote_id(&self) -> u64 {
-        self.server_id
+    fn id(&self) -> Self::Id {
+        (self.client_id, self.server_id)
     }
 
     fn add_latency(&mut self, avg: std::time::Duration, stddev: std::time::Duration) {
@@ -82,6 +83,7 @@ impl<R, S: Clone> Channel for ClientChannel<R, S> {
 impl<R, S: Clone> Channel for ServerChannel<R, S> {
     type R = R;
     type S = S;
+    type Id = (u64, u64);
 
     fn try_recv(&self) -> Result<R, crate::verdist::network::error::TryRecvError> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
@@ -101,8 +103,8 @@ impl<R, S: Clone> Channel for ServerChannel<R, S> {
         Ok(())
     }
 
-    fn remote_id(&self) -> u64 {
-        self.client_id
+    fn id(&self) -> Self::Id {
+        (self.server_id, self.client_id)
     }
 
     fn add_latency(&mut self, avg: std::time::Duration, stddev: std::time::Duration) {

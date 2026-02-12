@@ -51,7 +51,7 @@ pub struct RegisterServer<L, C> {
 
 impl<L, C> RegisterServer<L, C> where
     L: Listener<C>,
-    C: Channel<R = Tagged<Request>, S = Tagged<Response>>,
+    C: Channel<R = Tagged<Request>, S = Tagged<Response>, Id = (u64, u64)>,
  {
     pub fn new(listener: L, id: u64) -> (r: Self)
         ensures
@@ -75,7 +75,7 @@ impl<L, C> RegisterServer<L, C> where
             self.inv(),
     {
         let (mut guard, handle) = self.connected.acquire_write();
-        guard.insert(channel.remote_id(), channel);
+        guard.insert(channel.id().1, channel);
         handle.release_write(guard);
     }
 

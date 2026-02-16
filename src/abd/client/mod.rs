@@ -274,10 +274,18 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             assert(state.inv());
         });
 
+        let req;
+        let pred;
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            let ghost old_servers = state.servers;
+            pred = Ghost(GetInv { old_servers });
+            req = Request::Get;
+        });
+
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
-        let quorum_res = bpool.broadcast::<_, GetInv>(Request::Get, Ghost(GetInv {  })).wait_for(
+        let quorum_res = bpool.broadcast::<_, GetInv>(req, pred).wait_for(
             (|s| -> (r: bool)
                 ensures
                     r ==> s.spec_len() >= qsize,

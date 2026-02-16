@@ -28,7 +28,10 @@ pub trait ConnectionPool {
 
     #[allow(dead_code)]
     fn poll(&self, request_id: u64) -> Vec<
-        (<Self::C as Channel>::Id, Result<Option<Resp<Self>>, crate::verdist::network::error::TryRecvError>),
+        (
+            <Self::C as Channel>::Id,
+            Result<Option<Resp<Self>>, crate::verdist::network::error::TryRecvError>,
+        ),
     >;
 
     #[allow(unused)]

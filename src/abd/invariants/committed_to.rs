@@ -57,8 +57,8 @@ impl Commitments {
                 &&& self.client_ctr_auth@[client_id].0 == self.client_perm[client_id].value()
                 &&& self.client_ctr_auth@[client_id].1 == self.client_perm[client_id].id()
             }
-        &&& forall|ts: Timestamp|
-            #[trigger] self.commitment_auth@.contains_key(ts) ==> {
+        &&& forall|ts: Timestamp| #[trigger]
+            self.commitment_auth@.contains_key(ts) ==> {
                 &&& self.client_ctr_auth@.contains_key(ts.client_id)
                 &&& ts.client_ctr < self.client_ctr_auth@[ts.client_id].0
             }

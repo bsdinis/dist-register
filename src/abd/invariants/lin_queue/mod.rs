@@ -99,7 +99,7 @@ impl<ML, RL> InsertError<ML, RL> {
 pub struct LinearizationQueue<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-{
+ {
     // commitment to values
     committed_to: GhostPersistentSubmap<Timestamp, Option<u64>>,
     // completed operations
@@ -152,7 +152,7 @@ pub struct LinQueueIds {
 impl<ML, RL> LinearizationQueue<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-{
+ {
     // basic invariant
     // - always true, asserts facts that are always true
     pub closed spec fn basic_inv(&self) -> bool {
@@ -164,10 +164,10 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         &&& self.pending_writes.dom().finite()
         &&& self.pending_reads.dom().finite()
         &&& self.committed_to@.contains_key(self.watermark@.timestamp())
-        &&& forall|ts: Timestamp|
-            #[trigger] self.committed_to@.contains_key(ts) ==> ts <= self.watermark@.timestamp()
-        &&& forall|ts: Timestamp|
-            #[trigger] self.write_token_map@.contains_key(ts) && ts <= self.watermark@.timestamp()
+        &&& forall|ts: Timestamp| #[trigger]
+            self.committed_to@.contains_key(ts) ==> ts <= self.watermark@.timestamp()
+        &&& forall|ts: Timestamp| #[trigger]
+            self.write_token_map@.contains_key(ts) && ts <= self.watermark@.timestamp()
                 ==> self.committed_to@.contains_key(ts)
     }
 
@@ -183,8 +183,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         &&& self.completed_writes.dom() <= self.committed_to@.dom()
         &&& self.completed_writes.dom().disjoint(self.pending_writes.dom())
         &&& self.committed_to@.dom().disjoint(self.pending_writes.dom())
-        &&& forall|ts: Timestamp|
-            #[trigger] self.completed_writes.contains_key(ts) ==> {
+        &&& forall|ts: Timestamp| #[trigger]
+            self.completed_writes.contains_key(ts) ==> {
                 let comp = self.completed_writes[ts];
                 &&& ts <= self.watermark@.timestamp()
                 &&& self.committed_to@.contains_key(ts)
@@ -195,8 +195,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                 &&& comp.commitment_id() == self.committed_to.id()
                 &&& comp.register_id() == self.register_id
             }
-        &&& forall|ts: Timestamp|
-            #[trigger] self.pending_writes.contains_key(ts) ==> {
+        &&& forall|ts: Timestamp| #[trigger]
+            self.pending_writes.contains_key(ts) ==> {
                 let pending = self.pending_writes[ts];
                 &&& ts > self.watermark@.timestamp()
                 &&& pending.timestamp() == ts
@@ -215,8 +215,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     }
 
     pub closed spec fn read_tok_inv(&self) -> bool {
-        forall|key: (Option<u64>, nat)|
-            #[trigger] self.read_token_map@.contains_key(key) ==> {
+        forall|key: (Option<u64>, nat)| #[trigger]
+            self.read_token_map@.contains_key(key) ==> {
                 let tok = self.read_token_map@[key];
                 &&& key.1 < self.next_read_op
                 &&& tok.min_ts.loc() == self.watermark.loc()
@@ -226,8 +226,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     }
 
     pub closed spec fn read_completed_inv(&self) -> bool {
-        forall|key: (Option<u64>, nat)|
-            #[trigger] self.completed_reads.contains_key(key) ==> {
+        forall|key: (Option<u64>, nat)| #[trigger]
+            self.completed_reads.contains_key(key) ==> {
                 let comp = self.completed_reads[key];
                 let token = self.read_token_map@[key];
                 &&& self.committed_to@.contains_key(comp.timestamp())
@@ -263,8 +263,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         &&& self.read_dom_composition()
         &&& self.read_tok_inv()
         &&& self.read_completed_inv()
-        &&& forall|key: (Option<u64>, nat)|
-            #[trigger] self.pending_reads.contains_key(key) ==> {
+        &&& forall|key: (Option<u64>, nat)| #[trigger]
+            self.pending_reads.contains_key(key) ==> {
                 let pending = self.pending_reads[key];
                 let token = self.read_token_map@[key];
                 &&& pending.value() == key.0
@@ -397,7 +397,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         ensures
             lb.loc() == old(lb).loc(),
             lb@ == old(lb)@,
-            lb@.timestamp() <= self.watermark()
+            lb@.timestamp() <= self.watermark(),
     {
         lb.lemma_lower_bound(&self.watermark);
     }
@@ -432,14 +432,16 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         token.agree(&self.read_token_map);
     }
 
-
     /// Get the tracked submap that corresponds to the committed_values
-    pub proof fn tracked_committed_values(tracked &self) -> (tracked r: &GhostPersistentSubmap<Timestamp, Option<u64>>)
+    pub proof fn tracked_committed_values(tracked &self) -> (tracked r: &GhostPersistentSubmap<
+        Timestamp,
+        Option<u64>,
+    >)
         requires
             self.inv(),
         ensures
             r.id() == self.committed_to_id(),
-            r@ == self.committed_values()
+            r@ == self.committed_values(),
     {
         &self.committed_to
     }
@@ -452,7 +454,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             self.outstanding_writes().dom() <= self.known_timestamps(),
             self.pending_writes().dom() <= self.known_timestamps(),
             self.completed_writes().dom() <= self.known_timestamps(),
-    {}
+    {
+    }
 }
 
 impl<ML, RL> LinearizationQueue<ML, RL> where
@@ -542,7 +545,9 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                     token.key(),
                     token.value(),
                 )
-                &&& self.pending_writes().dom() == old(self).pending_writes().dom().insert(token.key())
+                &&& self.pending_writes().dom() == old(self).pending_writes().dom().insert(
+                    token.key(),
+                )
             }),
             r is Err ==> ({
                 let err = r->Err_0;
@@ -735,8 +740,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             self.pending_reads_with_value(value).finite(),
             self.pending_reads_with_value(value) <= self.pending_reads.dom(),
             self.pending_reads_with_value(value).len() <= self.pending_reads.dom().len(),
-            forall|x: (Option<u64>, nat)|
-                #[trigger] self.pending_reads_with_value(value).contains(x) ==> x.0 == value,
+            forall|x: (Option<u64>, nat)| #[trigger]
+                self.pending_reads_with_value(value).contains(x) ==> x.0 == value,
     {
         self.pending_reads.dom().lemma_len_filter(|k: (Option<u64>, nat)| k.0 == value);
         lemma_len_subset(self.pending_reads_with_value(value), self.pending_reads.dom());
@@ -754,7 +759,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             old(self).current_value() == old(register)@,
             old(self).known_timestamps().contains(max_timestamp),
         ensures
-            // invariants + ids
+    // invariants + ids
+
             self.inv(),
             self.ids() == old(self).ids(),
             self.current_value() == register@,
@@ -819,8 +825,8 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             self.pending_writes.dom(),
         ));
 
-        assert forall|ts: Timestamp| #[trigger] self.pending_writes.contains_key(ts)
-            implies ts > self.watermark@.timestamp() by {
+        assert forall|ts: Timestamp| #[trigger] self.pending_writes.contains_key(ts) implies ts
+            > self.watermark@.timestamp() by {
             assert_by_contradiction!(ts > self.watermark@.timestamp(), {
                 if ts > old_watermark && ts < next_ts {
                     pending_writes.lemma_minimal_equivalent_least(ts_leq, next_ts);
@@ -874,24 +880,25 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         let pending_reads = self.pending_reads_with_value(value);
         self.lemma_pending_reads(value);
         if pending_reads.len() == 0 {
-            assert forall|key: (Option<u64>, nat)| #[trigger] self.pending_reads.contains_key(key) implies {
+            assert forall|key: (Option<u64>, nat)| #[trigger]
+                self.pending_reads.contains_key(key) implies {
                 let pending = self.pending_reads[key];
                 let token = self.read_token_map@[key];
-                forall|ts: Timestamp| {
-                    &&& token.min_ts@.timestamp() <= ts
-                    &&& ts <= self.watermark@.timestamp()
-                    &&& #[trigger] self.committed_to@.contains_key(ts)
-                } ==> {
-                    self.committed_to@[ts] != pending.value()
-                }
+                forall|ts: Timestamp|
+                    {
+                        &&& token.min_ts@.timestamp() <= ts
+                        &&& ts <= self.watermark@.timestamp()
+                        &&& #[trigger] self.committed_to@.contains_key(ts)
+                    } ==> { self.committed_to@[ts] != pending.value() }
             } by {
                 let pending = self.pending_reads[key];
                 let token = self.read_token_map@[key];
-                assert forall|ts: Timestamp| {
-                    &&& token.min_ts@.timestamp() <= ts
-                    &&& ts <= self.watermark@.timestamp()
-                    &&& #[trigger] self.committed_to@.contains_key(ts)
-                } implies self.committed_to@[ts] != pending.value() by {
+                assert forall|ts: Timestamp|
+                    {
+                        &&& token.min_ts@.timestamp() <= ts
+                        &&& ts <= self.watermark@.timestamp()
+                        &&& #[trigger] self.committed_to@.contains_key(ts)
+                    } implies self.committed_to@[ts] != pending.value() by {
                     if ts == self.watermark@.timestamp() {
                         assert_by_contradiction!(self.committed_to@[ts] != pending.value(), {
                             assert(self.pending_reads_with_value(pending.value()).contains(key)); // trigger

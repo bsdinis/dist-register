@@ -11,28 +11,30 @@ use vstd::prelude::*;
 
 verus! {
 
-pub struct RequestContext<'a, Pool: ConnectionPool, T, Pred>
-    where Pred: InvariantPredicate<Pred, RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>>
-{
+pub struct RequestContext<'a, Pool: ConnectionPool, T, Pred> where
+    Pred: InvariantPredicate<
+        Pred,
+        RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>,
+    >,
+ {
     pub pool: &'a Pool,
     pub request_tag: u64,
     #[allow(dead_code)]
     pub replies: Replies<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R, Pred>,
 }
 
-impl<'a, Pool: ConnectionPool, T, Pred> RequestContext<'a, Pool, T, Pred>
-    where Pred: InvariantPredicate<Pred, RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>>,
-{
+impl<'a, Pool: ConnectionPool, T, Pred> RequestContext<'a, Pool, T, Pred> where
+    Pred: InvariantPredicate<
+        Pred,
+        RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>,
+    >,
+ {
     pub fn new(pool: &'a Pool, request_tag: u64, pred: Ghost<Pred>) -> Self
         requires
             Pred::inv(pred@, RepliesView::empty()),
             vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
     {
-        RequestContext {
-            pool,
-            request_tag,
-            replies: Replies::new(pred),
-        }
+        RequestContext { pool, request_tag, replies: Replies::new(pred) }
     }
 
     #[allow(dead_code)]
@@ -56,36 +58,37 @@ impl<'a, Pool: ConnectionPool, T, Pred> RequestContext<'a, Pool, T, Pred>
         Replies<<Pool::C as Channel>::Id, T, Resp<Pool>, Pred>,
         Replies<<Pool::C as Channel>::Id, T, Resp<Pool>, Pred>,
     >) where
-        F: Fn(&Replies<<Pool::C as Channel>::Id,T, <Pool::C as Channel>::R, Pred>) -> bool,
+        F: Fn(&Replies<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R, Pred>) -> bool,
         V: Fn(<Pool::C as Channel>::R) -> Result<T, <Pool::C as Channel>::R>,
+
         requires
-            forall |replies| termination_cond.requires((&replies,)),
-            forall |r| extractor_fn.requires((r,)),
-            // vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
+            forall|replies| termination_cond.requires((&replies,)),
+            forall|r|
+                extractor_fn.requires(
+                    (r,),
+                ),
+    // vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
+
         ensures
-            r is Ok ==> call_ensures(termination_cond, (&r->Ok_0,), true)
-     {
+            r is Ok ==> call_ensures(termination_cond, (&r->Ok_0,), true),
+    {
         let mut self_mut = self;
         loop
             invariant
-                forall |replies| termination_cond.requires((&replies,)),
-                forall |r| extractor_fn.requires((r,)),
+                forall|replies| termination_cond.requires((&replies,)),
+                forall|r| extractor_fn.requires((r,)),
         {
             if termination_cond(&self_mut.replies) {
-                return Ok(
-                    self_mut.replies
-                );
+                return Ok(self_mut.replies);
             }
-            if self_mut.replies.len() >= self_mut.pool.quorum_size() || self_mut.replies.n_received() >= self_mut.pool.n_nodes() {
-                return Err(
-                    self_mut.replies
-                );
+            if self_mut.replies.len() >= self_mut.pool.quorum_size()
+                || self_mut.replies.n_received() >= self_mut.pool.n_nodes() {
+                return Err(self_mut.replies);
             }
-
             let it = self_mut.pool.poll(self_mut.request_tag);
             for (idx, response) in it
                 invariant
-                    forall |r| extractor_fn.requires((r,)),
+                    forall|r| extractor_fn.requires((r,)),
             {
                 match response {
                     Ok(Some(r)) => {

@@ -8,10 +8,10 @@ use vstd::prelude::*;
 
 verus! {
 
-pub struct Replies<ChanId, T, R, Pred>
-    where Pred: InvariantPredicate<Pred, RepliesView<ChanId, T, R>>,
-          ChanId: Ord,
-{
+pub struct Replies<ChanId, T, R, Pred> where
+    Pred: InvariantPredicate<Pred, RepliesView<ChanId, T, R>>,
+    ChanId: Ord,
+ {
     replies: BTreeMap<ChanId, T>,
     invalid_replies: BTreeMap<ChanId, R>,
     errors: BTreeMap<ChanId, TryRecvError>,
@@ -27,18 +27,14 @@ pub struct RepliesView<ChanId, T, R> {
 
 impl<ChanId, T, R> RepliesView<ChanId, T, R> {
     pub open spec fn empty() -> Self {
-        RepliesView {
-            replies: Map::empty(),
-            invalid_replies: Map::empty(),
-            errors: Map::empty(),
-        }
+        RepliesView { replies: Map::empty(), invalid_replies: Map::empty(), errors: Map::empty() }
     }
 }
 
-impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred>
-    where Pred: InvariantPredicate<Pred, RepliesView<ChanId, T, R>>,
-          ChanId: Ord
-{
+impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred> where
+    Pred: InvariantPredicate<Pred, RepliesView<ChanId, T, R>>,
+    ChanId: Ord,
+ {
     pub closed spec fn view(self) -> RepliesView<ChanId, T, R> {
         RepliesView {
             replies: self.replies@,
@@ -46,14 +42,20 @@ impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred>
             errors: self.errors@,
         }
     }
+
     pub fn new(pred: Ghost<Pred>) -> (r: Self)
         requires
             Pred::inv(pred@, RepliesView::empty()),
             vstd::std_specs::btree::obeys_key_model::<ChanId>(),
         ensures
-            r@ == RepliesView::<ChanId, T, R>::empty()
+            r@ == RepliesView::<ChanId, T, R>::empty(),
     {
-        Replies { replies: BTreeMap::new(), invalid_replies: BTreeMap::new(), errors: BTreeMap::new(), pred }
+        Replies {
+            replies: BTreeMap::new(),
+            invalid_replies: BTreeMap::new(),
+            errors: BTreeMap::new(),
+            pred,
+        }
     }
 
     #[verifier::type_invariant]
@@ -64,7 +66,8 @@ impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred>
     }
 
     pub fn len(&self) -> (r: usize)
-        ensures r == self.spec_len()
+        ensures
+            r == self.spec_len(),
     {
         self.replies.len()
     }
@@ -81,13 +84,15 @@ impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred>
     }
 
     pub fn replies(&self) -> (r: &BTreeMap<ChanId, T>)
-        ensures r.len() == self.spec_len()
+        ensures
+            r.len() == self.spec_len(),
     {
         &self.replies
     }
 
     pub fn into_replies(self) -> (r: BTreeMap<ChanId, T>)
-        ensures r.len() == self.spec_len()
+        ensures
+            r.len() == self.spec_len(),
     {
         self.replies
     }
@@ -119,11 +124,14 @@ impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred>
         }
         // XXX: integer overflow
         assume(self.replies.len() + self.invalid_replies.len() + self.errors.len() < usize::MAX);
-        assume(Pred::inv(self.pred@, RepliesView {
-            replies: self@.replies.insert(id, v),
-            invalid_replies: self@.invalid_replies,
-            errors: self@.errors,
-        }));
+        assume(Pred::inv(
+            self.pred@,
+            RepliesView {
+                replies: self@.replies.insert(id, v),
+                invalid_replies: self@.invalid_replies,
+                errors: self@.errors,
+            },
+        ));
         Self::insert_helper(&mut self.replies, id, v);
     }
 
@@ -137,11 +145,14 @@ impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred>
             use_type_invariant(&*self);
         }
         assume(self.replies.len() + self.invalid_replies.len() + self.errors.len() < usize::MAX);
-        assume(Pred::inv(self.pred@, RepliesView {
-            replies: self@.replies,
-            invalid_replies: self@.invalid_replies.insert(id, resp),
-            errors: self@.errors,
-        }));
+        assume(Pred::inv(
+            self.pred@,
+            RepliesView {
+                replies: self@.replies,
+                invalid_replies: self@.invalid_replies.insert(id, resp),
+                errors: self@.errors,
+            },
+        ));
         Self::insert_helper(&mut self.invalid_replies, id, resp);
     }
 
@@ -155,23 +166,27 @@ impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred>
             use_type_invariant(&*self);
         }
         assume(self.replies.len() + self.invalid_replies.len() + self.errors.len() < usize::MAX);
-        assume(Pred::inv(self.pred@, RepliesView {
-            replies: self@.replies,
-            invalid_replies: self@.invalid_replies,
-            errors: self@.errors.insert(id, resp),
-        }));
+        assume(Pred::inv(
+            self.pred@,
+            RepliesView {
+                replies: self@.replies,
+                invalid_replies: self@.invalid_replies,
+                errors: self@.errors.insert(id, resp),
+            },
+        ));
         Self::insert_helper(&mut self.errors, id, resp);
     }
 
     // This helps bypass the no_unwind requirement on Self, which has a type invariant
     fn insert_helper<K: Ord, V>(map: &mut BTreeMap<K, V>, k: K, v: V)
         requires
-            vstd::std_specs::btree::obeys_key_model::<K>()
+            vstd::std_specs::btree::obeys_key_model::<K>(),
         ensures
-            map@ == old(map)@.insert(k, v)
+            map@ == old(map)@.insert(k, v),
         no_unwind
     {
         broadcast use vstd::std_specs::btree::group_btree_axioms;
+
         map.insert(k, v);
     }
 }

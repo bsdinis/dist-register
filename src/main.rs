@@ -427,11 +427,12 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         &pool,
         client_ctr_perm,
     );
-    let client = AbdPool::<
-        _,
-        WritePerm,
-        ReadPerm<'_>,
-    >::new(pool, client_ctr, client_ctr_token, state_inv);
+    let client = AbdPool::<_, WritePerm, ReadPerm<'_>>::new(
+        pool,
+        client_ctr,
+        client_ctr_token,
+        state_inv,
+    );
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     let tracked view = view.get();
     report_quorum_size(client.quorum_size());

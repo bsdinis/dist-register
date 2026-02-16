@@ -148,7 +148,7 @@ pub trait AbdRegisterClient<C, ML, RL> where
 pub struct AbdPool<Pool, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-{
+ {
     pool: Pool,
     register_id: Ghost<int>,
     state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
@@ -201,7 +201,8 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
     }
 
     pub fn quorum_size(&self) -> (r: usize)
-        ensures r == self.qsize()
+        ensures
+            r == self.qsize(),
     {
         self.pool.quorum_size()
     }
@@ -228,11 +229,7 @@ pub struct AbdRegisterLocs {
     pub client_ctr_token_id: int,
 }
 
-impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
-    Pool,
-    ML,
-    RL,
-> where
+impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>, Id = (u64, u64)>,
     C::Id: Eq + Hash,
@@ -282,12 +279,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
-        let quorum_res = bpool.broadcast::<_, GetInv>(Request::Get, Ghost(GetInv{})).wait_for(
+        let quorum_res = bpool.broadcast::<_, GetInv>(Request::Get, Ghost(GetInv {  })).wait_for(
             (|s| -> (r: bool)
-                ensures r ==> s.spec_len() >= qsize,
-            {
-                s.len() >= self.quorum_size()
-            }),
+                ensures
+                    r ==> s.spec_len() >= qsize,
+                { s.len() >= self.quorum_size() }),
             |r|
                 match r.clone().into_inner() {
                     Response::Get { timestamp, val, .. } => Ok((timestamp, val)),
@@ -375,15 +371,16 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
         #[allow(unused_parens)]
         let replies_result = bpool.broadcast_filter::<_, _, WritebackInv>(
             Request::Write { val: max_val, timestamp: max_ts },
-            Ghost(WritebackInv{}),
-            |id| replies.get(&id).map(|ts_v| ts_v.0 != max_ts).unwrap_or(false)
+            Ghost(WritebackInv {  }),
+            |id| replies.get(&id).map(|ts_v| ts_v.0 != max_ts).unwrap_or(false),
         )
         // bellow is error handling + type handling + logging stuff
         .wait_for(
             (|s| -> (r: bool)
-                ensures r ==> s.spec_len() + n_max_ts >= qsize
+                ensures
+                    r ==> s.spec_len() + n_max_ts >= qsize,
                 {
-                    assume(s.spec_len() + n_max_ts < usize::MAX); // XXX: integer overflow
+                    assume(s.spec_len() + n_max_ts < usize::MAX);  // XXX: integer overflow
                     s.len() + n_max_ts >= self.quorum_size()
                 }),
             |r|
@@ -522,10 +519,14 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             let ghost qsize = self.qsize();
             let bpool = BroadcastPool::new(&self.pool);
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast::<_, GetTimestampInv>(Request::GetTimestamp, Ghost(GetTimestampInv{})).wait_for(
+            let quorum_res = bpool.broadcast::<_, GetTimestampInv>(
+                Request::GetTimestamp,
+                Ghost(GetTimestampInv {  }),
+            ).wait_for(
                 (|s| -> (r: bool)
-                    ensures r ==> s.spec_len() >= qsize
-                 { s.len() >= self.quorum_size() }),
+                    ensures
+                        r ==> s.spec_len() >= qsize,
+                    { s.len() >= self.quorum_size() }),
                 |r|
                     match r.deref() {
                         Response::GetTimestamp { timestamp, .. } => Ok(*timestamp),
@@ -618,10 +619,14 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
             let bpool = BroadcastPool::new(&self.pool);
             let ghost qsize = self.qsize();
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast::<_, WriteInv>(Request::Write { val, timestamp: exec_ts }, Ghost(WriteInv{})).wait_for(
+            let quorum_res = bpool.broadcast::<_, WriteInv>(
+                Request::Write { val, timestamp: exec_ts },
+                Ghost(WriteInv {  }),
+            ).wait_for(
                 (|s| -> (r: bool)
-                    ensures r ==> s.spec_len() >= qsize
-                 { s.len() >= self.quorum_size() }),
+                    ensures
+                        r ==> s.spec_len() >= qsize,
+                    { s.len() >= self.quorum_size() }),
                 |r|
                     match r.deref() {
                         Response::Write { .. } => Ok(()),
@@ -688,13 +693,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<
     }
 }
 
-pub proof fn lemma_inv<Pool, C, ML, RL>(
-    c: AbdPool<Pool, ML, RL>,
-) where
+pub proof fn lemma_inv<Pool, C, ML, RL>(c: AbdPool<Pool, ML, RL>) where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Tagged<Response>, S = Tagged<Request>, Id = (u64, u64)>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
+
     ensures
         c._inv() <==> c.inv(),
 {
@@ -753,9 +757,7 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
         state.linearization_queue.lemma_watermark_lb(&mut watermark_lb);
         assert(watermark_lb@.timestamp() <= state.linearization_queue.watermark());
         // curr_watermark <= quorum.timestamp() (forall valid quorums)
-        assert(state.linearization_queue.watermark() <= state.servers.quorum_timestamp(
-            quorum,
-        ));
+        assert(state.linearization_queue.watermark() <= state.servers.quorum_timestamp(quorum));
         // quorum.timestamp() < proph_ts (by construction)
         assert(state.servers.quorum_timestamp(quorum) < timestamp);
         // CONTRADICTION

@@ -32,10 +32,14 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         request: Request,
         pred: Ghost<Pred>,
         filter_fn: F,
-    ) -> RequestContext<'a, Pool, T, Pred>
-        where Pred: InvariantPredicate<Pred, RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>>
+    ) -> RequestContext<'a, Pool, T, Pred> where
+        Pred: InvariantPredicate<
+            Pred,
+            RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>,
+        >,
+
         requires
-            forall |id| filter_fn.requires((id,)),
+            forall|id| filter_fn.requires((id,)),
             Pred::inv(pred@, RepliesView::empty()),
             vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
     {
@@ -43,7 +47,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         let conns = self.pool.conns();
         for idx in 0..conns.len()
             invariant
-                forall |id| filter_fn.requires((id,))
+                forall|id| filter_fn.requires((id,)),
         {
             let channel = &conns[idx];
             if filter_fn(channel.id()) {
@@ -57,8 +61,12 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         self,
         request: <<Pool::C as Channel>::S as TaggedMessage>::Inner,
         pred: Ghost<Pred>,
-    ) -> RequestContext<'a, Pool, T, Pred>
-        where Pred: InvariantPredicate<Pred, RepliesView<<Pool::C as Channel>::Id,T, <Pool::C as Channel>::R>>
+    ) -> RequestContext<'a, Pool, T, Pred> where
+        Pred: InvariantPredicate<
+            Pred,
+            RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>,
+        >,
+
         requires
             Pred::inv(pred@, RepliesView::empty()),
             vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),

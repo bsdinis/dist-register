@@ -51,10 +51,7 @@ pub struct StatePredicate {
     pub commitments_ids: CommitmentIds,
 }
 
-pub struct State<ML, RL> where
-    ML: MutLinearizer<RegisterWrite>,
-    RL: ReadLinearizer<RegisterRead>,
-{
+pub struct State<ML, RL> where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead> {
     pub tracked register: GhostVarAuth<Option<u64>>,
     pub tracked linearization_queue: LinearizationQueue<ML, RL>,
     pub tracked servers: ServerUniverse,
@@ -78,21 +75,18 @@ impl<ML, RL> State<ML, RL> where
         // matching state
         &&& self.linearization_queue.current_value() == self.register@
         &&& self.linearization_queue.known_timestamps() == self.commitments.allocated().dom()
-        &&& forall|q: Quorum|
-            #[trigger] self.servers.valid_quorum(q) ==> {
+        &&& forall|q: Quorum| #[trigger]
+            self.servers.valid_quorum(q) ==> {
                 self.linearization_queue.watermark() <= self.servers.quorum_timestamp(q)
             }
     }
 }
 
-impl<ML, RL> InvariantPredicate<
-    StatePredicate,
-    State<ML, RL>,
-> for StatePredicate where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead> {
-    open spec fn inv(
-        p: StatePredicate,
-        state: State<ML, RL>,
-    ) -> bool {
+impl<ML, RL> InvariantPredicate<StatePredicate, State<ML, RL>> for StatePredicate where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+ {
+    open spec fn inv(p: StatePredicate, state: State<ML, RL>) -> bool {
         &&& p.register_id == state.register.id()
         &&& p.lin_queue_ids == state.linearization_queue.ids()
         &&& p.server_locs == state.servers.locs()
@@ -101,11 +95,7 @@ impl<ML, RL> InvariantPredicate<
     }
 }
 
-pub type StateInvariant<ML, RL> = AtomicInvariant<
-    StatePredicate,
-    State<ML, RL>,
-    StatePredicate,
->;
+pub type StateInvariant<ML, RL> = AtomicInvariant<StatePredicate, State<ML, RL>, StatePredicate>;
 
 pub type RegisterView = GhostVar<Option<u64>>;
 

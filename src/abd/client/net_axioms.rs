@@ -45,13 +45,13 @@ pub axiom fn axiom_get_unanimous_replies(
         // this is derivable if replies come with lower bounds
         old(map).leq(*map),
         forall|k: (u64, u64)|
-            #![trigger map.contains_key(k.1 as nat)]
-            #![trigger old(map)[k.1 as nat]]
-            #![trigger map[k.1 as nat]]
-            map.contains_key(k.1 as nat) ==> {
-                &&& old(map)[k.1 as nat]@@.timestamp() <= map[k.1 as nat]@@.timestamp()
-                &&& replies@.contains_key(k) ==> map[k.1 as nat]@@.timestamp() == replies[k].0
-                &&& !replies@.contains_key(k) ==> map[k.1 as nat] == old(map)[k.1 as nat]
+            #![trigger map.contains_key(k.1)]
+            #![trigger old(map)[k.1]]
+            #![trigger map[k.1]]
+            map.contains_key(k.1) ==> {
+                &&& old(map)[k.1]@@.timestamp() <= map[k.1]@@.timestamp()
+                &&& replies@.contains_key(k) ==> map[k.1]@@.timestamp() == replies[k].0
+                &&& !replies@.contains_key(k) ==> map[k.1] == old(map)[k.1]
             },
         forall|k| #[trigger] r.0@.contains(k) ==> map[k]@@.timestamp() == max_ts,
         min_ts <= max_ts,
@@ -87,20 +87,20 @@ pub axiom fn axiom_writeback_unanimous_replies(
         // this is derivable if replies come with lower bounds
         old(map).leq(*map),
         forall|k: (u64, u64)|
-            #![trigger map.contains_key(k.1 as nat)]
-            #![trigger old(map)[k.1 as nat]]
-            #![trigger map[k.1 as nat]]
-            map.contains_key(k.1 as nat) ==> {
+            #![trigger map.contains_key(k.1)]
+            #![trigger old(map)[k.1]]
+            #![trigger map[k.1]]
+            map.contains_key(k.1) ==> {
                 &&& get_replies@.contains_key(k) ==> {
                     let get_ts = get_replies[k].0;
                     ({
-                        ||| get_ts == max_ts ==> map[k.1 as nat]@@.timestamp() == get_ts
-                        ||| wb_replies@.contains_key(k) ==> map[k.1 as nat]@@.timestamp() == max_ts
-                    }) && r.0@.contains(k.1 as nat)
+                        ||| get_ts == max_ts ==> map[k.1]@@.timestamp() == get_ts
+                        ||| wb_replies@.contains_key(k) ==> map[k.1]@@.timestamp() == max_ts
+                    }) && r.0@.contains(k.1)
                 }
                 &&& !get_replies@.contains_key(k) ==> {
-                    &&& map[k.1 as nat] == old(map)[k.1 as nat]
-                    &&& !r.0@.contains(k.1 as nat)
+                    &&& map[k.1] == old(map)[k.1]
+                    &&& !r.0@.contains(k.1)
                 }
             },
         forall|k| #[trigger] r.0@.contains(k) ==> map[k]@@.timestamp() == max_ts,
@@ -127,17 +127,17 @@ pub axiom fn axiom_get_ts_replies(
         // this is derivable if replies come with lower bounds
         old(map).leq(*map),
         forall|k: (u64, u64)|
-            #![trigger map.contains_key(k.1 as nat)]
-            #![trigger old(map)[k.1 as nat]]
-            #![trigger map[k.1 as nat]]
-            map.contains_key(k.1 as nat) ==> {
+            #![trigger map.contains_key(k.1)]
+            #![trigger old(map)[k.1]]
+            #![trigger map[k.1]]
+            map.contains_key(k.1) ==> {
                 &&& replies@.contains_key(k) ==> {
-                    &&& map[k.1 as nat]@@.timestamp() == replies[k]
-                    &&& r@.contains(k.1 as nat)
+                    &&& map[k.1]@@.timestamp() == replies[k]
+                    &&& r@.contains(k.1)
                 }
                 &&& !replies@.contains_key(k) ==> {
-                    &&& map[k.1 as nat] == old(map)[k.1 as nat]
-                    &&& !r@.contains(k.1 as nat)
+                    &&& map[k.1] == old(map)[k.1]
+                    &&& !r@.contains(k.1)
                 }
             },
         map.quorum_timestamp(r) == max_ts,
@@ -164,17 +164,17 @@ pub axiom fn axiom_write_replies(
         // this is derivable if replies come with lower bounds
         old(map).leq(*map),
         forall|k: (u64, u64)|
-            #![trigger map.contains_key(k.1 as nat)]
-            #![trigger old(map)[k.1 as nat]]
-            #![trigger map[k.1 as nat]]
-            map.contains_key(k.1 as nat) ==> {
+            #![trigger map.contains_key(k.1)]
+            #![trigger old(map)[k.1]]
+            #![trigger map[k.1]]
+            map.contains_key(k.1) ==> {
                 &&& replies@.contains_key(k) ==> {
-                    &&& map[k.1 as nat]@@.timestamp() >= exec_ts
-                    &&& r@.contains(k.1 as nat)
+                    &&& map[k.1]@@.timestamp() >= exec_ts
+                    &&& r@.contains(k.1)
                 }
                 &&& !replies@.contains_key(k) ==> {
-                    &&& map[k.1 as nat] == old(map)[k.1 as nat]
-                    &&& !r@.contains(k.1 as nat)
+                    &&& map[k.1] == old(map)[k.1]
+                    &&& !r@.contains(k.1)
                 }
             },
         forall|k| #[trigger] r@.contains(k) ==> map[k]@@.timestamp() >= exec_ts,

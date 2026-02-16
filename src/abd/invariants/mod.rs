@@ -46,7 +46,7 @@ pub open spec fn state_inv_id() -> int {
 pub struct StatePredicate {
     pub lin_queue_ids: LinQueueIds,
     pub register_id: int,
-    pub server_locs: Map<nat, int>,
+    pub server_locs: Map<u64, int>,
     pub commitments_ids: CommitmentIds,
 }
 

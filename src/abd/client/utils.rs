@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::abd::proto::Timestamp;
 
 use vstd::prelude::*;
-#[cfg(verus_keep_ghost)]
+#[cfg(verus_only)]
 use vstd::std_specs::btree::BTreeMapAdditionalSpecFns;
 
 verus! {

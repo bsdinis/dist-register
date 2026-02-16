@@ -1,4 +1,3 @@
-#![cfg_attr(verus_keep_ghost, verus::trusted)]
 #![allow(dead_code)]
 
 #[allow(unused_imports)]

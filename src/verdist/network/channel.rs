@@ -53,7 +53,8 @@ pub trait Channel {
 
     /// Id of the channel
     type Id: Ord;
-      // Id of the channel itself
+
+    // Id of the channel itself
     fn try_recv(&self) -> Result<Self::R, TryRecvError>;
 
     fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>>;

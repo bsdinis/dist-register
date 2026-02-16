@@ -1,5 +1,3 @@
-#![cfg_attr(verus_keep_ghost, verus::trusted)]
-
 #[allow(unused_imports)]
 use crate::abd::invariants;
 #[allow(unused_imports)]

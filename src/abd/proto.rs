@@ -11,7 +11,7 @@ pub struct Timestamp {
     pub client_ctr: u64,
 }
 
-#[cfg(verus_keep_ghost)]
+#[cfg(verus_only)]
 impl vstd::std_specs::cmp::PartialOrdSpecImpl for Timestamp {
     open spec fn obeys_partial_cmp_spec() -> bool {
         true
@@ -31,7 +31,7 @@ impl vstd::std_specs::cmp::PartialOrdSpecImpl for Timestamp {
     }
 }
 
-#[cfg(verus_keep_ghost)]
+#[cfg(verus_only)]
 impl vstd::std_specs::cmp::OrdSpecImpl for Timestamp {
     open spec fn obeys_cmp_spec() -> bool {
         true

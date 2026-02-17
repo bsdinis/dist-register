@@ -28,8 +28,7 @@ impl ServerUniverse {
             forall|q: Quorum| #[trigger]
                 r.valid_quorum(q) ==> r.quorum_timestamp(q) >= Timestamp::spec_default(),
     {
-        let tracked set = ServerUniverse { map: Map::tracked_empty() };
-        set
+        ServerUniverse { map: Map::tracked_empty() }
     }
 
     pub open spec fn inv(self) -> bool {
@@ -366,6 +365,63 @@ impl ServerUniverse {
 
             });
         }
+    }
+
+    pub proof fn extract_lbs(tracked &self) -> (tracked r: ServerUniverse)
+        requires
+            self.inv(),
+        ensures
+            r.inv(),
+            self.leq(r),
+            r.leq(*self),
+    {
+        let tracked mut map = Map::tracked_empty();
+        Self::duplicate_map(&self.map, &mut map);
+
+        ServerUniverse { map }
+    }
+
+    proof fn duplicate_map(
+        tracked m: &Map<u64, Tracked<MonotonicTimestampResource>>,
+        tracked other: &mut Map<u64, Tracked<MonotonicTimestampResource>>,
+    )
+        requires
+            m.dom().finite(),
+            old(other).dom().finite(),
+            forall|k| #[trigger]
+                old(other).contains_key(k) ==> {
+                    &&& m.contains_key(k) && old(other)[k]@@ is LowerBound && old(
+                        other,
+                    )[k]@@.timestamp() == m[k]@@.timestamp() && old(other)[k]@.loc() == m[k]@.loc()
+                },
+            old(other).map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc())
+                <= m.map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc()),
+        ensures
+            other.dom().finite(),
+            other.dom() == m.dom(),
+            forall|k| #[trigger]
+                other.contains_key(k) ==> {
+                    &&& m.contains_key(k) && other[k]@@ is LowerBound && other[k]@@.timestamp()
+                        == m[k]@@.timestamp() && other[k]@.loc() == m[k]@.loc()
+                },
+            other.map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc()) == m.map_values(
+                |r: Tracked<MonotonicTimestampResource>| r@.loc(),
+            ),
+        decreases m.dom().difference(old(other).dom()).len(),
+    {
+        broadcast use vstd::set::Set::lemma_set_insert_diff_decreases;
+
+        let ghost diff = m.dom().difference(other.dom());
+        diff.lemma_len0_is_empty();
+        if diff.len() == 0 {
+            vlib::set::lemma_different_sets_with_inclusion_have_difference(other.dom(), m.dom());
+            return ;
+        }
+        let new_k = diff.choose();
+        let tracked lb = m.tracked_borrow(new_k).borrow().extract_lower_bound();
+        other.tracked_insert(new_k, Tracked(lb));
+
+        Self::duplicate_map(m, other)
     }
 }
 

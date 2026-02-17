@@ -15,6 +15,7 @@ use crate::abd::invariants::quorum::ServerUniverse;
 #[allow(unused_imports)]
 use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
+use crate::abd::proto::GetRequest;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::timestamp::Timestamp;
@@ -274,13 +275,15 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             assert(state.inv());
         });
 
-        let req;
+        let tracked server_lbs;
         let pred;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
-            let ghost old_servers = state.servers;
-            pred = Ghost(GetInv { old_servers });
-            req = Request::Get;
+            proof {
+                server_lbs = state.servers.extract_lbs();
+            }
+            pred = Ghost(GetInv { old_servers: server_lbs });
         });
+        let req = Request::Get(GetRequest::new(Tracked(server_lbs)));
 
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);

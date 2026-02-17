@@ -97,12 +97,9 @@ impl vstd::rwlock::RwLockPredicate<MonotonicRegisterInner> for MonotonicRegister
 
 pub struct MonotonicRegister {
     inner: RwLock<MonotonicRegisterInner, MonotonicRegisterInv>,
-    #[allow(dead_code)]
-    resource_loc: Ghost<int>,
 }
 
 impl MonotonicRegister {
-    // return the register and the lower bound
     pub fn default() -> (r: Self)
         ensures
             r.inv(),
@@ -115,16 +112,16 @@ impl MonotonicRegister {
         assert(<MonotonicRegisterInv as vstd::rwlock::RwLockPredicate<_>>::inv(pred@, inner_reg));
         let inner = RwLock::new(inner_reg, pred);
 
-        MonotonicRegister { inner, resource_loc }
+        MonotonicRegister { inner }
     }
 
     #[verifier::type_invariant]
     pub closed spec fn inv(&self) -> bool {
-        self.inner.pred() == MonotonicRegisterInv { resource_loc: self.resource_loc }
+        true
     }
 
     pub closed spec fn loc(&self) -> Ghost<int> {
-        self.resource_loc
+        self.inner.pred().resource_loc
     }
 
     pub fn read(&self) -> (r: MonotonicRegisterInner)

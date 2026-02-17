@@ -49,14 +49,19 @@ pub struct RegisterServer<L, C> {
     register: MonotonicRegister,
 }
 
+impl<L, C> RegisterServer<L, C> {
+    #[verifier::type_invariant]
+    pub closed spec fn inv(&self) -> bool {
+        &&& self.register.inv()
+    }
+}
+
 impl<L, C> RegisterServer<L, C> where
     L: Listener<C>,
     C: Channel<R = Tagged<Request>, S = Tagged<Response>, Id = (u64, u64)>,
  {
-    pub fn new(listener: L, id: u64) -> (r: Self)
-        ensures
-            r.inv(),
-    {
+    // TODO: add either atomic invariant or the half right to advance here (maybe the full right?)
+    pub fn new(listener: L, id: u64) -> (r: Self) {
         let register = MonotonicRegister::default();
         RegisterServer {
             id,
@@ -66,77 +71,57 @@ impl<L, C> RegisterServer<L, C> where
         }
     }
 
-    pub closed spec fn inv(&self) -> bool {
-        &&& self.register.inv()
-    }
-
-    fn accept(&self, channel: C)
-        requires
-            self.inv(),
-    {
+    fn accept(&self, channel: C) {
         let (mut guard, handle) = self.connected.acquire_write();
         guard.insert(channel.id().1, channel);
         handle.release_write(guard);
     }
 
-    fn handle_get(&self) -> Response
-        requires
-            self.inv(),
-    {
+    // TODO: must receive a lower bound here
+    fn handle_get(&self) -> Response {
         let MonotonicRegisterInner { val, timestamp, resource } = self.register.read();
 
         Response::Get { val, timestamp, lb: resource }
     }
 
-    fn handle_get_timestamp(&self) -> Response
-        requires
-            self.inv(),
-    {
+    // TODO: must receive a lower bound here
+    fn handle_get_timestamp(&self) -> Response {
         let MonotonicRegisterInner { timestamp, resource, .. } = self.register.read();
 
         Response::GetTimestamp { timestamp, lb: resource }
     }
 
-    fn handle_write(&self, val: Option<u64>, timestamp: Timestamp) -> Response
-        requires
-            self.inv(),
-    {
+    // TODO: must receive a lower bound here
+    fn handle_write(&self, val: Option<u64>, timestamp: Timestamp) -> Response {
         let lb = self.register.write(val, timestamp);
 
         Response::Write { lb }
     }
 
-    fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response>
-        requires
-            self.inv(),
-    {
+    fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response> {
+        let tag = request.tag;
         match request.into_inner() {
-            Request::Get => {
+            Request::Get(_) => {
                 let inner = self.handle_get();
 
-                Tagged { tag: request.tag, inner }
+                Tagged { tag, inner }
             },
             Request::GetTimestamp => {
                 let inner = self.handle_get_timestamp();
-                Tagged { tag: request.tag, inner }
+                Tagged { tag, inner }
             },
             Request::Write { val, timestamp } => {
                 let inner = self.handle_write(val, timestamp);
-                Tagged { tag: request.tag, inner }
+                Tagged { tag, inner }
             },
         }
     }
 
-    fn poll(&self) -> bool
-        requires
-            self.inv(),
-    {
+    fn poll(&self) -> bool {
         // verus does not support unbounded loops + streams probably don't/can't have specs
         // so we do this up to 10 times every time
         let mut i = 10;
         while i > 0
-            invariant
-                self.inv(),
             decreases i,
         {
             match self.listener.try_accept() {
@@ -156,10 +141,7 @@ impl<L, C> RegisterServer<L, C> where
         let (mut connected, handle) = self.connected.acquire_write();
 
         let it = connected.iter();
-        for (id, channel) in it
-            invariant
-                self.inv(),
-        {
+        for (id, channel) in it {
             match channel.try_recv() {
                 Ok(req) => {
                     let response = self.handle(req, *id);

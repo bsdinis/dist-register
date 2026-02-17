@@ -1,8 +1,8 @@
 use vstd::prelude::*;
 use vstd::rwlock::RwLock;
 
-use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
+use crate::abd::timestamp::Timestamp;
 
 verus! {
 

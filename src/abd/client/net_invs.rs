@@ -3,7 +3,7 @@ use vstd::prelude::*;
 
 use crate::abd::invariants::quorum::ServerUniverse;
 use crate::abd::proto::Response;
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 use crate::verdist::rpc::proto::Tagged;
 use crate::verdist::rpc::replies::RepliesView;
 

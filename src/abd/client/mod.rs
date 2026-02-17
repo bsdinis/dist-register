@@ -17,7 +17,7 @@ use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::BroadcastPool;

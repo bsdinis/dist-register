@@ -4,7 +4,7 @@ use crate::abd::invariants::lin_queue::maybe_lin::MaybeReadLinearized;
 #[allow(unused_imports)]
 use crate::abd::invariants::lin_queue::maybe_lin::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::{RegisterRead, RegisterWrite};
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
 

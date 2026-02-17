@@ -4,7 +4,7 @@ use crate::abd::invariants::lin_queue::LinWriteToken;
 use crate::abd::invariants::lin_queue::MaybeReadLinearized;
 use crate::abd::invariants::lin_queue::MaybeWriteLinearized;
 use crate::abd::invariants::logatom::RegisterWrite;
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::logatom::MutLinearizer;
 use vstd::prelude::*;

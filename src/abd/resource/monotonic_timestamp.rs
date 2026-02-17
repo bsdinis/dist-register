@@ -1,4 +1,4 @@
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 #[allow(unused_imports)]
 use vstd::pcm::Loc;

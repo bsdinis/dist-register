@@ -11,7 +11,7 @@ use vstd::tokens::map::GhostPersistentPointsTo;
 use vstd::tokens::map::GhostPersistentSubmap;
 use vstd::tokens::map::GhostPointsTo;
 
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
 

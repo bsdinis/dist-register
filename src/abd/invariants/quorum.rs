@@ -1,6 +1,6 @@
-#[allow(unused_imports)]
-use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
+#[allow(unused_imports)]
+use crate::abd::timestamp::Timestamp;
 
 #[allow(unused_imports)]
 use vstd::map_lib::*;

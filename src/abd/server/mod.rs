@@ -2,10 +2,10 @@
 
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
-use crate::abd::proto::Timestamp;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::server::register::MonotonicRegister;
 use crate::abd::server::register::MonotonicRegisterInner;
+use crate::abd::timestamp::Timestamp;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::modelled::ModelledConnector;

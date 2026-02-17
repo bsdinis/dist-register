@@ -10,7 +10,7 @@ use vstd::tokens::frac::GhostVar;
 use vstd::tokens::frac::GhostVarAuth;
 
 #[allow(unused_imports)]
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 #[allow(unused_imports)]
 use std::sync::Arc;

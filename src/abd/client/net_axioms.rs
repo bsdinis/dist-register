@@ -5,7 +5,7 @@ use crate::abd::invariants::quorum::Quorum;
 #[allow(unused_imports)]
 use crate::abd::invariants::quorum::ServerUniverse;
 #[allow(unused_imports)]
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 #[allow(unused_imports)]
 use std::collections::BTreeMap;

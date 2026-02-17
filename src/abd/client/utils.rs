@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::abd::proto::Timestamp;
+use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
 #[cfg(verus_only)]

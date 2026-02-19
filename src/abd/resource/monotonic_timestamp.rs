@@ -24,6 +24,7 @@ verus! {
 pub enum MonotonicTimestampResourceValue {
     LowerBound { lower_bound: Timestamp },
     FullRightToAdvance { value: Timestamp },
+    HalfRightToAdvance { value: Timestamp },
     Invalid,
 }
 
@@ -52,6 +53,8 @@ impl PCM for MonotonicTimestampResourceValue {
             // A lower bound can be combined with a right to
             // advance as long as the lower bound doesn't exceed
             // the value in the right to advance.
+
+            // full
             (
                 MonotonicTimestampResourceValue::LowerBound { lower_bound },
                 MonotonicTimestampResourceValue::FullRightToAdvance { value },
@@ -65,6 +68,33 @@ impl PCM for MonotonicTimestampResourceValue {
                 MonotonicTimestampResourceValue::LowerBound { lower_bound },
             ) => if lower_bound <= value {
                 MonotonicTimestampResourceValue::FullRightToAdvance { value }
+            } else {
+                MonotonicTimestampResourceValue::Invalid {  }
+            },
+            // half
+            (
+                MonotonicTimestampResourceValue::LowerBound { lower_bound },
+                MonotonicTimestampResourceValue::HalfRightToAdvance { value },
+            ) => if lower_bound <= value {
+                MonotonicTimestampResourceValue::HalfRightToAdvance { value }
+            } else {
+                MonotonicTimestampResourceValue::Invalid {  }
+            },
+            (
+                MonotonicTimestampResourceValue::HalfRightToAdvance { value },
+                MonotonicTimestampResourceValue::LowerBound { lower_bound },
+            ) => if lower_bound <= value {
+                MonotonicTimestampResourceValue::HalfRightToAdvance { value }
+            } else {
+                MonotonicTimestampResourceValue::Invalid {  }
+            },
+            // Two half rights to advance can be combined into a full right to advance
+            // iff they agree on the value
+            (
+                MonotonicTimestampResourceValue::HalfRightToAdvance { value: lvalue },
+                MonotonicTimestampResourceValue::HalfRightToAdvance { value: rvalue },
+            ) => if lvalue == rvalue {
+                MonotonicTimestampResourceValue::FullRightToAdvance { value: lvalue }
             } else {
                 MonotonicTimestampResourceValue::Invalid {  }
             },
@@ -98,6 +128,7 @@ impl MonotonicTimestampResourceValue {
         match self {
             MonotonicTimestampResourceValue::LowerBound { lower_bound } => lower_bound,
             MonotonicTimestampResourceValue::FullRightToAdvance { value } => value,
+            MonotonicTimestampResourceValue::HalfRightToAdvance { value } => value,
             MonotonicTimestampResourceValue::Invalid => Timestamp::spec_default(),
         }
     }
@@ -129,7 +160,7 @@ impl MonotonicTimestampResource {
         let v = MonotonicTimestampResourceValue::FullRightToAdvance {
             value: Timestamp::spec_default(),
         };
-        let tracked mut r = Resource::<MonotonicTimestampResourceValue>::alloc(v);
+        let tracked r = Resource::<MonotonicTimestampResourceValue>::alloc(v);
         Self { r }
     }
 
@@ -142,8 +173,25 @@ impl MonotonicTimestampResource {
             r.loc() == self.loc(),
             r@.timestamp() == self@.op(other@).timestamp(),
     {
-        let tracked mut r = self.r.join(other.r);
+        let tracked r = self.r.join(other.r);
         Self { r }
+    }
+
+    // Split a full authority into two halves
+    pub proof fn split(tracked self) -> (tracked r: (Self, Self))
+        requires
+            self@ is FullRightToAdvance,
+        ensures
+            r.0.loc() == self.loc(),
+            r.1.loc() == self.loc(),
+            r.0@.timestamp() == self@.timestamp(),
+            r.1@.timestamp() == self@.timestamp(),
+            r.0@ is HalfRightToAdvance,
+            r.1@ is HalfRightToAdvance,
+    {
+        let half = MonotonicTimestampResourceValue::HalfRightToAdvance { value: self@->FullRightToAdvance_value };
+        let tracked (left, right) = self.r.split(half, half);
+        (MonotonicTimestampResource { r: left }, MonotonicTimestampResource { r: right })
     }
 
     // This function uses a resource granting full authority to
@@ -158,6 +206,27 @@ impl MonotonicTimestampResource {
     {
         let r = MonotonicTimestampResourceValue::FullRightToAdvance { value: new_value };
         update_mut(&mut self.r, r);
+    }
+
+    // This function uses a resource granting full authority to
+    // advance a monotonic timestamp to increment the timestamp.
+    pub proof fn advance_halves(tracked &mut self, tracked other: &mut Self, new_value: Timestamp)
+        requires
+            old(self).loc() == old(other).loc(),
+            old(self)@ is HalfRightToAdvance,
+            old(other)@ is HalfRightToAdvance,
+            new_value > old(self)@.timestamp(),
+        ensures
+            self.loc() == old(self).loc(),
+            other.loc() == old(other).loc(),
+            self@.timestamp() == new_value,
+            other@.timestamp() ==  new_value,
+            self@ is HalfRightToAdvance,
+            other@ is HalfRightToAdvance,
+    {
+        self.r.validate_2(&other.r);
+        let updated = MonotonicTimestampResourceValue::HalfRightToAdvance { value: new_value };
+        update_and_redistribute(&mut self.r, &mut other.r, updated, updated);
     }
 
     pub proof fn extract_lower_bound(tracked &self) -> (tracked out: Self)
@@ -184,6 +253,23 @@ impl MonotonicTimestampResource {
                 <= other@.timestamp(),
             other@ is LowerBound && self@ is FullRightToAdvance ==> other@.timestamp()
                 <= self@.timestamp(),
+            self@ is LowerBound && other@ is HalfRightToAdvance ==> self@.timestamp()
+                <= other@.timestamp(),
+            other@ is LowerBound && self@ is HalfRightToAdvance ==> other@.timestamp()
+                <= self@.timestamp(),
+    {
+        self.r.validate_2(&other.r)
+    }
+
+    pub proof fn lemma_halves_agree(tracked &mut self, tracked other: &Self)
+        requires
+            old(self).loc() == other.loc(),
+            old(self)@ is HalfRightToAdvance,
+            other@ is HalfRightToAdvance,
+        ensures
+            self.loc() == old(self).loc(),
+            self@ == old(self)@,
+            self@.timestamp() == other@.timestamp(),
     {
         self.r.validate_2(&other.r)
     }

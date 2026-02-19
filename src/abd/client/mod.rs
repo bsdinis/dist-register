@@ -18,6 +18,7 @@ use crate::abd::invariants::StateInvariant;
 use crate::abd::proto::GetRequest;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
+use crate::abd::proto::WriteRequest;
 use crate::abd::timestamp::Timestamp;
 
 use crate::verdist::network::channel::Channel;
@@ -40,7 +41,8 @@ use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::proph::Prophecy;
 #[allow(unused_imports)]
-use vstd::tokens::frac::GhostVarAuth;
+use vstd::resource::ghost_var::GhostVarAuth;
+use vstd::resource::Loc;
 
 use std::hash::Hash;
 use std::sync::Arc;
@@ -64,7 +66,7 @@ pub trait AbdRegisterClient<C, ML, RL> where
  {
     type Locs;
 
-    spec fn register_loc(self) -> int;
+    spec fn register_loc(self) -> Loc;
 
     spec fn client_id(self) -> u64;
 
@@ -149,7 +151,7 @@ pub struct AbdPool<Pool, ML, RL> where
     RL: ReadLinearizer<RegisterRead>,
  {
     pool: Pool,
-    register_id: Ghost<int>,
+    register_id: Ghost<Loc>,
     state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     client_ctr_token: Tracked<ClientCtrToken>,
     client_ctr: PAtomicU64,
@@ -222,10 +224,10 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
 
 #[allow(dead_code)]
 pub struct AbdRegisterLocs {
-    pub register_id: int,
+    pub register_id: Loc,
     pub state_inv_namespace: int,
     pub client_ctr_perm: int,
-    pub client_ctr_token_id: int,
+    pub client_ctr_token_id: Loc,
 }
 
 impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> where
@@ -241,7 +243,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         self.id()
     }
 
-    closed spec fn register_loc(self) -> int {
+    closed spec fn register_loc(self) -> Loc {
         self.register_id@
     }
 
@@ -297,9 +299,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 { s.len() >= self.quorum_size() }),
             |r|
                 match r.deref() {
-                    Response::Get(get) => {
-                        Ok(get.clone())
-                    }
+                    Response::Get(get) => { Ok(get.clone()) },
                     _ => Err(r),
                 },
         );
@@ -349,9 +349,20 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 proof {
                     let ghost old_watermark = state.linearization_queue.watermark();
                     let ghost old_known = state.linearization_queue.known_timestamps();
-
                     let ghost old_servers = state.servers;
+                    let ghost old_unclaimed = state.unclaimed_servers();
+                    let ghost old_server_tokens = state.server_tokens@;
+                    assert(old_servers.locs().dom() == old_servers.dom());
+
                     let tracked (quorum, mut commitment) = axiom_get_unanimous_replies(replies, &mut state.servers, token.value().min_ts@.timestamp(), max_resp.spec_timestamp(), max_resp.spec_value(), state.linearization_queue.committed_to_id());
+                    assert(state.unclaimed_servers() == old_unclaimed);
+                    assert(state.server_tokens@ == old_server_tokens);
+                    assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
+                        assert(old_servers.contains_key(id));
+                    }
+                    assert forall |id: u64| #[trigger] state.server_tokens@.contains_key(id) implies state.servers[id]@@ is HalfRightToAdvance by {
+                        assert(old_servers.contains_key(id));
+                    }
                     old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                     state.commitments.agree_commitment(&commitment);
@@ -383,9 +394,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
         let max_ts = max_resp.timestamp();
+        let value = max_resp.value().clone();
         #[allow(unused_parens)]
         let replies_result = bpool.broadcast_filter::<_, _, WritebackInv>(
-            Request::Write { val: max_resp.value().clone(), timestamp: max_ts },
+            Request::Write(
+                WriteRequest::new(value, max_ts, Tracked(axiom_fake_commitment(max_ts, value))),
+            ),
             Ghost(WritebackInv {  }),
             |id| replies.get(&id).map(|resp| resp.timestamp() != max_ts).unwrap_or(false),
         )
@@ -433,9 +447,20 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             proof {
                 let ghost old_watermark = state.linearization_queue.watermark();
                 let ghost old_known = state.linearization_queue.known_timestamps();
-
                 let ghost old_servers = state.servers;
+                let ghost old_unclaimed = state.unclaimed_servers();
+                let ghost old_server_tokens = state.server_tokens@;
+                assert(old_servers.locs().dom() == old_servers.dom());
+
                 let tracked (quorum, commitment) = axiom_writeback_unanimous_replies(replies, wb_replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_resp.spec_value(), state.linearization_queue.committed_to_id());
+                assert(state.unclaimed_servers() == old_unclaimed);
+                assert(state.server_tokens@ == old_server_tokens);
+                assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
+                    assert(old_servers.contains_key(id));
+                }
+                assert forall |id: u64| #[trigger] state.server_tokens@.contains_key(id) implies state.servers[id]@@ is HalfRightToAdvance by {
+                    assert(old_servers.contains_key(id));
+                }
                 old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                 state.commitments.agree_commitment(&commitment);
@@ -614,7 +639,17 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 let ghost old_servers = state.servers;
+                let ghost old_server_tokens = state.server_tokens@;
+                assert(old_servers.locs().dom() == old_servers.dom());
+
                 let tracked quorum = axiom_get_ts_replies(replies, &mut state.servers, max_ts);
+                assert(state.server_tokens@ == old_server_tokens);
+                assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
+                    assert(old_servers.contains_key(id));
+                }
+                assert forall |id: u64| #[trigger] state.server_tokens@.contains_key(id) implies state.servers[id]@@ is HalfRightToAdvance by {
+                    assert(old_servers.contains_key(id));
+                }
                 old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                 let tracked mut tk = lemma_watermark_contradiction(
@@ -641,7 +676,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
             let quorum_res = bpool.broadcast::<_, WriteInv>(
-                Request::Write { val, timestamp: exec_ts },
+                Request::Write(WriteRequest::new(val, exec_ts, Tracked(commitment.duplicate()))),
                 Ghost(WriteInv {  }),
             ).wait_for(
                 (|s| -> (r: bool)
@@ -679,10 +714,21 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     let ghost old_known = state.linearization_queue.known_timestamps();
                     let ghost old_watermark = state.linearization_queue.watermark();
                     let ghost old_servers = state.servers;
+                    let ghost old_unclaimed = state.unclaimed_servers();
+                    let ghost old_server_tokens = state.server_tokens@;
+                    assert(old_servers.locs().dom() == old_servers.dom());
 
                     state.linearization_queue.lemma_write_token(&token);
 
                     let tracked quorum = axiom_write_replies(replies, &mut state.servers, exec_ts);
+                    assert(state.unclaimed_servers() == old_unclaimed);
+                    assert(state.server_tokens@ == old_server_tokens);
+                    assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
+                        assert(old_servers.contains_key(id));
+                    }
+                    assert forall |id: u64| #[trigger] state.server_tokens@.contains_key(id) implies state.servers[id]@@ is HalfRightToAdvance by {
+                        assert(old_servers.contains_key(id));
+                    }
                     old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                     state.commitments.agree_commitment(&commitment);

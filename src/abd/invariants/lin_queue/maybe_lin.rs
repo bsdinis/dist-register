@@ -5,7 +5,7 @@ use vstd::prelude::*;
 
 use vstd::logatom::{MutLinearizer, ReadLinearizer};
 #[allow(unused_imports)]
-use vstd::tokens::frac::GhostVarAuth;
+use vstd::resource::ghost_var::GhostVarAuth;
 
 verus! {
 

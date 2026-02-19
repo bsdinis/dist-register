@@ -32,7 +32,7 @@ use vstd::logatom::MutLinearizer;
 #[allow(unused_imports)]
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
-use vstd::tokens::frac::GhostVar;
+use vstd::resource::ghost_var::GhostVar;
 
 use self::abd::invariants::committed_to::ClientCtrToken;
 

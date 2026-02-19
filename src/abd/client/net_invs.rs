@@ -22,10 +22,7 @@ pub struct GetTimestampInv {}
 #[allow(dead_code)]
 pub struct WriteInv {}
 
-impl InvariantPredicate<
-    GetInv,
-    RepliesView<(u64, u64), GetResponse, Tagged<Response>>,
-> for GetInv {
+impl InvariantPredicate<GetInv, RepliesView<(u64, u64), GetResponse, Tagged<Response>>> for GetInv {
     open spec fn inv(
         pred: GetInv,
         v: RepliesView<(u64, u64), GetResponse, Tagged<Response>>,

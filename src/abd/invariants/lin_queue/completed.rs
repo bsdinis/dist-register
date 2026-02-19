@@ -10,7 +10,8 @@ use vstd::prelude::*;
 
 use vstd::logatom::{MutLinearizer, ReadLinearizer};
 #[allow(unused_imports)]
-use vstd::tokens::frac::GhostVarAuth;
+use vstd::resource::ghost_var::GhostVarAuth;
+use vstd::resource::Loc;
 
 verus! {
 
@@ -83,11 +84,11 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
         self.commitment
     }
 
-    pub open spec fn register_id(self) -> int {
+    pub open spec fn register_id(self) -> Loc {
         self.op().id@
     }
 
-    pub open spec fn commitment_id(self) -> int {
+    pub open spec fn commitment_id(self) -> Loc {
         self.commitment().id()
     }
 
@@ -182,7 +183,7 @@ impl<RL: ReadLinearizer<RegisterRead>> CompletedRead<RL> {
         self.value
     }
 
-    pub open spec fn register_id(self) -> int {
+    pub open spec fn register_id(self) -> Loc {
         self.op().id@
     }
 

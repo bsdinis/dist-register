@@ -5,11 +5,12 @@
 //! - When the timestamp is known, the client can commit to a value by persisting the kv-pair
 #![allow(dead_code)]
 use vstd::atomic::PermissionU64;
-use vstd::tokens::map::GhostMapAuth;
-use vstd::tokens::map::GhostPersistentPointsTo;
+use vstd::resource::map::GhostMapAuth;
+use vstd::resource::map::GhostPersistentPointsTo;
 #[allow(unused_imports)]
-use vstd::tokens::map::GhostPersistentSubmap;
-use vstd::tokens::map::GhostPointsTo;
+use vstd::resource::map::GhostPersistentSubmap;
+use vstd::resource::map::GhostPointsTo;
+use vstd::resource::Loc;
 
 use crate::abd::timestamp::Timestamp;
 
@@ -27,6 +28,7 @@ pub type ClientCtrToken = GhostPointsTo<u64, (u64, int)>;
 
 pub struct Commitments {
     commitment_auth: GhostMapAuth<Timestamp, Option<u64>>,
+    zero_commitment: WriteCommitment,
     client_ctr_auth: GhostMapAuth<u64, (u64, int)>,
     client_perm: Map<u64, PermissionU64>,
     zero_client: ClientCtrToken,
@@ -34,8 +36,8 @@ pub struct Commitments {
 }
 
 pub struct CommitmentIds {
-    pub commitment_id: int,
-    pub client_ctr_id: int,
+    pub commitment_id: Loc,
+    pub client_ctr_id: Loc,
 }
 
 impl Commitments {
@@ -44,6 +46,9 @@ impl Commitments {
     // Without it, there is no way of atomically update members here
     pub closed spec fn inv(self) -> bool {
         &&& self.commitment_auth@.contains_pair(Timestamp::spec_default(), None)
+        &&& self.zero_commitment.id() == self.commitment_auth.id()
+        &&& self.zero_commitment.key() == Timestamp::spec_default()
+        &&& self.zero_commitment.value() == None::<u64>
         &&& self.missing_perm is None ==> { self.client_ctr_auth@.dom() == self.client_perm.dom() }
         &&& self.missing_perm is Some ==> {
             let missing_client = self.missing_perm->Some_0.0;
@@ -85,11 +90,11 @@ impl Commitments {
         self.missing_perm->Some_0
     }
 
-    pub closed spec fn commitment_id(self) -> int {
+    pub closed spec fn commitment_id(self) -> Loc {
         self.commitment_auth.id()
     }
 
-    pub closed spec fn client_map_id(self) -> int {
+    pub closed spec fn client_map_id(self) -> Loc {
         self.client_ctr_auth.id()
     }
 
@@ -105,21 +110,15 @@ impl Commitments {
         self.client_perm
     }
 
-    pub proof fn new(tracked zero_perm: PermissionU64) -> (tracked r: (
-        Commitments,
-        WriteCommitment,
-    ))
+    pub proof fn new(tracked zero_perm: PermissionU64) -> (tracked r: Commitments)
         requires
             zero_perm.value() == 1,
         ensures
-            r.0.is_full(),
-            r.0.inv(),
-            r.0.commitment_id() == r.1.id(),
-            r.0.allocated() == map![Timestamp::spec_default() => None::<u64>],
-            r.0.client_map() == map![0u64 => (1u64, zero_perm.id())],
-            r.0.client_perm() == map![0u64 => zero_perm],
-            r.1.key() == Timestamp::spec_default(),
-            r.1.value() == None::<u64>,
+            r.is_full(),
+            r.inv(),
+            r.allocated() == map![Timestamp::spec_default() => None::<u64>],
+            r.client_map() == map![0u64 => (1u64, zero_perm.id())],
+            r.client_perm() == map![0u64 => zero_perm],
     {
         let tracked (commitment_auth, zero_submap) = GhostMapAuth::new(
             map![Timestamp::spec_default() => None],
@@ -138,12 +137,24 @@ impl Commitments {
 
         let tracked commitments = Commitments {
             commitment_auth,
+            zero_commitment: zero_commitment.persist(),
             client_ctr_auth,
             client_perm,
             zero_client,
             missing_perm: None,
         };
-        (commitments, zero_commitment.persist())
+        commitments
+    }
+
+    pub proof fn zero_commitment(tracked &self) -> (tracked r: WriteCommitment)
+        requires
+            self.inv(),
+        ensures
+            r.id() == self.commitment_id(),
+            r.key() == Timestamp::spec_default(),
+            r.value() == None::<u64>,
+    {
+        self.zero_commitment.duplicate()
     }
 
     pub proof fn login(

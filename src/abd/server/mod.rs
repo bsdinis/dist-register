@@ -1,7 +1,15 @@
 #![allow(unused, non_shorthand_field_patterns)]
 
+use crate::abd::invariants;
+use crate::abd::invariants::committed_to::WriteCommitment;
+use crate::abd::invariants::logatom::ReadPerm;
+use crate::abd::invariants::logatom::RegisterRead;
+use crate::abd::invariants::logatom::RegisterWrite;
+use crate::abd::invariants::logatom::WritePerm;
+use crate::abd::invariants::StateInvariant;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
+use crate::abd::proto::WriteResponse;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::server::register::MonotonicRegister;
 use crate::abd::server::register::MonotonicRegisterInner;
@@ -9,15 +17,19 @@ use crate::abd::timestamp::Timestamp;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::modelled::ModelledConnector;
+use crate::verdist::network::modelled::ModelledListener;
 use crate::verdist::rpc::proto::Tagged;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use vstd::logatom::MutLinearizer;
+use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
+use vstd::resource::Loc;
 use vstd::rwlock::RwLock;
 
-use super::proto::WriteResponse;
+use super::proto::WriteRequest;
 
 mod register;
 
@@ -34,40 +46,41 @@ impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
 #[allow(dead_code)]
 struct LowerBoundPredicate {
     #[allow(dead_code)]
-    loc: Ghost<int>,
+    loc: Loc,
 }
 
 impl vstd::rwlock::RwLockPredicate<Tracked<MonotonicTimestampResource>> for LowerBoundPredicate {
     closed spec fn inv(self, lb: Tracked<MonotonicTimestampResource>) -> bool {
-        lb@@ is LowerBound && lb@.loc() == self.loc
+        &&& lb@@ is LowerBound
+        &&& lb@.loc() == self.loc
     }
 }
 
 #[verifier::reject_recursive_types(C)]
-pub struct RegisterServer<L, C> {
+pub struct RegisterServer<L, C, ML, RL> where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+ {
     id: u64,
     listener: L,
     connected: RwLock<HashMap<u64, C>, EmptyCond>,
-    register: MonotonicRegister,
+    register: MonotonicRegister<ML, RL>,
 }
 
-impl<L, C> RegisterServer<L, C> {
-    #[verifier::type_invariant]
-    pub closed spec fn inv(&self) -> bool {
-        &&& self.register.inv()
-    }
-}
-
-impl<L, C> RegisterServer<L, C> where
+impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     L: Listener<C>,
     C: Channel<R = Tagged<Request>, S = Tagged<Response>, Id = (u64, u64)>,
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
  {
     // TODO: add either atomic invariant or the half right to advance here (maybe the full right?)
-    pub fn new(listener: L, id: u64) -> (r: Self) {
-        let register = MonotonicRegister::default();
+    pub fn new(listener: L, id: u64, state_inv: Tracked<Arc<StateInvariant<ML, RL>>>) -> (r: Self)
+        requires
+            state_inv@.namespace() == invariants::state_inv_id(),
+    {
         RegisterServer {
             id,
-            register,
+            register: MonotonicRegister::new(id, state_inv),
             connected: RwLock::new(HashMap::new(), Ghost(EmptyCond)),
             listener,
         }
@@ -90,8 +103,17 @@ impl<L, C> RegisterServer<L, C> where
     }
 
     // TODO: must receive a lower bound here
-    fn handle_write(&self, val: Option<u64>, timestamp: Timestamp) -> Response {
-        let lb = self.register.write(val, timestamp);
+    fn handle_write(
+        &self,
+        value: Option<u64>,
+        timestamp: Timestamp,
+        commitment: Tracked<WriteCommitment>,
+    ) -> Response
+        requires
+            commitment@.key() == timestamp,
+            commitment@.value() == value,
+    {
+        let lb = self.register.write(value, timestamp, commitment);
 
         Response::Write(WriteResponse)
     }
@@ -108,8 +130,9 @@ impl<L, C> RegisterServer<L, C> where
                 let inner = self.handle_get_timestamp();
                 Tagged { tag, inner }
             },
-            Request::Write { val, timestamp } => {
-                let inner = self.handle_write(val, timestamp);
+            Request::Write(write) => {
+                let (value, timestamp, commitment) = write.destruct();
+                let inner = self.handle_write(value, timestamp, commitment);
                 Tagged { tag, inner }
             },
         }
@@ -164,12 +187,27 @@ impl<L, C> RegisterServer<L, C> where
     }
 }
 
+fn create_server<L, C, ML, RL>(server_id: u64, listener: L) -> RegisterServer<L, C, ML, RL> where
+    L: Listener<C>,
+    C: Channel<R = Tagged<Request>, S = Tagged<Response>, Id = (u64, u64)>,
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+ {
+    let tracked state_inv;
+    proof {
+        let tracked (s, v) = invariants::get_system_state::<ML, RL>();
+        state_inv = s;
+    }
+    RegisterServer::new(listener, server_id, Tracked(state_inv))
+}
+
 } // verus!
 pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Tagged<Response>, Tagged<Request>> {
     let (listener, connector) = crate::verdist::network::modelled::listen_channel(server_id);
     std::thread::spawn(move || {
-        let server = RegisterServer::new(listener, server_id);
-        let server = Arc::new(server);
+        let server = Arc::new(create_server::<_, _, WritePerm, ReadPerm<'_>>(
+            server_id, listener,
+        ));
         tracing::info!("starting server {}", server.id);
 
         std::thread::scope(|s| {

@@ -1,8 +1,10 @@
+use crate::abd::invariants::committed_to::WriteCommitment;
 use crate::abd::invariants::quorum::ServerUniverse;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
+use vstd::resource::Loc;
 
 verus! {
 
@@ -11,12 +13,19 @@ verus! {
 pub enum Request {
     Get(GetRequest),
     GetTimestamp,
-    Write { val: Option<u64>, timestamp: Timestamp },
+    Write(WriteRequest),
 }
 
 #[allow(unused)]
 pub struct GetRequest {
     servers: Tracked<ServerUniverse>,
+}
+
+#[allow(unused)]
+pub struct WriteRequest {
+    value: Option<u64>,
+    timestamp: Timestamp,
+    commitment: Tracked<WriteCommitment>,
 }
 
 #[allow(unused)]
@@ -51,15 +60,57 @@ impl Clone for GetRequest {
     }
 }
 
+#[allow(unused)]
+impl WriteRequest {
+    #[verifier::type_invariant]
+    pub closed spec fn inv(self) -> bool {
+        &&& self.commitment@.key() == self.timestamp
+        &&& self.commitment@.value() == self.value
+    }
+
+    pub fn new(
+        value: Option<u64>,
+        timestamp: Timestamp,
+        commitment: Tracked<WriteCommitment>,
+    ) -> (r: Self)
+        requires
+            commitment@.key() == timestamp,
+            commitment@.value() == value,
+    {
+        WriteRequest { value, timestamp, commitment }
+    }
+
+    pub fn destruct(self) -> (r: (Option<u64>, Timestamp, Tracked<WriteCommitment>))
+        ensures
+            r.2@.key() == r.1,
+            r.2@.value() == r.0,
+    {
+        proof {
+            use_type_invariant(&self);
+        }
+
+        (self.value, self.timestamp, self.commitment)
+    }
+}
+
+impl Clone for WriteRequest {
+    fn clone(&self) -> (r: Self) {
+        let tracked new_commitment;
+        proof {
+            use_type_invariant(self);
+            new_commitment = self.commitment.borrow().duplicate()
+        }
+        WriteRequest::new(self.value.clone(), self.timestamp.clone(), Tracked(new_commitment))
+    }
+}
+
 impl Clone for Request {
     #[allow(unused_variables)]
     fn clone(&self) -> Self {
         match self {
             Request::Get(get) => { Request::Get(get.clone()) },
             Request::GetTimestamp => { Request::GetTimestamp },
-            Request::Write { val, timestamp } => {
-                Request::Write { val: val.clone(), timestamp: timestamp.clone() }
-            },
+            Request::Write(write) => { Request::Write(write.clone()) },
         }
     }
 }
@@ -84,10 +135,9 @@ pub struct GetTimestampResponse {
     lb: Tracked<MonotonicTimestampResource>,
 }
 
-    // TODO: what do we actually send?
+// TODO: what do we actually send?
 #[allow(unused)]
 pub struct WriteResponse;
-
 
 #[allow(unused)]
 impl GetResponse {
@@ -109,11 +159,15 @@ impl GetResponse {
         self.val
     }
 
-    pub open spec fn loc(self) -> int {
+    pub open spec fn loc(self) -> Loc {
         self.lb().loc()
     }
 
-    pub fn new(val: Option<u64>, timestamp: Timestamp, lb: Tracked<MonotonicTimestampResource>) -> (r: Self)
+    pub fn new(
+        val: Option<u64>,
+        timestamp: Timestamp,
+        lb: Tracked<MonotonicTimestampResource>,
+    ) -> (r: Self)
         requires
             lb@@ is LowerBound,
             lb@@.timestamp() == timestamp,
@@ -127,14 +181,14 @@ impl GetResponse {
 
     pub fn timestamp(&self) -> (ts: Timestamp)
         ensures
-            ts == self.spec_timestamp()
+            ts == self.spec_timestamp(),
     {
         self.timestamp.clone()
     }
 
     pub fn value(&self) -> (value: &Option<u64>)
         ensures
-            *value == self.spec_value()
+            *value == self.spec_value(),
     {
         &self.val
     }
@@ -158,6 +212,7 @@ impl Clone for GetResponse {
         GetResponse::new(self.val.clone(), self.timestamp.clone(), Tracked(new_lb))
     }
 }
+
 #[allow(unused)]
 impl GetTimestampResponse {
     #[verifier::type_invariant]
@@ -174,7 +229,7 @@ impl GetTimestampResponse {
         self.timestamp
     }
 
-    pub open spec fn loc(self) -> int {
+    pub open spec fn loc(self) -> Loc {
         self.lb().loc()
     }
 
@@ -191,7 +246,7 @@ impl GetTimestampResponse {
 
     pub fn timestamp(&self) -> (ts: Timestamp)
         ensures
-            ts == self.spec_timestamp()
+            ts == self.spec_timestamp(),
     {
         self.timestamp.clone()
     }
@@ -208,7 +263,6 @@ impl Clone for GetTimestampResponse {
     }
 }
 
-
 #[allow(unused)]
 impl WriteResponse {
     // #[verifier::type_invariant]
@@ -216,9 +270,7 @@ impl WriteResponse {
         true
     }
 
-
-    pub fn new() -> (r: Self)
-    {
+    pub fn new() -> (r: Self) {
         WriteResponse
     }
 }
@@ -233,15 +285,9 @@ impl Clone for Response {
     #[allow(unused_variables)]
     fn clone(&self) -> Self {
         match self {
-            Response::Get(get) => {
-                Response::Get(get.clone())
-            },
-            Response::GetTimestamp(get_ts) => {
-                Response::GetTimestamp(get_ts.clone())
-            },
-            Response::Write(write) => {
-                Response::Write(write.clone())
-            },
+            Response::Get(get) => { Response::Get(get.clone()) },
+            Response::GetTimestamp(get_ts) => { Response::GetTimestamp(get_ts.clone()) },
+            Response::Write(write) => { Response::Write(write.clone()) },
         }
     }
 }
@@ -270,6 +316,14 @@ impl std::fmt::Debug for GetTimestampResponse {
     }
 }
 
+impl std::fmt::Debug for WriteRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WriteRequest")
+            .field("value", &self.value)
+            .field("timestamp", &self.timestamp)
+            .finish()
+    }
+}
 impl std::fmt::Debug for WriteResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WriteResponse").finish()

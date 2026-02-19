@@ -6,8 +6,11 @@ use vstd::invariant::AtomicInvariant;
 use vstd::invariant::InvariantPredicate;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
-use vstd::tokens::frac::GhostVar;
-use vstd::tokens::frac::GhostVarAuth;
+use vstd::resource::ghost_var::GhostVar;
+use vstd::resource::ghost_var::GhostVarAuth;
+use vstd::resource::map::GhostMapAuth;
+use vstd::resource::map::GhostPointsTo;
+use vstd::resource::Loc;
 
 #[allow(unused_imports)]
 use crate::abd::timestamp::Timestamp;
@@ -43,24 +46,32 @@ pub open spec fn state_inv_id() -> int {
     1int
 }
 
+pub type ServerToken = GhostPointsTo<u64, Loc>;
+
 pub struct StatePredicate {
     pub lin_queue_ids: LinQueueIds,
-    pub register_id: int,
-    pub server_locs: Map<u64, int>,
+    pub register_id: Loc,
+    pub server_locs: Map<u64, Loc>,
     pub commitments_ids: CommitmentIds,
+    pub server_tokens_id: Loc,
 }
 
 pub struct State<ML, RL> where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead> {
     pub tracked register: GhostVarAuth<Option<u64>>,
     pub tracked linearization_queue: LinearizationQueue<ML, RL>,
     pub tracked servers: ServerUniverse,
+    pub tracked server_tokens: GhostMapAuth<u64, Loc>,
     pub tracked commitments: Commitments,
 }
 
 impl<ML, RL> State<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
- {
+{
+    pub open spec fn unclaimed_servers(self) -> Set<u64> {
+        self.servers.dom().difference(self.server_tokens@.dom())
+    }
+
     pub open spec fn inv(self) -> bool {
         // member invariants
         &&& self.linearization_queue.inv()
@@ -68,6 +79,13 @@ impl<ML, RL> State<ML, RL> where
         &&& self.servers.is_auth()
         &&& self.commitments.inv()
         &&& self.commitments.is_full()
+        // server claims
+        &&& self.unclaimed_servers().finite()
+        &&& self.server_tokens@.dom().finite()
+        &&& self.server_tokens@ <= self.servers.locs()
+        &&& self.unclaimed_servers() <= self.servers.dom()
+        &&& forall |id: u64| #[trigger] self.unclaimed_servers().contains(id) ==> self.servers[id]@@ is FullRightToAdvance
+        &&& forall |id: u64| #[trigger] self.server_tokens@.contains_key(id) ==> self.servers[id]@@ is HalfRightToAdvance
         // id concordance
         &&& self.linearization_queue.register_id() == self.register.id()
         &&& self.linearization_queue.committed_to_id()
@@ -91,6 +109,7 @@ impl<ML, RL> InvariantPredicate<StatePredicate, State<ML, RL>> for StatePredicat
         &&& p.lin_queue_ids == state.linearization_queue.ids()
         &&& p.server_locs == state.servers.locs()
         &&& p.commitments_ids == state.commitments.ids()
+        &&& p.server_tokens_id == state.server_tokens.id()
         &&& state.inv()
     }
 }
@@ -111,8 +130,10 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
 {
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked servers = ServerUniverse::dummy();
-    let tracked (commitments, zero_commitment) = Commitments::new(zero_perm);
+    let tracked commitments = Commitments::new(zero_perm);
+    let tracked zero_commitment = commitments.zero_commitment();
     let tracked mut linearization_queue = LinearizationQueue::new(register.id(), zero_commitment);
+    let tracked (server_tokens, _) = GhostMapAuth::new(Map::empty());
 
     commitments.agree_commitment_submap(linearization_queue.tracked_committed_values());
     // XXX: load bearing
@@ -123,9 +144,13 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
         register_id: register.id(),
         server_locs: servers.locs(),
         commitments_ids: commitments.ids(),
+        server_tokens_id: server_tokens.id(),
     };
 
-    let tracked state = State { register, linearization_queue, servers, commitments };
+    let tracked state = State { register, linearization_queue, servers, commitments, server_tokens };
+    assert forall |id| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
+        assert(state.servers.contains_key(id));
+    }
 
     assert(<StatePredicate as InvariantPredicate<_, _>>::inv(pred, state));
     let tracked state_inv = AtomicInvariant::new(pred, state, state_inv_id());

@@ -14,10 +14,11 @@ use crate::abd::timestamp::Timestamp;
 
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
+use vstd::resource::Loc;
 
 use vstd::logatom::MutLinearizer;
 #[allow(unused_imports)]
-use vstd::tokens::frac::GhostVarAuth;
+use vstd::resource::ghost_var::GhostVarAuth;
 
 verus! {
 
@@ -27,7 +28,7 @@ pub enum WriteStatus {
 }
 
 impl WriteStatus {
-    pub open spec fn id(self) -> int {
+    pub open spec fn id(self) -> Loc {
         match self {
             WriteStatus::Allocated { allocation } => allocation.id(),
             WriteStatus::Committed { commitment } => commitment.id(),
@@ -198,11 +199,11 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
         self.write_status
     }
 
-    pub open spec fn commitment_id(self) -> int {
+    pub open spec fn commitment_id(self) -> Loc {
         self.write_status().id()
     }
 
-    pub open spec fn register_id(self) -> int {
+    pub open spec fn register_id(self) -> Loc {
         self.op().id@
     }
 
@@ -338,7 +339,7 @@ impl<RL: ReadLinearizer<RegisterRead>> PendingRead<RL> {
         self.value
     }
 
-    pub open spec fn register_id(self) -> int {
+    pub open spec fn register_id(self) -> Loc {
         self.op().id@
     }
 

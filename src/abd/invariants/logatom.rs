@@ -2,21 +2,22 @@ use vstd::logatom::MutLinearizer;
 use vstd::logatom::MutOperation;
 use vstd::logatom::ReadLinearizer;
 use vstd::logatom::ReadOperation;
-use vstd::tokens::frac::GhostVar;
-use vstd::tokens::frac::GhostVarAuth;
+use vstd::resource::ghost_var::GhostVar;
+use vstd::resource::ghost_var::GhostVarAuth;
 
 use vstd::prelude::*;
+use vstd::resource::Loc;
 
 verus! {
 
 pub struct RegisterRead {
     /// resource location
-    pub id: Ghost<int>,
+    pub id: Ghost<Loc>,
 }
 
 pub struct RegisterWrite {
     /// resource location
-    pub id: Ghost<int>,
+    pub id: Ghost<Loc>,
     pub new_value: Option<u64>,
 }
 

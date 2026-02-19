@@ -12,15 +12,16 @@ use crate::abd::timestamp::Timestamp;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 #[allow(unused_imports)]
+use vstd::resource::ghost_var::GhostVarAuth;
+#[allow(unused_imports)]
+use vstd::resource::map::GhostMapAuth;
+#[allow(unused_imports)]
+use vstd::resource::map::GhostPersistentSubmap;
+#[allow(unused_imports)]
+use vstd::resource::map::GhostPointsTo;
+#[allow(unused_imports)]
+use vstd::resource::Loc;
 use vstd::set_lib::*;
-#[allow(unused_imports)]
-use vstd::tokens::frac::GhostVarAuth;
-#[allow(unused_imports)]
-use vstd::tokens::map::GhostMapAuth;
-#[allow(unused_imports)]
-use vstd::tokens::map::GhostPersistentSubmap;
-#[allow(unused_imports)]
-use vstd::tokens::map::GhostPointsTo;
 
 #[allow(unused_imports)]
 use vstd::assert_by_contradiction;
@@ -121,7 +122,7 @@ pub struct LinearizationQueue<ML, RL> where
     // everything up to the watermark is guaranteed to be applied
     watermark: MonotonicTimestampResource,
     // This is the register this lin queue refers to
-    ghost register_id: int,
+    ghost register_id: Loc,
 }
 
 pub type LinWriteToken<ML> = GhostPointsTo<Timestamp, WriteTokenVal<ML>>;
@@ -141,11 +142,11 @@ pub struct WriteTokenVal<ML> {
 }
 
 pub struct LinQueueIds {
-    pub committed_to_id: int,
-    pub write_token_map_id: int,
-    pub read_token_map_id: int,
-    pub watermark_id: int,
-    pub register_id: int,
+    pub committed_to_id: Loc,
+    pub write_token_map_id: Loc,
+    pub read_token_map_id: Loc,
+    pub watermark_id: Loc,
+    pub register_id: Loc,
 }
 
 // Specs
@@ -298,23 +299,23 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
         }
     }
 
-    pub closed spec fn committed_to_id(self) -> int {
+    pub closed spec fn committed_to_id(self) -> Loc {
         self.committed_to.id()
     }
 
-    pub closed spec fn write_token_id(self) -> int {
+    pub closed spec fn write_token_id(self) -> Loc {
         self.write_token_map.id()
     }
 
-    pub closed spec fn read_token_id(self) -> int {
+    pub closed spec fn read_token_id(self) -> Loc {
         self.read_token_map.id()
     }
 
-    pub closed spec fn watermark_id(self) -> int {
+    pub closed spec fn watermark_id(self) -> Loc {
         self.watermark.loc()
     }
 
-    pub closed spec fn register_id(self) -> int {
+    pub closed spec fn register_id(self) -> Loc {
         self.register_id
     }
 
@@ -462,7 +463,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
-    pub proof fn new(register_id: int, tracked zero_commitment: WriteCommitment) -> (tracked result:
+    pub proof fn new(register_id: Loc, tracked zero_commitment: WriteCommitment) -> (tracked result:
         Self)
         requires
             zero_commitment.key() == Timestamp::spec_default(),

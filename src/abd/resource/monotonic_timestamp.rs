@@ -1,12 +1,13 @@
 use crate::abd::timestamp::Timestamp;
 
+use vstd::resource::algebra::ResourceAlgebra;
+use vstd::resource::pcm::Resource;
+use vstd::resource::pcm::PCM;
 #[allow(unused_imports)]
-use vstd::pcm::Loc;
-use vstd::pcm::Resource;
-use vstd::pcm::PCM;
+use vstd::resource::Loc;
 
 #[allow(unused_imports)]
-use vstd::pcm_lib::*;
+use vstd::resource::*;
 
 use vstd::prelude::*;
 
@@ -28,15 +29,13 @@ pub enum MonotonicTimestampResourceValue {
     Invalid,
 }
 
-// To use `MonotonicTimestampResourceValue` as a resource, we have to implement
-// `PCM`, showing how to use it in a resource algebra.
-impl PCM for MonotonicTimestampResourceValue {
+impl ResourceAlgebra for MonotonicTimestampResourceValue {
     open spec fn valid(self) -> bool {
         !(self is Invalid)
     }
 
-    open spec fn op(self, other: Self) -> Self {
-        match (self, other) {
+    open spec fn op(a: Self, b: Self) -> Self {
+        match (a, b) {
             // Two lower bounds can be combined into a lower bound
             // that's the maximum of the two lower bounds.
             (
@@ -53,7 +52,6 @@ impl PCM for MonotonicTimestampResourceValue {
             // A lower bound can be combined with a right to
             // advance as long as the lower bound doesn't exceed
             // the value in the right to advance.
-
             // full
             (
                 MonotonicTimestampResourceValue::LowerBound { lower_bound },
@@ -103,11 +101,7 @@ impl PCM for MonotonicTimestampResourceValue {
         }
     }
 
-    open spec fn unit() -> Self {
-        MonotonicTimestampResourceValue::LowerBound { lower_bound: Timestamp::spec_default() }
-    }
-
-    proof fn closed_under_incl(a: Self, b: Self) {
+    proof fn valid_op(a: Self, b: Self) {
     }
 
     proof fn commutative(a: Self, b: Self) {
@@ -115,8 +109,14 @@ impl PCM for MonotonicTimestampResourceValue {
 
     proof fn associative(a: Self, b: Self, c: Self) {
     }
+}
 
-    proof fn op_unit(a: Self) {
+impl PCM for MonotonicTimestampResourceValue {
+    open spec fn unit() -> Self {
+        MonotonicTimestampResourceValue::LowerBound { lower_bound: Timestamp::spec_default() }
+    }
+
+    proof fn op_unit(self) {
     }
 
     proof fn unit_valid() {
@@ -171,7 +171,7 @@ impl MonotonicTimestampResource {
             self@.timestamp() == other@.timestamp(),
         ensures
             r.loc() == self.loc(),
-            r@.timestamp() == self@.op(other@).timestamp(),
+            r@.timestamp() == MonotonicTimestampResourceValue::op(self@, other@).timestamp(),
     {
         let tracked r = self.r.join(other.r);
         Self { r }
@@ -189,7 +189,9 @@ impl MonotonicTimestampResource {
             r.0@ is HalfRightToAdvance,
             r.1@ is HalfRightToAdvance,
     {
-        let half = MonotonicTimestampResourceValue::HalfRightToAdvance { value: self@->FullRightToAdvance_value };
+        let half = MonotonicTimestampResourceValue::HalfRightToAdvance {
+            value: self@->FullRightToAdvance_value,
+        };
         let tracked (left, right) = self.r.split(half, half);
         (MonotonicTimestampResource { r: left }, MonotonicTimestampResource { r: right })
     }
@@ -220,7 +222,7 @@ impl MonotonicTimestampResource {
             self.loc() == old(self).loc(),
             other.loc() == old(other).loc(),
             self@.timestamp() == new_value,
-            other@.timestamp() ==  new_value,
+            other@.timestamp() == new_value,
             self@ is HalfRightToAdvance,
             other@ is HalfRightToAdvance,
     {

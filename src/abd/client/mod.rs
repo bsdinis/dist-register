@@ -294,9 +294,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     r ==> s.spec_len() >= qsize,
                 { s.len() >= self.quorum_size() }),
             |r|
-                match r.clone().into_inner() {
+                match r.deref() {
                     Response::Get(get) => {
-                        Ok(get)
+                        Ok(get.clone())
                     }
                     _ => Err(r),
                 },
@@ -398,7 +398,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 }),
             |r|
                 match r.deref() {
-                    Response::Write { .. } => Ok(()),
+                    Response::Write(_) => Ok(()),
                     _ => Err(r),
                 },
         );
@@ -543,7 +543,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     { s.len() >= self.quorum_size() }),
                 |r|
                     match r.deref() {
-                        Response::GetTimestamp { timestamp, .. } => Ok(*timestamp),
+                        Response::GetTimestamp(get_ts) => Ok(get_ts.clone()),
                         _ => Err(r),
                     },
             );
@@ -593,9 +593,10 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         proof {
             self.lemma_qsize_nonempty();
         }
-        let max_ts = max_from_get_ts_replies(replies);
-        assert(max_ts is Some);
-        let max_ts = max_ts.expect("the quorum should never be empty");
+        let opt = max_from_get_ts_replies(replies);
+        assert(opt is Some);
+        let max_resp = opt.expect("the quorum should never be empty");
+        let max_ts = max_resp.timestamp();
 
         // XXX: timestamp recycling would be interesting
         assume(max_ts.seqno < u64::MAX - 1);  // XXX: integer overflow
@@ -643,7 +644,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     { s.len() >= self.quorum_size() }),
                 |r|
                     match r.deref() {
-                        Response::Write { .. } => Ok(()),
+                        Response::Write(_) => Ok(()),
                         _ => Err(r),
                     },
             );

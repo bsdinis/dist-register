@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::abd::proto::GetResponse;
+use crate::abd::proto::{GetResponse, GetTimestampResponse};
 use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
@@ -51,12 +51,12 @@ pub fn max_from_get_replies(vals: &BTreeMap<(u64, u64), GetResponse>) -> (r: Opt
     Some(rmax)
 }
 
-pub fn max_from_get_ts_replies(vals: &BTreeMap<(u64, u64), Timestamp>) -> (r: Option<Timestamp>)
+pub fn max_from_get_ts_replies(vals: &BTreeMap<(u64, u64), GetTimestampResponse>) -> (r: Option<GetTimestampResponse>)
     ensures
         vals.len() > 0 ==> ({
             &&& r is Some
             &&& vals@.values().contains(r->0)
-            &&& forall|id| #[trigger] vals@.contains_key(id) ==> (r->0) >= vals[id]
+            &&& forall|id| #[trigger] vals@.contains_key(id) ==> (r->0).spec_timestamp() >= vals[id].spec_timestamp()
         }),
         vals.len() == 0 ==> r is None,
 {
@@ -65,27 +65,28 @@ pub fn max_from_get_ts_replies(vals: &BTreeMap<(u64, u64), Timestamp>) -> (r: Op
     }
     assert(vals.len() > 0);
 
-    let mut max_ts: Option<Timestamp> = None;
+    let mut max: Option<&GetTimestampResponse> = None;
     let it = vals.iter();
     for (_k, v) in it {
-        let mut new_ts = None;
-        if let Some(mts) = max_ts.as_ref() {
-            if *v > *mts {
-                new_ts = Some(*v)
+        let mut new_val = None;
+        if let Some(max_resp) = max.as_ref() {
+            if v.timestamp() > max_resp.timestamp() {
+                new_val = Some(v);
             }
         } else {
-            max_ts = Some(*v)
+            max = Some(v)
         }
-        if new_ts.is_some() {
-            max_ts = new_ts
+        if new_val.is_some() {
+            max = new_val
         }
     }
 
     // XXX: this requires looking into building a type invariant over there, which is a big pain
-    assume(max_ts is Some);
-    assume(vals@.values().contains(max_ts->0));
-    assume(forall|id| #[trigger] vals@.contains_key(id) ==> (max_ts->0) >= vals[id]);
-    max_ts
+    assume(max is Some);
+    let rmax = max.unwrap().clone();
+    assume(vals@.values().contains(rmax));
+    assume(forall|id| #[trigger] vals@.contains_key(id) ==> rmax.spec_timestamp() >= vals[id].spec_timestamp());
+    Some(rmax)
 }
 
 } // verus!

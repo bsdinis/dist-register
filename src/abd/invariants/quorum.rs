@@ -25,6 +25,7 @@ impl ServerUniverse {
     pub proof fn dummy() -> (tracked r: Self)
         ensures
             r.inv(),
+            r.is_auth(),
             forall|q: Quorum| #[trigger]
                 r.valid_quorum(q) ==> r.quorum_timestamp(q) >= Timestamp::spec_default(),
     {
@@ -32,8 +33,21 @@ impl ServerUniverse {
     }
 
     pub open spec fn inv(self) -> bool {
-        &&& forall|k: u64| #[trigger] self.map.contains_key(k) ==> self.map[k]@@ is LowerBound
         &&& self.map.dom().finite()
+    }
+
+    pub open spec fn is_auth(self) -> bool
+        recommends
+            self.inv()
+    {
+        forall|k: u64| #[trigger] self.map.contains_key(k) ==> self.map[k]@@ is HalfRightToAdvance
+    }
+
+    pub open spec fn is_lb(self) -> bool
+        recommends
+            self.inv()
+    {
+        forall|k: u64| #[trigger] self.map.contains_key(k) ==> self.map[k]@@ is LowerBound
     }
 
     pub open spec fn dom(self) -> Set<u64> {
@@ -216,9 +230,9 @@ impl ServerUniverse {
             self.inv(),
             other.inv(),
     {
+        &&& self.locs() == other.locs()
         &&& forall|k: u64| #[trigger]
             self.contains_key(k) ==> self[k]@@.timestamp() <= other[k]@@.timestamp()
-        &&& self.locs() == other.locs()
     }
 
     proof fn lemma_leq_implies_validity(self, other: ServerUniverse, q: Quorum)
@@ -295,6 +309,25 @@ impl ServerUniverse {
             assert(other.quorum_timestamp(q) >= min);
         }
     }
+
+    pub proof fn lemma_lower_bound(tracked &mut self, tracked other: &Self)
+        requires
+            old(self).inv(),
+            old(self).is_lb(),
+            other.inv(),
+            other.is_auth(),
+            old(self).locs() == other.locs(),
+        ensures
+            self.inv(),
+            self.locs() == old(self).locs(),
+            self.is_lb(),
+            *old(self) == *self,
+            self.leq(*other)
+    {
+        admit(); // TODO: This probably necessitates recursion
+    }
+
+
 
     // This is the big quorum lemma
     pub proof fn lemma_quorum_lb(self, lb_quorum: Quorum, ts: Timestamp)

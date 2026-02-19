@@ -89,3 +89,11 @@ impl Timestamp {
 }
 
 } // verus!
+
+impl std::fmt::Debug for Timestamp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.seqno.fmt(f)?;
+        f.write_str(".")?;
+        self.client_id.fmt(f)
+    }
+}

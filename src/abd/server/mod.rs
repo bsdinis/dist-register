@@ -17,6 +17,8 @@ use std::sync::Arc;
 use vstd::prelude::*;
 use vstd::rwlock::RwLock;
 
+use super::proto::WriteResponse;
+
 mod register;
 
 verus! {
@@ -84,16 +86,14 @@ impl<L, C> RegisterServer<L, C> where
 
     // TODO: must receive a lower bound here
     fn handle_get_timestamp(&self) -> Response {
-        let MonotonicRegisterInner { timestamp, resource, .. } = self.register.read_timestamp();
-
-        Response::GetTimestamp { timestamp, lb: resource }
+        Response::GetTimestamp(self.register.read_timestamp())
     }
 
     // TODO: must receive a lower bound here
     fn handle_write(&self, val: Option<u64>, timestamp: Timestamp) -> Response {
         let lb = self.register.write(val, timestamp);
 
-        Response::Write { lb }
+        Response::Write(WriteResponse)
     }
 
     fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response> {

@@ -7,6 +7,8 @@ use crate::abd::invariants::quorum::ServerUniverse;
 #[allow(unused_imports)]
 use crate::abd::proto::GetResponse;
 #[allow(unused_imports)]
+use crate::abd::proto::GetTimestampResponse;
+#[allow(unused_imports)]
 use crate::abd::timestamp::Timestamp;
 
 #[allow(unused_imports)]
@@ -31,15 +33,15 @@ pub axiom fn axiom_get_unanimous_replies(
     commitment_id: int,
 ) -> (tracked r: (Quorum, WriteCommitment))
     requires
-        old(
-            map,
-        ).inv(),
+        old(map).inv(),
+        old(map).is_auth(),
 // NOTE(net_axiom): timestamps in the replies need to be above the lower bounds in old_map
 // How to do? network spec + sending lower bounds on read
 // This will enable removing the min_ts requirement
 
     ensures
         map.inv(),
+        map.is_auth(),
         map.dom() == old(map).dom(),
         map.locs() == old(map).locs(),
         map.valid_quorum(r.0),
@@ -71,9 +73,8 @@ pub axiom fn axiom_writeback_unanimous_replies(
     commitment_id: int,
 ) -> (tracked r: (Quorum, WriteCommitment))
     requires
-        old(
-            map,
-        ).inv(),
+        old(map).inv(),
+        old(map).is_auth(),
 // NOTE(net_axiom): relate the get_replies to the wb_replies (i.e., if something in the
 // get_replies is < max_ts then that idx must be in wb_replies)
 // NOTE(net_axiom): timestamps in the get_replies need to be above the lower bounds in old_map
@@ -84,6 +85,7 @@ pub axiom fn axiom_writeback_unanimous_replies(
         map.dom() == old(map).dom(),
         map.locs() == old(map).locs(),
         map.inv(),
+        map.is_auth(),
         r.0.inv(),
         map.valid_quorum(r.0),
         // this is derivable if replies come with lower bounds
@@ -112,18 +114,20 @@ pub axiom fn axiom_writeback_unanimous_replies(
 ;
 
 pub axiom fn axiom_get_ts_replies(
-    replies: &BTreeMap<(u64, u64), Timestamp>,
+    replies: &BTreeMap<(u64, u64), GetTimestampResponse>,
     tracked map: &mut ServerUniverse,
     max_ts: Timestamp,
 ) -> (tracked r: Quorum)
     requires
         old(map).inv(),
-        exists|k: (u64, u64)| #[trigger] replies@.contains_key(k) ==> replies[k] == max_ts,
-        forall|k: (u64, u64)| #[trigger] replies@.contains_key(k) ==> replies[k] <= max_ts,
+        old(map).is_auth(),
+        exists|k: (u64, u64)| #[trigger] replies@.contains_key(k) ==> replies[k].spec_timestamp() == max_ts,
+        forall|k: (u64, u64)| #[trigger] replies@.contains_key(k) ==> replies[k].spec_timestamp() <= max_ts,
     ensures
         map.dom() == old(map).dom(),
         map.locs() == old(map).locs(),
         map.inv(),
+        map.is_auth(),
         r.inv(),
         map.valid_quorum(r),
         // this is derivable if replies come with lower bounds
@@ -134,7 +138,7 @@ pub axiom fn axiom_get_ts_replies(
             #![trigger map[k.1]]
             map.contains_key(k.1) ==> {
                 &&& replies@.contains_key(k) ==> {
-                    &&& map[k.1]@@.timestamp() == replies[k]
+                    &&& map[k.1]@@.timestamp() == replies[k].spec_timestamp()
                     &&& r@.contains(k.1)
                 }
                 &&& !replies@.contains_key(k) ==> {
@@ -151,9 +155,8 @@ pub axiom fn axiom_write_replies(
     exec_ts: Timestamp,
 ) -> (tracked r: Quorum)
     requires
-        old(
-            map,
-        ).inv(),
+        old(map).inv(),
+        old(map).is_auth(),
 // NOTE(net_axiom): timestamps in the get_replies need to be above the lower bounds in old_map
 // How to do? network spec + sending lower bounds on read
 
@@ -161,6 +164,7 @@ pub axiom fn axiom_write_replies(
         map.map.dom() == old(map).map.dom(),
         map.locs() == old(map).locs(),
         map.inv(),
+        map.is_auth(),
         r.inv(),
         map.valid_quorum(r),
         // this is derivable if replies come with lower bounds

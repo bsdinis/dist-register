@@ -65,6 +65,7 @@ impl<ML, RL> State<ML, RL> where
         // member invariants
         &&& self.linearization_queue.inv()
         &&& self.servers.inv()
+        &&& self.servers.is_auth()
         &&& self.commitments.inv()
         &&& self.commitments.is_full()
         // id concordance

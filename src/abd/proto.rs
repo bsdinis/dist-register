@@ -19,20 +19,6 @@ pub struct GetRequest {
     servers: Tracked<ServerUniverse>,
 }
 
-pub enum Response {
-    Get(GetResponse),
-    GetTimestamp { timestamp: Timestamp, lb: Tracked<MonotonicTimestampResource> },
-    Write { lb: Tracked<MonotonicTimestampResource> },
-}
-
-#[allow(unused)]
-pub struct GetResponse {
-    val: Option<u64>,
-    timestamp: Timestamp,
-    lb: Tracked<MonotonicTimestampResource>,
-    // TODO: commitment
-}
-
 #[allow(unused)]
 impl GetRequest {
     #[verifier::type_invariant]
@@ -64,6 +50,44 @@ impl Clone for GetRequest {
         GetRequest::new(Tracked(new_servers))
     }
 }
+
+impl Clone for Request {
+    #[allow(unused_variables)]
+    fn clone(&self) -> Self {
+        match self {
+            Request::Get(get) => { Request::Get(get.clone()) },
+            Request::GetTimestamp => { Request::GetTimestamp },
+            Request::Write { val, timestamp } => {
+                Request::Write { val: val.clone(), timestamp: timestamp.clone() }
+            },
+        }
+    }
+}
+
+pub enum Response {
+    Get(GetResponse),
+    GetTimestamp(GetTimestampResponse),
+    Write(WriteResponse),
+}
+
+#[allow(unused)]
+pub struct GetResponse {
+    val: Option<u64>,
+    timestamp: Timestamp,
+    lb: Tracked<MonotonicTimestampResource>,
+    // TODO: commitment
+}
+
+#[allow(unused)]
+pub struct GetTimestampResponse {
+    timestamp: Timestamp,
+    lb: Tracked<MonotonicTimestampResource>,
+}
+
+    // TODO: what do we actually send?
+#[allow(unused)]
+pub struct WriteResponse;
+
 
 #[allow(unused)]
 impl GetResponse {
@@ -134,17 +158,74 @@ impl Clone for GetResponse {
         GetResponse::new(self.val.clone(), self.timestamp.clone(), Tracked(new_lb))
     }
 }
+#[allow(unused)]
+impl GetTimestampResponse {
+    #[verifier::type_invariant]
+    pub closed spec fn inv(self) -> bool {
+        &&& self.lb@@ is LowerBound
+        &&& self.lb@@.timestamp() == self.timestamp
+    }
 
-impl Clone for Request {
-    #[allow(unused_variables)]
-    fn clone(&self) -> Self {
-        match self {
-            Request::Get(get) => { Request::Get(get.clone()) },
-            Request::GetTimestamp => { Request::GetTimestamp },
-            Request::Write { val, timestamp } => {
-                Request::Write { val: val.clone(), timestamp: timestamp.clone() }
-            },
+    pub closed spec fn lb(self) -> MonotonicTimestampResource {
+        self.lb@
+    }
+
+    pub closed spec fn spec_timestamp(self) -> Timestamp {
+        self.timestamp
+    }
+
+    pub open spec fn loc(self) -> int {
+        self.lb().loc()
+    }
+
+    pub fn new(timestamp: Timestamp, lb: Tracked<MonotonicTimestampResource>) -> (r: Self)
+        requires
+            lb@@ is LowerBound,
+            lb@@.timestamp() == timestamp,
+        ensures
+            r.lb() == lb@,
+            r.spec_timestamp() == timestamp,
+    {
+        GetTimestampResponse { timestamp, lb }
+    }
+
+    pub fn timestamp(&self) -> (ts: Timestamp)
+        ensures
+            ts == self.spec_timestamp()
+    {
+        self.timestamp.clone()
+    }
+}
+
+impl Clone for GetTimestampResponse {
+    fn clone(&self) -> (r: Self) {
+        let tracked new_lb;
+        proof {
+            use_type_invariant(self);
+            new_lb = self.lb.borrow().extract_lower_bound();
         }
+        GetTimestampResponse::new(self.timestamp.clone(), Tracked(new_lb))
+    }
+}
+
+
+#[allow(unused)]
+impl WriteResponse {
+    // #[verifier::type_invariant]
+    pub closed spec fn inv(self) -> bool {
+        true
+    }
+
+
+    pub fn new() -> (r: Self)
+    {
+        WriteResponse
+    }
+}
+
+impl Clone for WriteResponse {
+    fn clone(&self) -> (r: Self) {
+        WriteResponse
     }
 }
 
@@ -155,13 +236,11 @@ impl Clone for Response {
             Response::Get(get) => {
                 Response::Get(get.clone())
             },
-            Response::GetTimestamp { timestamp, lb } => {
-                let tracked new_lb = lb.borrow().extract_lower_bound();
-                Response::GetTimestamp { timestamp: *timestamp, lb: Tracked(new_lb) }
+            Response::GetTimestamp(get_ts) => {
+                Response::GetTimestamp(get_ts.clone())
             },
-            Response::Write { lb } => {
-                let tracked new_lb = lb.borrow().extract_lower_bound();
-                Response::Write { lb: Tracked(new_lb) }
+            Response::Write(write) => {
+                Response::Write(write.clone())
             },
         }
     }
@@ -183,23 +262,29 @@ impl std::fmt::Debug for GetResponse {
     }
 }
 
+impl std::fmt::Debug for GetTimestampResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GetTimestampResponse")
+            .field("timestamp", &self.timestamp)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for WriteResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WriteResponse").finish()
+    }
+}
+
 impl std::fmt::Debug for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Response::Get(get) => f.debug_tuple("Response::Get").field(&get).finish(),
-            Response::GetTimestamp { timestamp, .. } => f
-                .debug_struct("Response::GetTimestamp")
-                .field("timestamp", &timestamp)
+            Response::GetTimestamp(get_ts) => f
+                .debug_tuple("Response::GetTimestamp")
+                .field(&get_ts)
                 .finish(),
-            Response::Write { .. } => f.debug_struct("Response::Write").finish(),
+            Response::Write(write) => f.debug_tuple("Response::Write").field(&write).finish(),
         }
-    }
-}
-
-impl std::fmt::Debug for Timestamp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.seqno.fmt(f)?;
-        f.write_str(".")?;
-        self.client_id.fmt(f)
     }
 }

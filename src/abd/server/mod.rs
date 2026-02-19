@@ -79,14 +79,12 @@ impl<L, C> RegisterServer<L, C> where
 
     // TODO: must receive a lower bound here
     fn handle_get(&self) -> Response {
-        let MonotonicRegisterInner { val, timestamp, resource } = self.register.read();
-
-        Response::Get { val, timestamp, lb: resource }
+        Response::Get(self.register.read())
     }
 
     // TODO: must receive a lower bound here
     fn handle_get_timestamp(&self) -> Response {
-        let MonotonicRegisterInner { timestamp, resource, .. } = self.register.read();
+        let MonotonicRegisterInner { timestamp, resource, .. } = self.register.read_timestamp();
 
         Response::GetTimestamp { timestamp, lb: resource }
     }

@@ -1,6 +1,7 @@
 use vstd::prelude::*;
 use vstd::rwlock::RwLock;
 
+use crate::abd::proto::GetResponse;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::timestamp::Timestamp;
 
@@ -28,8 +29,8 @@ impl MonotonicRegisterInner {
         }
     }
 
-    pub closed spec fn loc(&self) -> Ghost<int> {
-        Ghost(self.resource@.loc())
+    pub closed spec fn loc(&self) -> int {
+        self.resource@.loc()
     }
 
     pub open spec fn inv(&self) -> bool {
@@ -37,7 +38,29 @@ impl MonotonicRegisterInner {
     }
 
     #[allow(unused_variables)]
-    pub fn read(&self) -> (r: MonotonicRegisterInner)
+    pub fn read(&self) -> (r: GetResponse)
+        requires
+            self.resource@@ is FullRightToAdvance,
+            self.inv(),
+        ensures
+            r.spec_value() == self.val,
+            r.spec_timestamp() == self.timestamp,
+            r.loc() == self.loc(),
+    {
+        let val = self.val.clone();
+        let timestamp = self.timestamp;
+        let tracked r = self.resource.borrow();
+        let tracked lb = r.extract_lower_bound();
+
+        proof {
+            lb.lemma_lower_bound(r);
+        }
+
+        GetResponse::new(self.val.clone(), self.timestamp.clone(), Tracked(lb))
+    }
+
+    #[allow(unused_variables)]
+    pub fn read_timestamp(&self) -> (r: MonotonicRegisterInner)
         requires
             self.resource@@ is FullRightToAdvance,
             self.inv(),
@@ -124,9 +147,8 @@ impl MonotonicRegister {
         self.inner.pred().resource_loc
     }
 
-    pub fn read(&self) -> (r: MonotonicRegisterInner)
+    pub fn read(&self) -> (r: GetResponse)
         ensures
-            r.resource@@ is LowerBound,
             r.loc() == self.loc(),
     {
         proof {
@@ -135,6 +157,21 @@ impl MonotonicRegister {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();
         let res = inner.read();
+        handle.release_read();
+
+        res
+    }
+
+    pub fn read_timestamp(&self) -> (r: MonotonicRegisterInner)
+        ensures
+            r.loc() == self.loc(),
+    {
+        proof {
+            use_type_invariant(self);
+        }
+        let handle = self.inner.acquire_read();
+        let inner = handle.borrow();
+        let res = inner.read_timestamp();
         handle.release_read();
 
         res

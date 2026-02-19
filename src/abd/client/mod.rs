@@ -295,7 +295,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 { s.len() >= self.quorum_size() }),
             |r|
                 match r.clone().into_inner() {
-                    Response::Get { timestamp, val, .. } => Ok((timestamp, val)),
+                    Response::Get(get) => {
+                        Ok(get)
+                    }
                     _ => Err(r),
                 },
         );
@@ -327,17 +329,17 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             self.lemma_qsize_nonempty();
         }
         let opt = max_from_get_replies(replies);
-        let (max_ts, max_val) = opt.expect("there should be at least one reply");
+        let max_resp = opt.expect("there should be at least one reply");
         let mut n_max_ts = 0usize;
         let q_iter = replies.iter();
-        for (_idx, (ts, _val)) in q_iter {
-            if ts.seqno == max_ts.seqno && ts.client_id == max_ts.client_id {
+        for (_idx, resp) in q_iter {
+            if resp.timestamp() == max_resp.timestamp() {
                 assume(n_max_ts + 1 < usize::MAX);  // XXX: integer overflow
                 n_max_ts += 1;
             }
         }
 
-        proph_val.resolve(&max_val);
+        proph_val.resolve(max_resp.value());
 
         if n_max_ts >= self.pool.quorum_size() {
             let tracked comp;
@@ -347,22 +349,22 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     let ghost old_known = state.linearization_queue.known_timestamps();
 
                     let ghost old_servers = state.servers;
-                    let tracked (quorum, mut commitment) = axiom_get_unanimous_replies(replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to_id());
+                    let tracked (quorum, mut commitment) = axiom_get_unanimous_replies(replies, &mut state.servers, token.value().min_ts@.timestamp(), max_resp.spec_timestamp(), max_resp.spec_value(), state.linearization_queue.committed_to_id());
                     old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                     state.commitments.agree_commitment(&commitment);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
-                    let tracked watermark = state.linearization_queue.apply_linearizers_up_to(&mut state.register, max_ts);
+                    let tracked watermark = state.linearization_queue.apply_linearizers_up_to(&mut state.register, max_resp.spec_timestamp());
 
-                    if max_ts > old_watermark {
-                        state.servers.lemma_quorum_lb(quorum, max_ts);
-                        assert(state.linearization_queue.watermark() == max_ts);
+                    if max_resp.spec_timestamp() > old_watermark {
+                        state.servers.lemma_quorum_lb(quorum, max_resp.spec_timestamp());
+                        assert(state.linearization_queue.watermark() == max_resp.spec_timestamp());
                     } else {
                         assert(state.linearization_queue.watermark() == old_watermark);
                     }
 
-                    comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark, commitment);
+                    comp = state.linearization_queue.extract_read_completion(token, max_resp.spec_timestamp(), watermark, commitment);
 
                     // XXX: load bearing
                     assert(state.linearization_queue.known_timestamps() == old_known);
@@ -371,17 +373,19 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 // XXX: debug assert
                 assert(state.inv());
             });
+            let (max_val, max_ts) = max_resp.into_inner();
             return Ok((max_val, max_ts, Tracked(comp)));
         }
         // non-unanimous read: write-back
 
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
+        let max_ts = max_resp.timestamp();
         #[allow(unused_parens)]
         let replies_result = bpool.broadcast_filter::<_, _, WritebackInv>(
-            Request::Write { val: max_val, timestamp: max_ts },
+            Request::Write { val: max_resp.value().clone(), timestamp: max_ts },
             Ghost(WritebackInv {  }),
-            |id| replies.get(&id).map(|ts_v| ts_v.0 != max_ts).unwrap_or(false),
+            |id| replies.get(&id).map(|resp| resp.timestamp() != max_ts).unwrap_or(false),
         )
         // bellow is error handling + type handling + logging stuff
         .wait_for(
@@ -429,7 +433,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 let ghost old_known = state.linearization_queue.known_timestamps();
 
                 let ghost old_servers = state.servers;
-                let tracked (quorum, commitment) = axiom_writeback_unanimous_replies(replies, wb_replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_val, state.linearization_queue.committed_to_id());
+                let tracked (quorum, commitment) = axiom_writeback_unanimous_replies(replies, wb_replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_resp.spec_value(), state.linearization_queue.committed_to_id());
                 old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                 state.commitments.agree_commitment(&commitment);
@@ -453,6 +457,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             // XXX: debug assert
             assert(state.inv());
         });
+        let (max_val, max_ts) = max_resp.into_inner();
         Ok((max_val, max_ts, Tracked(comp)))
     }
 

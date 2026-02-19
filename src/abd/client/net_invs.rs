@@ -2,8 +2,7 @@ use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 
 use crate::abd::invariants::quorum::ServerUniverse;
-use crate::abd::proto::Response;
-use crate::abd::timestamp::Timestamp;
+use crate::abd::proto::{GetResponse, Response};
 use crate::verdist::rpc::proto::Tagged;
 use crate::verdist::rpc::replies::RepliesView;
 
@@ -25,18 +24,18 @@ pub struct WriteInv {}
 
 impl InvariantPredicate<
     GetInv,
-    RepliesView<(u64, u64), (Timestamp, Option<u64>), Tagged<Response>>,
+    RepliesView<(u64, u64), GetResponse, Tagged<Response>>,
 > for GetInv {
     open spec fn inv(
         pred: GetInv,
-        v: RepliesView<(u64, u64), (Timestamp, Option<u64>), Tagged<Response>>,
+        v: RepliesView<(u64, u64), GetResponse, Tagged<Response>>,
     ) -> bool {
         &&& v.replies.dom().map(|x: (u64, u64)| x.1) <= pred.old_servers.dom()
         &&& v.invalid_replies.dom().map(|x: (u64, u64)| x.1) <= pred.old_servers.dom()
         &&& v.errors.dom().map(|x: (u64, u64)| x.1) <= pred.old_servers.dom()
         &&& forall|chan_id: (u64, u64)| #[trigger]
             v.replies.contains_key(chan_id) ==> pred.old_servers[chan_id.1]@@.timestamp()
-                <= v.replies[chan_id].0
+                <= v.replies[chan_id].spec_timestamp()
     }
 }
 

@@ -5,6 +5,8 @@ use crate::abd::invariants::quorum::Quorum;
 #[allow(unused_imports)]
 use crate::abd::invariants::quorum::ServerUniverse;
 #[allow(unused_imports)]
+use crate::abd::proto::GetResponse;
+#[allow(unused_imports)]
 use crate::abd::timestamp::Timestamp;
 
 #[allow(unused_imports)]
@@ -21,7 +23,7 @@ verus! {
 // (they allows duplication of resources)
 //
 pub axiom fn axiom_get_unanimous_replies(
-    replies: &BTreeMap<(u64, u64), (Timestamp, Option<u64>)>,
+    replies: &BTreeMap<(u64, u64), GetResponse>,
     tracked map: &mut ServerUniverse,
     min_ts: Timestamp,
     max_ts: Timestamp,
@@ -50,7 +52,7 @@ pub axiom fn axiom_get_unanimous_replies(
             #![trigger map[k.1]]
             map.contains_key(k.1) ==> {
                 &&& old(map)[k.1]@@.timestamp() <= map[k.1]@@.timestamp()
-                &&& replies@.contains_key(k) ==> map[k.1]@@.timestamp() == replies[k].0
+                &&& replies@.contains_key(k) ==> map[k.1]@@.timestamp() == replies[k].spec_timestamp()
                 &&& !replies@.contains_key(k) ==> map[k.1] == old(map)[k.1]
             },
         forall|k| #[trigger] r.0@.contains(k) ==> map[k]@@.timestamp() == max_ts,
@@ -60,7 +62,7 @@ pub axiom fn axiom_get_unanimous_replies(
 ;
 
 pub axiom fn axiom_writeback_unanimous_replies(
-    get_replies: &BTreeMap<(u64, u64), (Timestamp, Option<u64>)>,
+    get_replies: &BTreeMap<(u64, u64), GetResponse>,
     wb_replies: &BTreeMap<(u64, u64), ()>,
     tracked map: &mut ServerUniverse,
     min_ts: Timestamp,
@@ -92,7 +94,7 @@ pub axiom fn axiom_writeback_unanimous_replies(
             #![trigger map[k.1]]
             map.contains_key(k.1) ==> {
                 &&& get_replies@.contains_key(k) ==> {
-                    let get_ts = get_replies[k].0;
+                    let get_ts = get_replies[k].spec_timestamp();
                     ({
                         ||| get_ts == max_ts ==> map[k.1]@@.timestamp() == get_ts
                         ||| wb_replies@.contains_key(k) ==> map[k.1]@@.timestamp() == max_ts

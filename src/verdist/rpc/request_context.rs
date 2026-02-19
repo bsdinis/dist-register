@@ -32,7 +32,7 @@ impl<'a, Pool: ConnectionPool, T, Pred> RequestContext<'a, Pool, T, Pred> where
     pub fn new(pool: &'a Pool, request_tag: u64, pred: Ghost<Pred>) -> Self
         requires
             Pred::inv(pred@, RepliesView::empty()),
-            vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
+            vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
     {
         RequestContext { pool, request_tag, replies: Replies::new(pred) }
     }
@@ -67,7 +67,7 @@ impl<'a, Pool: ConnectionPool, T, Pred> RequestContext<'a, Pool, T, Pred> where
                 extractor_fn.requires(
                     (r,),
                 ),
-    // vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
+    // vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
 
         ensures
             r is Ok ==> call_ensures(termination_cond, (&r->Ok_0,), true),

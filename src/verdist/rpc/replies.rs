@@ -46,7 +46,7 @@ impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred> where
     pub fn new(pred: Ghost<Pred>) -> (r: Self)
         requires
             Pred::inv(pred@, RepliesView::empty()),
-            vstd::std_specs::btree::obeys_key_model::<ChanId>(),
+            vstd::laws_cmp::obeys_cmp_spec::<ChanId>(),
         ensures
             r@ == RepliesView::<ChanId, T, R>::empty(),
     {
@@ -62,7 +62,7 @@ impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred> where
     closed spec fn inv(self) -> bool {
         &&& self.replies.len() + self.invalid_replies.len() + self.errors.len() <= usize::MAX
         &&& Pred::inv(self.pred@, self@)
-        &&& vstd::std_specs::btree::obeys_key_model::<ChanId>()
+        &&& vstd::laws_cmp::obeys_cmp_spec::<ChanId>()
     }
 
     pub fn len(&self) -> (r: usize)
@@ -180,7 +180,7 @@ impl<ChanId, T, R, Pred> Replies<ChanId, T, R, Pred> where
     // This helps bypass the no_unwind requirement on Self, which has a type invariant
     fn insert_helper<K: Ord, V>(map: &mut BTreeMap<K, V>, k: K, v: V)
         requires
-            vstd::std_specs::btree::obeys_key_model::<K>(),
+            vstd::laws_cmp::obeys_cmp_spec::<K>(),
         ensures
             map@ == old(map)@.insert(k, v),
         no_unwind

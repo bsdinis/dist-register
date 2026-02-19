@@ -287,6 +287,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
+        // TODO(obeys_cmp_spec): add this to verus
+        assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         #[allow(unused_parens)]
         let quorum_res = bpool.broadcast::<_, GetInv>(req, pred).wait_for(
             (|s| -> (r: bool)
@@ -532,6 +534,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let quorum = {
             let ghost qsize = self.qsize();
             let bpool = BroadcastPool::new(&self.pool);
+            // TODO(obeys_cmp_spec): add this to verus
+            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
             let quorum_res = bpool.broadcast::<_, GetTimestampInv>(
                 Request::GetTimestamp,
@@ -633,6 +637,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         {
             let bpool = BroadcastPool::new(&self.pool);
             let ghost qsize = self.qsize();
+            // TODO(obeys_cmp_spec): add this to verus
+            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
             let quorum_res = bpool.broadcast::<_, WriteInv>(
                 Request::Write { val, timestamp: exec_ts },

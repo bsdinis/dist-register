@@ -445,11 +445,14 @@ impl ServerUniverse {
         broadcast use vstd::set::Set::lemma_set_insert_diff_decreases;
 
         let ghost diff = m.dom().difference(other.dom());
-        diff.lemma_len0_is_empty();
         if diff.len() == 0 {
+            diff.lemma_len0_is_empty();
             vlib::set::lemma_different_sets_with_inclusion_have_difference(other.dom(), m.dom());
             return ;
         }
+        vstd::assert_by_contradiction!(!diff.is_empty(), {
+            diff.lemma_len0_is_empty();
+        });
         let new_k = diff.choose();
         let tracked lb = m.tracked_borrow(new_k).borrow().extract_lower_bound();
         other.tracked_insert(new_k, Tracked(lb));

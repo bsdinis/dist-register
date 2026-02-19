@@ -41,7 +41,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         requires
             forall|id| filter_fn.requires((id,)),
             Pred::inv(pred@, RepliesView::empty()),
-            vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
+            vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
     {
         let tagged = Tagged::tag(request);
         let conns = self.pool.conns();
@@ -69,7 +69,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
 
         requires
             Pred::inv(pred@, RepliesView::empty()),
-            vstd::std_specs::btree::obeys_key_model::<<Pool::C as Channel>::Id>(),
+            vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
     {
         self.broadcast_filter(request, pred, |_s| true)
     }

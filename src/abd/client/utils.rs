@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 
 use crate::abd::proto::{GetResponse, GetTimestampResponse};
-use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
 #[cfg(verus_only)]
@@ -20,7 +19,12 @@ pub fn max_from_get_replies(vals: &BTreeMap<(u64, u64), GetResponse>) -> (r: Opt
         }),
         vals.len() == 0 ==> r is None,
 {
+    // TODO(obeys_cmp_spec): add this to verus
+    assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
     if vals.is_empty() {
+        proof {
+            vals@.dom().lemma_len0_is_empty();
+        }
         assert(vals.len() == 0);
         return None;
     }
@@ -60,6 +64,8 @@ pub fn max_from_get_ts_replies(vals: &BTreeMap<(u64, u64), GetTimestampResponse>
         }),
         vals.len() == 0 ==> r is None,
 {
+    // TODO(obeys_cmp_spec): add this to verus
+    assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
     if vals.len() == 0 {
         return None;
     }

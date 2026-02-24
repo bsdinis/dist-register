@@ -4,6 +4,7 @@ use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::timestamp::Timestamp;
 
 use vstd::prelude::*;
+#[cfg(verus_only)]
 use vstd::resource::Loc;
 
 verus! {
@@ -12,7 +13,7 @@ verus! {
 #[derive(Debug)]
 pub enum Request {
     Get(GetRequest),
-    GetTimestamp,
+    GetTimestamp(GetTimestampRequest),
     Write(WriteRequest),
 }
 
@@ -22,10 +23,16 @@ pub struct GetRequest {
 }
 
 #[allow(unused)]
+pub struct GetTimestampRequest {
+    servers: Tracked<ServerUniverse>,
+}
+
+#[allow(unused)]
 pub struct WriteRequest {
     value: Option<u64>,
     timestamp: Timestamp,
     commitment: Tracked<WriteCommitment>,
+    // TODO: add lower bound
 }
 
 #[allow(unused)]
@@ -61,11 +68,51 @@ impl Clone for GetRequest {
 }
 
 #[allow(unused)]
+impl GetTimestampRequest {
+    #[verifier::type_invariant]
+    pub closed spec fn inv(self) -> bool {
+        self.servers@.inv()
+    }
+
+    pub closed spec fn servers(self) -> ServerUniverse {
+        self.servers@
+    }
+
+    pub fn new(servers: Tracked<ServerUniverse>) -> (r: Self)
+        requires
+            servers@.inv(),
+        ensures
+            r.servers() == servers@,
+    {
+        GetTimestampRequest { servers }
+    }
+}
+
+impl Clone for GetTimestampRequest {
+    fn clone(&self) -> (r: Self) {
+        let tracked new_servers;
+        proof {
+            use_type_invariant(self);
+            new_servers = self.servers.borrow().extract_lbs();
+        }
+        GetTimestampRequest::new(Tracked(new_servers))
+    }
+}
+
+#[allow(unused)]
 impl WriteRequest {
     #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
         &&& self.commitment@.key() == self.timestamp
         &&& self.commitment@.value() == self.value
+    }
+
+    pub closed spec fn spec_timestamp(self) -> Timestamp {
+        self.timestamp
+    }
+
+    pub closed spec fn spec_value(self) -> Option<u64> {
+        self.value
     }
 
     pub fn new(
@@ -76,14 +123,19 @@ impl WriteRequest {
         requires
             commitment@.key() == timestamp,
             commitment@.value() == value,
+        ensures
+            r.spec_timestamp() == timestamp,
+            r.spec_value() == value,
     {
         WriteRequest { value, timestamp, commitment }
     }
 
     pub fn destruct(self) -> (r: (Option<u64>, Timestamp, Tracked<WriteCommitment>))
         ensures
-            r.2@.key() == r.1,
-            r.2@.value() == r.0,
+            r.0 == self.spec_value(),
+            r.1 == self.spec_timestamp(),
+            r.2@.key() == self.spec_timestamp(),
+            r.2@.value() == self.spec_value(),
     {
         proof {
             use_type_invariant(&self);
@@ -109,7 +161,7 @@ impl Clone for Request {
     fn clone(&self) -> Self {
         match self {
             Request::Get(get) => { Request::Get(get.clone()) },
-            Request::GetTimestamp => { Request::GetTimestamp },
+            Request::GetTimestamp(get_ts) => { Request::GetTimestamp(get_ts.clone()) },
             Request::Write(write) => { Request::Write(write.clone()) },
         }
     }
@@ -135,9 +187,11 @@ pub struct GetTimestampResponse {
     lb: Tracked<MonotonicTimestampResource>,
 }
 
-// TODO: what do we actually send?
 #[allow(unused)]
-pub struct WriteResponse;
+pub struct WriteResponse {
+    // TODO: there is no exec state that ties this together
+    lb: Tracked<MonotonicTimestampResource>,
+}
 
 #[allow(unused)]
 impl GetResponse {
@@ -265,19 +319,42 @@ impl Clone for GetTimestampResponse {
 
 #[allow(unused)]
 impl WriteResponse {
-    // #[verifier::type_invariant]
+    #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
-        true
+        &&& self.lb@@ is LowerBound
     }
 
-    pub fn new() -> (r: Self) {
-        WriteResponse
+    pub closed spec fn lb(self) -> MonotonicTimestampResource {
+        self.lb@
+    }
+
+    pub closed spec fn spec_timestamp(self) -> Timestamp {
+        self.lb@@.timestamp()
+    }
+
+    pub open spec fn loc(self) -> Loc {
+        self.lb().loc()
+    }
+
+    pub fn new(lb: Tracked<MonotonicTimestampResource>) -> (r: Self)
+        requires
+            lb@@ is LowerBound,
+        ensures
+            r.lb() == lb@,
+            r.spec_timestamp() == lb@@.timestamp(),
+    {
+        WriteResponse { lb  }
     }
 }
 
 impl Clone for WriteResponse {
     fn clone(&self) -> (r: Self) {
-        WriteResponse
+        let tracked new_lb;
+        proof {
+            use_type_invariant(self);
+            new_lb = self.lb.borrow().extract_lower_bound();
+        }
+        WriteResponse::new(Tracked(new_lb))
     }
 }
 
@@ -294,8 +371,8 @@ impl Clone for Response {
 
 } // verus!
 impl std::fmt::Debug for GetRequest {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(())
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GetRequest").finish()
     }
 }
 
@@ -305,6 +382,12 @@ impl std::fmt::Debug for GetResponse {
             .field("value", &self.val)
             .field("timestamp", &self.timestamp)
             .finish()
+    }
+}
+
+impl std::fmt::Debug for GetTimestampRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GetTimestampRequest").finish()
     }
 }
 

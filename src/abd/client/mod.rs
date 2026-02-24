@@ -16,6 +16,7 @@ use crate::abd::invariants::quorum::ServerUniverse;
 use crate::abd::invariants::RegisterView;
 use crate::abd::invariants::StateInvariant;
 use crate::abd::proto::GetRequest;
+use crate::abd::proto::GetTimestampRequest;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
 use crate::abd::proto::WriteRequest;
@@ -556,6 +557,13 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             client_ctr,
         };
 
+        let tracked server_lbs;
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            proof {
+                server_lbs = state.servers.extract_lbs();
+            }
+        });
+        let req = Request::GetTimestamp(GetTimestampRequest::new(Tracked(server_lbs)));
         let quorum = {
             let ghost qsize = self.qsize();
             let bpool = BroadcastPool::new(&self.pool);
@@ -563,7 +571,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
             let quorum_res = bpool.broadcast::<_, GetTimestampInv>(
-                Request::GetTimestamp,
+                req,
                 Ghost(GetTimestampInv {  }),
             ).wait_for(
                 (|s| -> (r: bool)

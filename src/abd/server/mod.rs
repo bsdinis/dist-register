@@ -7,8 +7,11 @@ use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::invariants::logatom::WritePerm;
 use crate::abd::invariants::StateInvariant;
+use crate::abd::proto::GetRequest;
+use crate::abd::proto::GetTimestampRequest;
 use crate::abd::proto::Request;
 use crate::abd::proto::Response;
+use crate::abd::proto::WriteRequest;
 use crate::abd::proto::WriteResponse;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::server::register::MonotonicRegister;
@@ -28,8 +31,6 @@ use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::rwlock::RwLock;
-
-use super::proto::WriteRequest;
 
 mod register;
 
@@ -73,7 +74,6 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
-    // TODO: add either atomic invariant or the half right to advance here (maybe the full right?)
     pub fn new(listener: L, id: u64, state_inv: Tracked<Arc<StateInvariant<ML, RL>>>) -> (r: Self)
         requires
             state_inv@.namespace() == invariants::state_inv_id(),
@@ -92,48 +92,33 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         handle.release_write(guard);
     }
 
-    // TODO: must receive a lower bound here
-    fn handle_get(&self) -> Response {
-        Response::Get(self.register.read())
+    fn handle_get(&self, req: GetRequest) -> Response {
+        Response::Get(self.register.read(req))
     }
 
-    // TODO: must receive a lower bound here
-    fn handle_get_timestamp(&self) -> Response {
-        Response::GetTimestamp(self.register.read_timestamp())
+    fn handle_get_timestamp(&self, req: GetTimestampRequest) -> Response {
+        Response::GetTimestamp(self.register.read_timestamp(req))
     }
 
     // TODO: must receive a lower bound here
     fn handle_write(
         &self,
-        value: Option<u64>,
-        timestamp: Timestamp,
-        commitment: Tracked<WriteCommitment>,
-    ) -> Response
-        requires
-            commitment@.key() == timestamp,
-            commitment@.value() == value,
-    {
-        let lb = self.register.write(value, timestamp, commitment);
-
-        Response::Write(WriteResponse)
+        req: WriteRequest,
+    ) -> Response {
+        Response::Write(self.register.write(req))
     }
 
     fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response> {
         let tag = request.tag;
         match request.into_inner() {
-            Request::Get(_) => {
-                let inner = self.handle_get();
-
-                Tagged { tag, inner }
+            Request::Get(req) => {
+                Tagged { tag, inner: self.handle_get(req) }
             },
-            Request::GetTimestamp => {
-                let inner = self.handle_get_timestamp();
-                Tagged { tag, inner }
+            Request::GetTimestamp(req) => {
+                Tagged { tag, inner: self.handle_get_timestamp(req) }
             },
-            Request::Write(write) => {
-                let (value, timestamp, commitment) = write.destruct();
-                let inner = self.handle_write(value, timestamp, commitment);
-                Tagged { tag, inner }
+            Request::Write(req) => {
+                Tagged { tag, inner: self.handle_write(req) }
             },
         }
     }

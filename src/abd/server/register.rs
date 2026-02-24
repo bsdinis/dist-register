@@ -12,6 +12,10 @@ use crate::abd::invariants::logatom::RegisterRead;
 use crate::abd::invariants::logatom::RegisterWrite;
 use crate::abd::invariants::ServerToken;
 use crate::abd::invariants::StateInvariant;
+use crate::abd::proto::GetRequest;
+use crate::abd::proto::GetTimestampRequest;
+use crate::abd::proto::WriteRequest;
+use crate::abd::proto::WriteResponse;
 use crate::abd::proto::{GetResponse, GetTimestampResponse};
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::timestamp::Timestamp;
@@ -116,7 +120,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
     }
 
     #[allow(unused_variables)]
-    pub fn read(&self) -> (r: GetResponse)
+    pub fn read(&self, req: GetRequest) -> (r: GetResponse)
         requires
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
@@ -136,7 +140,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
     }
 
     #[allow(unused_variables)]
-    pub fn read_timestamp(&self) -> (r: GetTimestampResponse)
+    pub fn read_timestamp(&self, req: GetTimestampRequest) -> (r: GetTimestampResponse)
         requires
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
@@ -156,22 +160,19 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
 
     pub fn write(
         self,
-        value: Option<u64>,
-        timestamp: Timestamp,
-        commitment: Tracked<WriteCommitment>,
+        req: WriteRequest,
     ) -> (r: Self)
         requires
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
-            commitment@.key() == timestamp,
-            commitment@.value() == value,
         ensures
             r.inv(),
             r.ids() == self.ids(),
             r.resource@@ is HalfRightToAdvance,
-            timestamp > self.timestamp ==> r.timestamp == timestamp && r.value == value,
-            timestamp <= self.timestamp ==> self == r,
+            req.spec_timestamp() > self.timestamp ==> r.timestamp == req.spec_timestamp() && r.value == req.spec_value(),
+            req.spec_timestamp() <= self.timestamp ==> self == r,
     {
+        let (value, timestamp, commitment) = req.destruct();
         if timestamp > self.timestamp {
             let tracked mut r = self.resource.get();
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -274,25 +275,27 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
         self.inner.pred().ids.resource_loc
     }
 
-    pub fn read(&self) -> (r: GetResponse)
+    pub fn read(&self, req: GetRequest) -> (r: GetResponse)
         ensures
             r.loc() == self.resource_loc(),
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();
-        let res = inner.read();
+        // TODO: pipe through the lower bound
+        let res = inner.read(req);
         handle.release_read();
 
         res
     }
 
-    pub fn read_timestamp(&self) -> (r: GetTimestampResponse)
+    pub fn read_timestamp(&self, req: GetTimestampRequest) -> (r: GetTimestampResponse)
         ensures
             r.loc() == self.resource_loc(),
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();
-        let res = inner.read_timestamp();
+        // TODO: pipe through the lower bound
+        let res = inner.read_timestamp(req);
         handle.release_read();
 
         res
@@ -300,21 +303,14 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
 
     pub fn write(
         &self,
-        value: Option<u64>,
-        timestamp: Timestamp,
-        commitment: Tracked<WriteCommitment>,
-    ) -> (r: Tracked<MonotonicTimestampResource>)
-        requires
-            commitment@.key() == timestamp,
-            commitment@.value() == value,
+        req: WriteRequest,
+    ) -> (r: WriteResponse)
         ensures
-            r@@ is LowerBound,
-            r@.loc() == self.resource_loc(),
-            timestamp <= r@@.timestamp(),
+            r.loc() == self.resource_loc()
     {
         let (guard, handle) = self.inner.acquire_write();
 
-        let new_value = guard.write(value, timestamp, commitment);
+        let new_value = guard.write(req);
         let tracked r = new_value.resource.borrow();
         let tracked lower_bound = r.extract_lower_bound();
 
@@ -324,7 +320,7 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
 
         handle.release_write(new_value);
 
-        Tracked(lower_bound)
+        WriteResponse::new(Tracked(lower_bound))
     }
 }
 

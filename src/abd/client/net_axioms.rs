@@ -45,10 +45,11 @@ pub axiom fn axiom_get_unanimous_replies(
         map.is_auth(),
         map.dom() == old(map).dom(),
         map.locs() == old(map).locs(),
-        forall |k| #[trigger] old(map).contains_key(k) ==> {
-            &&& old(map)[k]@@ is FullRightToAdvance ==> map[k]@@ is FullRightToAdvance
-            &&& old(map)[k]@@ is HalfRightToAdvance ==> map[k]@@ is HalfRightToAdvance
-        },
+        forall|k| #[trigger]
+            old(map).contains_key(k) ==> {
+                &&& old(map)[k]@@ is FullRightToAdvance ==> map[k]@@ is FullRightToAdvance
+                &&& old(map)[k]@@ is HalfRightToAdvance ==> map[k]@@ is HalfRightToAdvance
+            },
         // Done: post condition on replies ensures the quorum has the correct size
         map.valid_quorum(r.0),
         // Trivial
@@ -108,10 +109,11 @@ pub axiom fn axiom_writeback_unanimous_replies(
         map.locs() == old(map).locs(),
         map.inv(),
         map.is_auth(),
-        forall |k| #[trigger] old(map).contains_key(k) ==> {
-            &&& old(map)[k]@@ is FullRightToAdvance ==> map[k]@@ is FullRightToAdvance
-            &&& old(map)[k]@@ is HalfRightToAdvance ==> map[k]@@ is HalfRightToAdvance
-        },
+        forall|k| #[trigger]
+            old(map).contains_key(k) ==> {
+                &&& old(map)[k]@@ is FullRightToAdvance ==> map[k]@@ is FullRightToAdvance
+                &&& old(map)[k]@@ is HalfRightToAdvance ==> map[k]@@ is HalfRightToAdvance
+            },
         r.0.inv(),
         map.valid_quorum(r.0),
         // this is derivable if replies come with lower bounds
@@ -156,10 +158,11 @@ pub axiom fn axiom_get_ts_replies(
         map.locs() == old(map).locs(),
         map.inv(),
         map.is_auth(),
-        forall |k| #[trigger] old(map).contains_key(k) ==> {
-            &&& old(map)[k]@@ is FullRightToAdvance ==> map[k]@@ is FullRightToAdvance
-            &&& old(map)[k]@@ is HalfRightToAdvance ==> map[k]@@ is HalfRightToAdvance
-        },
+        forall|k| #[trigger]
+            old(map).contains_key(k) ==> {
+                &&& old(map)[k]@@ is FullRightToAdvance ==> map[k]@@ is FullRightToAdvance
+                &&& old(map)[k]@@ is HalfRightToAdvance ==> map[k]@@ is HalfRightToAdvance
+            },
         r.inv(),
         map.valid_quorum(r),
         // this is derivable if replies come with lower bounds
@@ -199,10 +202,11 @@ pub axiom fn axiom_write_replies(
         map.locs() == old(map).locs(),
         map.inv(),
         map.is_auth(),
-        forall |k| #[trigger] old(map).contains_key(k) ==> {
-            &&& old(map)[k]@@ is FullRightToAdvance ==> map[k]@@ is FullRightToAdvance
-            &&& old(map)[k]@@ is HalfRightToAdvance ==> map[k]@@ is HalfRightToAdvance
-        },
+        forall|k| #[trigger]
+            old(map).contains_key(k) ==> {
+                &&& old(map)[k]@@ is FullRightToAdvance ==> map[k]@@ is FullRightToAdvance
+                &&& old(map)[k]@@ is HalfRightToAdvance ==> map[k]@@ is HalfRightToAdvance
+            },
         r.inv(),
         map.valid_quorum(r),
         // this is derivable if replies come with lower bounds

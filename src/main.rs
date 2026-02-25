@@ -180,10 +180,10 @@ fn report_err<E: std::error::Error>(client_id: u64, e: &E) {
 
 #[verifier::external_body]
 #[allow(unused)]
-fn report_write(client_id: u64, val: Option<u64>) {
+fn report_write(client_id: u64, value: Option<u64>) {
     eprintln!(
         "client {client_id:3} write finished: {:20}",
-        format!("{val:?}")
+        format!("{value:?}")
     );
 }
 

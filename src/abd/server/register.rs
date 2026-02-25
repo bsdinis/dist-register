@@ -65,7 +65,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
 
                 assume(state.unclaimed_servers().contains(server_id)); // XXX: server login
                 resource = state.servers.split_auth(server_id);
-                server_token = state.server_tokens.insert(server_id, resource.loc());
+                server_token = state.server_tokens.insert(server_id, resource.loc()).persist();
                 assert forall |id| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
                     assert(old_servers.contains_key(id)); // TRIGGER
                     // TRIGGER case search (?)
@@ -120,7 +120,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
     }
 
     #[allow(unused_variables)]
-    pub fn read(&self, req: GetRequest) -> (r: GetResponse)
+    pub fn read(&self, mut req: GetRequest) -> (r: GetResponse)
         requires
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
@@ -129,14 +129,38 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.spec_timestamp() == self.timestamp,
             r.loc() == self.resource_loc(),
     {
-        let tracked r = self.resource.borrow();
-        let tracked lb = r.extract_lower_bound();
+        let ghost server_id = self.server_token@.key();
+        assume(req.servers().contains_key(server_id));
 
+        let lb = req.server_lower_bound(Ghost(server_id));
+        assume(req.servers()[server_id]@.loc() == self.server_token@.value());
+
+        let tracked r = self.resource.borrow();
+
+        let tracked commitment;
+        let tracked new_lb;
+        let tracked server_token;
         proof {
+            let tracked Tracked(mut lb) = lb;
             lb.lemma_lower_bound(r);
+
+            new_lb = r.extract_lower_bound();
+            commitment = self.commitment.borrow().duplicate();
+            server_token = self.server_token.borrow().duplicate();
+
+            assert(new_lb@.timestamp() >= lb@.timestamp());
+            assert(new_lb@.timestamp() == self.timestamp);
+            assert(new_lb@.timestamp() == commitment.key());
+            assert(commitment.value() == self.value);
         }
 
-        GetResponse::new(self.value.clone(), self.timestamp.clone(), Tracked(lb))
+        GetResponse::new(
+            self.value.clone(),
+            self.timestamp.clone(),
+            Tracked(new_lb),
+            Tracked(commitment),
+            Tracked(server_token),
+        )
     }
 
     #[allow(unused_variables)]
@@ -158,10 +182,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         GetTimestampResponse::new(self.timestamp.clone(), Tracked(lb))
     }
 
-    pub fn write(
-        self,
-        req: WriteRequest,
-    ) -> (r: Self)
+    pub fn write(self, req: WriteRequest) -> (r: Self)
         requires
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
@@ -169,7 +190,8 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.inv(),
             r.ids() == self.ids(),
             r.resource@@ is HalfRightToAdvance,
-            req.spec_timestamp() > self.timestamp ==> r.timestamp == req.spec_timestamp() && r.value == req.spec_value(),
+            req.spec_timestamp() > self.timestamp ==> r.timestamp == req.spec_timestamp() && r.value
+                == req.spec_value(),
             req.spec_timestamp() <= self.timestamp ==> self == r,
     {
         let (value, timestamp, commitment) = req.destruct();
@@ -185,11 +207,11 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
                     let ghost server_id = self.server_token@.key();
                     assert(state.servers.locs().contains_key(server_id));
 
-                    let tracked mut other_half = state.servers.tracked_remove(server_id);
+                    let tracked mut other_half = state.servers.tracked_remove_auth(server_id);
                     let ghost unchanged_servers = state.servers;
                     r.lemma_halves_agree(&other_half);
                     r.advance_halves(&mut other_half, timestamp);
-                    state.servers.tracked_insert(server_id, other_half);
+                    state.servers.tracked_insert_auth(server_id, other_half);
 
                     assert(old_servers.leq(state.servers)) by {
                         assert(old_servers.locs() == state.servers.locs());
@@ -281,7 +303,6 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();
-        // TODO: pipe through the lower bound
         let res = inner.read(req);
         handle.release_read();
 
@@ -301,12 +322,9 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
         res
     }
 
-    pub fn write(
-        &self,
-        req: WriteRequest,
-    ) -> (r: WriteResponse)
+    pub fn write(&self, req: WriteRequest) -> (r: WriteResponse)
         ensures
-            r.loc() == self.resource_loc()
+            r.loc() == self.resource_loc(),
     {
         let (guard, handle) = self.inner.acquire_write();
 

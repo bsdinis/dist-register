@@ -101,7 +101,7 @@ impl MutOperation for RegisterWrite {
 }
 
 pub struct WritePerm {
-    pub val: Option<u64>,
+    pub value: Option<u64>,
     pub tracked register: GhostVar<Option<u64>>,
 }
 
@@ -129,7 +129,7 @@ impl MutLinearizer<RegisterWrite> for WritePerm {
         new_state: (),
         exec_res: &(),
     ) -> (tracked result: Self::Completion) {
-        let tracked WritePerm { val, mut register } = self;
+        let tracked WritePerm { value, mut register } = self;
 
         resource.update(&mut register, op.new_value);
         register

@@ -9,6 +9,7 @@ use vstd::logatom::ReadLinearizer;
 use vstd::resource::ghost_var::GhostVar;
 use vstd::resource::ghost_var::GhostVarAuth;
 use vstd::resource::map::GhostMapAuth;
+use vstd::resource::map::GhostPersistentPointsTo;
 use vstd::resource::map::GhostPointsTo;
 use vstd::resource::Loc;
 
@@ -46,7 +47,7 @@ pub open spec fn state_inv_id() -> int {
     1int
 }
 
-pub type ServerToken = GhostPointsTo<u64, Loc>;
+pub type ServerToken = GhostPersistentPointsTo<u64, Loc>;
 
 pub struct StatePredicate {
     pub lin_queue_ids: LinQueueIds,
@@ -67,7 +68,7 @@ pub struct State<ML, RL> where ML: MutLinearizer<RegisterWrite>, RL: ReadLineari
 impl<ML, RL> State<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-{
+ {
     pub open spec fn unclaimed_servers(self) -> Set<u64> {
         self.servers.dom().difference(self.server_tokens@.dom())
     }
@@ -84,9 +85,12 @@ impl<ML, RL> State<ML, RL> where
         &&& self.server_tokens@.dom().finite()
         &&& self.server_tokens@ <= self.servers.locs()
         &&& self.unclaimed_servers() <= self.servers.dom()
-        &&& forall |id: u64| #[trigger] self.unclaimed_servers().contains(id) ==> self.servers[id]@@ is FullRightToAdvance
-        &&& forall |id: u64| #[trigger] self.server_tokens@.contains_key(id) ==> self.servers[id]@@ is HalfRightToAdvance
-        // id concordance
+        &&& forall|id: u64| #[trigger]
+            self.unclaimed_servers().contains(id) ==> self.servers[id]@@ is FullRightToAdvance
+        &&& forall|id: u64| #[trigger]
+            self.server_tokens@.contains_key(id)
+                ==> self.servers[id]@@ is HalfRightToAdvance
+            // id concordance
         &&& self.linearization_queue.register_id() == self.register.id()
         &&& self.linearization_queue.committed_to_id()
             == self.commitments.commitment_id()
@@ -147,8 +151,17 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
         server_tokens_id: server_tokens.id(),
     };
 
-    let tracked state = State { register, linearization_queue, servers, commitments, server_tokens };
-    assert forall |id| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
+    let tracked state = State {
+        register,
+        linearization_queue,
+        servers,
+        commitments,
+        server_tokens,
+    };
+    assert forall|id| #[trigger]
+        state.unclaimed_servers().contains(
+            id,
+        ) implies state.servers[id]@@ is FullRightToAdvance by {
         assert(state.servers.contains_key(id));
     }
 

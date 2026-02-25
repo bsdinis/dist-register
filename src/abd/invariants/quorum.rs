@@ -37,17 +37,19 @@ impl ServerUniverse {
 
     pub open spec fn inv(self) -> bool {
         &&& self.map.dom().finite()
-        &&& forall |id| #[trigger] self.contains_key(id) && self[id]@@ is FullRightToAdvance
-            ==> self[id]@@.timestamp() == Timestamp::spec_default()
+        &&& forall|id| #[trigger]
+            self.contains_key(id) && self[id]@@ is FullRightToAdvance ==> self[id]@@.timestamp()
+                == Timestamp::spec_default()
     }
 
     pub open spec fn is_auth(self) -> bool
         recommends
             self.inv(),
     {
-        forall|k: u64| #[trigger] self.map.contains_key(k) ==> {
-            self.map[k]@@ is HalfRightToAdvance || self.map[k]@@ is FullRightToAdvance
-        }
+        forall|k: u64| #[trigger]
+            self.map.contains_key(k) ==> {
+                self.map[k]@@ is HalfRightToAdvance || self.map[k]@@ is FullRightToAdvance
+            }
     }
 
     pub open spec fn is_lb(self) -> bool
@@ -108,7 +110,8 @@ impl ServerUniverse {
         self.map.restrict(q@).values().map(|r: Tracked<MonotonicTimestampResource>| r@@.timestamp())
     }
 
-    pub proof fn split_auth(tracked &mut self, server_id: u64) -> (tracked r: MonotonicTimestampResource)
+    pub proof fn split_auth(tracked &mut self, server_id: u64) -> (tracked r:
+        MonotonicTimestampResource)
         requires
             old(self).inv(),
             old(self).is_auth(),
@@ -117,14 +120,17 @@ impl ServerUniverse {
         ensures
             self.dom() == old(self).dom(),
             self.locs() == old(self).locs(),
-            forall |id| #[trigger] old(self).contains_key(id) ==> {
-                &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
-                &&& id == server_id ==> self[id]@@ is HalfRightToAdvance
-                &&& id != server_id ==> {
-                    &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
-                    &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
-                }
-            },
+            forall|id| #[trigger]
+                old(self).contains_key(id) ==> {
+                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
+                    &&& id == server_id ==> self[id]@@ is HalfRightToAdvance
+                    &&& id != server_id ==> {
+                        &&& old(self)[id]@@ is HalfRightToAdvance
+                            ==> self[id]@@ is HalfRightToAdvance
+                        &&& old(self)[id]@@ is FullRightToAdvance
+                            ==> self[id]@@ is FullRightToAdvance
+                    }
+                },
             self.inv(),
             self.is_auth(),
             r.loc() == self[server_id]@.loc(),
@@ -135,30 +141,33 @@ impl ServerUniverse {
         let tracked Tracked(r) = self.map.tracked_remove(server_id);
         let tracked (left, right) = r.split();
         self.map.tracked_insert(server_id, Tracked(left));
-        assert forall |id| #[trigger] self.contains_key(id) && self[id]@@ is FullRightToAdvance
-                implies self[id]@@.timestamp() == Timestamp::spec_default() by {
+        assert forall|id| #[trigger]
+            self.contains_key(id) && self[id]@@ is FullRightToAdvance implies self[id]@@.timestamp()
+            == Timestamp::spec_default() by {
             assert(old.contains_key(id));
         }
         right
     }
 
-    pub proof fn tracked_remove(tracked &mut self, server_id: u64) -> (tracked r: MonotonicTimestampResource)
+    pub proof fn tracked_remove_auth(tracked &mut self, server_id: u64) -> (tracked r:
+        MonotonicTimestampResource)
         requires
             old(self).inv(),
             old(self).is_auth(),
             old(self).contains_key(server_id),
-            !(old(self)[server_id]@@ is FullRightToAdvance),
+            old(self)[server_id]@@ is HalfRightToAdvance,
         ensures
             self.inv(),
             self.is_auth(),
             self.dom() == old(self).dom().remove(server_id),
             self.locs() == old(self).locs().remove(server_id),
-            forall |id| #[trigger] self.contains_key(id) ==> {
-                &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
-                &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
-                &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
-                &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
-            },
+            forall|id| #[trigger]
+                self.contains_key(id) ==> {
+                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
+                    &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
+                    &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
+                    &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
+                },
             r.loc() == old(self)[server_id]@.loc(),
             r@.timestamp() == old(self)[server_id]@@.timestamp(),
             r@ is HalfRightToAdvance,
@@ -166,14 +175,19 @@ impl ServerUniverse {
         let old = *self;
         let tracked Tracked(r) = self.map.tracked_remove(server_id);
         assert(self.map.agrees(old.map));
-        assert forall |id| #[trigger] self.contains_key(id) && self[id]@@ is FullRightToAdvance
-            implies self[id]@@.timestamp() == Timestamp::spec_default() by {
+        assert forall|id| #[trigger]
+            self.contains_key(id) && self[id]@@ is FullRightToAdvance implies self[id]@@.timestamp()
+            == Timestamp::spec_default() by {
             assert(old.contains_key(id));
         }
         r
     }
 
-    pub proof fn tracked_insert(tracked &mut self, server_id: u64, tracked r: MonotonicTimestampResource)
+    pub proof fn tracked_insert_auth(
+        tracked &mut self,
+        server_id: u64,
+        tracked r: MonotonicTimestampResource,
+    )
         requires
             old(self).inv(),
             old(self).is_auth(),
@@ -184,20 +198,95 @@ impl ServerUniverse {
             self.is_auth(),
             self.dom() == old(self).dom().insert(server_id),
             self.locs() == old(self).locs().insert(server_id, r.loc()),
-            forall |id| #[trigger] old(self).contains_key(id) ==> {
-                &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
-                &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
-                &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
-                &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
-            },
+            forall|id| #[trigger]
+                old(self).contains_key(id) ==> {
+                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
+                    &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
+                    &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
+                    &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
+                },
+            self[server_id]@.loc() == r.loc(),
             self[server_id]@@.timestamp() == r@.timestamp(),
             self[server_id]@@ is HalfRightToAdvance,
     {
         let old = *self;
         self.map.tracked_insert(server_id, Tracked(r));
         assert(self.map.agrees(old.map));
-        assert forall |id| #[trigger] self.contains_key(id) && self[id]@@ is FullRightToAdvance
-            implies self[id]@@.timestamp() == Timestamp::spec_default() by {
+        assert forall|id| #[trigger]
+            self.contains_key(id) && self[id]@@ is FullRightToAdvance implies self[id]@@.timestamp()
+            == Timestamp::spec_default() by {
+            assert(old.contains_key(id));
+        }
+    }
+
+    pub proof fn tracked_remove_lb(tracked &mut self, server_id: u64) -> (tracked r:
+        MonotonicTimestampResource)
+        requires
+            old(self).inv(),
+            old(self).is_lb(),
+            old(self).contains_key(server_id),
+            old(self)[server_id]@@ is LowerBound,
+        ensures
+            self.inv(),
+            self.is_lb(),
+            self.dom() == old(self).dom().remove(server_id),
+            self.locs() == old(self).locs().remove(server_id),
+            forall|id| #[trigger]
+                self.contains_key(id) ==> {
+                    &&& old(self)[id]@.loc() == self[id]@.loc()
+                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
+                    &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
+                    &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
+                    &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
+                },
+            r.loc() == old(self)[server_id]@.loc(),
+            r@.timestamp() == old(self)[server_id]@@.timestamp(),
+            r@ is LowerBound,
+    {
+        let old = *self;
+        let tracked Tracked(r) = self.map.tracked_remove(server_id);
+        assert(self.map.agrees(old.map));
+        assert forall|id| #[trigger]
+            self.contains_key(id) && self[id]@@ is FullRightToAdvance implies self[id]@@.timestamp()
+            == Timestamp::spec_default() by {
+            assert(old.contains_key(id));
+        }
+        r
+    }
+
+    pub proof fn tracked_insert_lb(
+        tracked &mut self,
+        server_id: u64,
+        tracked r: MonotonicTimestampResource,
+    )
+        requires
+            old(self).inv(),
+            old(self).is_lb(),
+            !old(self).contains_key(server_id),
+            r@ is LowerBound,
+        ensures
+            self.inv(),
+            self.is_lb(),
+            self.dom() == old(self).dom().insert(server_id),
+            self.locs() == old(self).locs().insert(server_id, r.loc()),
+            forall|id| #[trigger]
+                old(self).contains_key(id) ==> {
+                    &&& old(self)[id]@.loc() == self[id]@.loc()
+                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
+                    &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
+                    &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
+                    &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
+                },
+            self[server_id]@.loc() == r.loc(),
+            self[server_id]@@.timestamp() == r@.timestamp(),
+            self[server_id]@@ is LowerBound,
+    {
+        let old = *self;
+        self.map.tracked_insert(server_id, Tracked(r));
+        assert(self.map.agrees(old.map));
+        assert forall|id| #[trigger]
+            self.contains_key(id) && self[id]@@ is FullRightToAdvance implies self[id]@@.timestamp()
+            == Timestamp::spec_default() by {
             assert(old.contains_key(id));
         }
     }
@@ -504,6 +593,7 @@ impl ServerUniverse {
             self.inv(),
         ensures
             r.inv(),
+            r.is_lb(),
             self.leq(r),
             r.leq(*self),
     {

@@ -101,25 +101,16 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     }
 
     // TODO: must receive a lower bound here
-    fn handle_write(
-        &self,
-        req: WriteRequest,
-    ) -> Response {
+    fn handle_write(&self, req: WriteRequest) -> Response {
         Response::Write(self.register.write(req))
     }
 
     fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response> {
         let tag = request.tag;
         match request.into_inner() {
-            Request::Get(req) => {
-                Tagged { tag, inner: self.handle_get(req) }
-            },
-            Request::GetTimestamp(req) => {
-                Tagged { tag, inner: self.handle_get_timestamp(req) }
-            },
-            Request::Write(req) => {
-                Tagged { tag, inner: self.handle_write(req) }
-            },
+            Request::Get(req) => { Tagged { tag, inner: self.handle_get(req) } },
+            Request::GetTimestamp(req) => { Tagged { tag, inner: self.handle_get_timestamp(req) } },
+            Request::Write(req) => { Tagged { tag, inner: self.handle_write(req) } },
         }
     }
 

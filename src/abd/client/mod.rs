@@ -106,13 +106,13 @@ pub trait AbdRegisterClient<C, ML, RL> where
     // TODO(writes): make writes behind a shared ref.
     // Problem: there is only a single tracked ClientCtrToken which cannot be shared between
     // threads
-    fn write(&mut self, val: Option<u64>, lin: Tracked<ML>) -> (r: Result<
+    fn write(&mut self, value: Option<u64>, lin: Tracked<ML>) -> (r: Result<
         Tracked<ML::Completion>,
         error::WriteError<ML, ML::Completion>,
     >)
         requires
             old(self).inv(),
-            lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: val }),
+            lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: value }),
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
         ensures
@@ -121,7 +121,7 @@ pub trait AbdRegisterClient<C, ML, RL> where
             r is Ok ==> ({
                 let comp = r->Ok_0;
                 &&& lin@.post(
-                    RegisterWrite { id: Ghost(self.register_loc()), new_value: val },
+                    RegisterWrite { id: Ghost(self.register_loc()), new_value: value },
                     (),
                     comp@,
                 )
@@ -133,11 +133,11 @@ pub trait AbdRegisterClient<C, ML, RL> where
                     &&& err->lincomp@.lin() == lin
                     &&& err->lincomp@.op() == RegisterWrite {
                         id: Ghost(self.register_loc()),
-                        new_value: val,
+                        new_value: value,
                     }
                 })
                 &&& err is FailedSecondQuorum ==> ({
-                    let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
+                    let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: value };
                     &&& err.inv()
                     &&& err->token@.value().lin == lin@
                     &&& err->token@.value().op == op
@@ -489,11 +489,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         Ok((max_val, max_ts, Tracked(comp)))
     }
 
-    fn write(&mut self, val: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<
+    fn write(&mut self, value: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<
         Tracked<ML::Completion>,
         error::WriteError<ML, ML::Completion>,
     >) {
-        let tracked op = RegisterWrite { id: Ghost(self.register_loc()), new_value: val };
+        let tracked op = RegisterWrite { id: Ghost(self.register_loc()), new_value: value };
         // NOTE: IMPORTANT: We need to add the linearizer to the queue at this point
         //
         // Imagine if we added this after the read quorum is achieved
@@ -684,7 +684,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
             let quorum_res = bpool.broadcast::<_, WriteInv>(
-                Request::Write(WriteRequest::new(val, exec_ts, Tracked(commitment.duplicate()))),
+                Request::Write(WriteRequest::new(value, exec_ts, Tracked(commitment.duplicate()))),
                 Ghost(WriteInv {  }),
             ).wait_for(
                 (|s| -> (r: bool)

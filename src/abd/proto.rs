@@ -7,6 +7,8 @@ use vstd::prelude::*;
 #[cfg(verus_only)]
 use vstd::resource::Loc;
 
+use super::invariants::ServerToken;
+
 verus! {
 
 #[allow(unused)]
@@ -39,7 +41,8 @@ pub struct WriteRequest {
 impl GetRequest {
     #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
-        self.servers@.inv()
+        &&& self.servers@.inv()
+        &&& self.servers@.is_lb()
     }
 
     pub closed spec fn servers(self) -> ServerUniverse {
@@ -49,10 +52,52 @@ impl GetRequest {
     pub fn new(servers: Tracked<ServerUniverse>) -> (r: Self)
         requires
             servers@.inv(),
+            servers@.is_lb(),
         ensures
             r.servers() == servers@,
     {
         GetRequest { servers }
+    }
+
+    pub fn server_lower_bound(&mut self, server_id: Ghost<u64>) -> (r: Tracked<
+        MonotonicTimestampResource,
+    >)
+        requires
+            old(self).servers().contains_key(server_id@),
+        ensures
+            self.servers().locs() == old(self).servers().locs(),
+            forall|id| #[trigger]
+                self.servers().contains_key(id) ==> {
+                    &&& self.servers()[id]@.loc() == old(self).servers()[id]@.loc()
+                    &&& self.servers()[id]@@.timestamp() == old(self).servers()[id]@@.timestamp()
+                },
+            r@.loc() == self.servers()[server_id@]@.loc(),
+            r@@.timestamp() == self.servers()[server_id@]@@.timestamp(),
+            r@@ is LowerBound,
+    {
+        let tracked new_lb;
+        proof {
+            use_type_invariant(&*self);
+
+            let ghost old_servers = self.servers@;
+
+            let tracked lb = self.servers.borrow_mut().tracked_remove_lb(server_id@);
+            let ghost unchanged_servers = self.servers@;
+
+            new_lb = lb.extract_lower_bound();
+            self.servers.borrow_mut().tracked_insert_lb(server_id@, lb);
+
+            assert forall|id| #[trigger] self.servers@.contains_key(id) implies {
+                &&& self.servers@[id]@.loc() == old_servers[id]@.loc()
+                &&& self.servers@[id]@@.timestamp() == old_servers[id]@@.timestamp()
+            } by {
+                if id != server_id@ {
+                    assert(unchanged_servers.contains_key(id));  // TRIGGER
+                }
+            }
+        }
+
+        Tracked(new_lb)
     }
 }
 
@@ -175,10 +220,11 @@ pub enum Response {
 
 #[allow(unused)]
 pub struct GetResponse {
-    val: Option<u64>,
+    value: Option<u64>,
     timestamp: Timestamp,
     lb: Tracked<MonotonicTimestampResource>,
-    // TODO: commitment
+    commitment: Tracked<WriteCommitment>,
+    server_token: Tracked<ServerToken>,
 }
 
 #[allow(unused)]
@@ -198,7 +244,14 @@ impl GetResponse {
     #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
         &&& self.lb@@ is LowerBound
+        &&& self.lb@.loc() == self.server_token@.value()
         &&& self.lb@@.timestamp() == self.timestamp
+        &&& self.commitment@.key() == self.timestamp
+        &&& self.commitment@.value()
+            == self.value
+        // Q: need to tie the server_token to the global invariant (by the id)
+        // Q: need to tie the server_token.key() to the server this came from
+
     }
 
     pub closed spec fn lb(self) -> MonotonicTimestampResource {
@@ -210,7 +263,11 @@ impl GetResponse {
     }
 
     pub closed spec fn spec_value(self) -> Option<u64> {
-        self.val
+        self.value
+    }
+
+    pub closed spec fn server_id(self) -> u64 {
+        self.server_token@.key()
     }
 
     pub open spec fn loc(self) -> Loc {
@@ -218,19 +275,26 @@ impl GetResponse {
     }
 
     pub fn new(
-        val: Option<u64>,
+        value: Option<u64>,
         timestamp: Timestamp,
         lb: Tracked<MonotonicTimestampResource>,
+        commitment: Tracked<WriteCommitment>,
+        server_token: Tracked<ServerToken>,
     ) -> (r: Self)
         requires
             lb@@ is LowerBound,
+            lb@.loc() == server_token@.value(),
             lb@@.timestamp() == timestamp,
+            commitment@.key() == timestamp,
+            commitment@.value() == value,
         ensures
             r.lb() == lb@,
             r.spec_timestamp() == timestamp,
-            r.spec_value() == val,
+            r.spec_value() == value,
+            r.server_id() == server_token@.key(),
+            r.loc() == server_token@.value(),
     {
-        GetResponse { val, timestamp, lb }
+        GetResponse { value, timestamp, lb, commitment, server_token }
     }
 
     pub fn timestamp(&self) -> (ts: Timestamp)
@@ -244,7 +308,7 @@ impl GetResponse {
         ensures
             *value == self.spec_value(),
     {
-        &self.val
+        &self.value
     }
 
     pub fn into_inner(self) -> (r: (Option<u64>, Timestamp))
@@ -252,18 +316,28 @@ impl GetResponse {
             r.0 == self.spec_value(),
             r.1 == self.spec_timestamp(),
     {
-        (self.val, self.timestamp)
+        (self.value, self.timestamp)
     }
 }
 
 impl Clone for GetResponse {
     fn clone(&self) -> (r: Self) {
-        let tracked new_lb;
+        let tracked lb;
+        let tracked commitment;
+        let tracked server_token;
         proof {
             use_type_invariant(self);
-            new_lb = self.lb.borrow().extract_lower_bound();
+            lb = self.lb.borrow().extract_lower_bound();
+            commitment = self.commitment.borrow().duplicate();
+            server_token = self.server_token.borrow().duplicate();
         }
-        GetResponse::new(self.val.clone(), self.timestamp.clone(), Tracked(new_lb))
+        GetResponse::new(
+            self.value.clone(),
+            self.timestamp.clone(),
+            Tracked(lb),
+            Tracked(commitment),
+            Tracked(server_token),
+        )
     }
 }
 
@@ -343,7 +417,7 @@ impl WriteResponse {
             r.lb() == lb@,
             r.spec_timestamp() == lb@@.timestamp(),
     {
-        WriteResponse { lb  }
+        WriteResponse { lb }
     }
 }
 
@@ -379,7 +453,7 @@ impl std::fmt::Debug for GetRequest {
 impl std::fmt::Debug for GetResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GetResponse")
-            .field("value", &self.val)
+            .field("value", &self.value)
             .field("timestamp", &self.timestamp)
             .finish()
     }

@@ -4,7 +4,7 @@ use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
 use crate::verdist::rpc::proto::TaggedMessage;
-use crate::verdist::rpc::replies::RepliesView;
+use crate::verdist::rpc::replies::ReplyAccumulator;
 use crate::verdist::rpc::Replies;
 use crate::verdist::rpc::RequestContext;
 
@@ -27,20 +27,15 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         BroadcastPool { pool }
     }
 
-    pub fn broadcast_filter<F: Fn(<Pool::C as Channel>::Id) -> bool, T, Pred>(
+    pub fn broadcast_filter<A, F: Fn(<Pool::C as Channel>::Id) -> bool>(
         self,
         request: Request,
-        pred: Ghost<Pred>,
+        accum: A,
         filter_fn: F,
-    ) -> RequestContext<'a, Pool, T, Pred> where
-        Pred: InvariantPredicate<
-            Pred,
-            RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>,
-        >,
-
+    ) -> RequestContext<'a, Pool, A> where A: ReplyAccumulator<<Pool::C as Channel>::Id>
         requires
             forall|id| filter_fn.requires((id,)),
-            Pred::inv(pred@, RepliesView::empty()),
+            accum.spec_n_replies() == 0,
             vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
     {
         let tagged = Tagged::tag(request);
@@ -54,24 +49,19 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
                 let _res = channel.send(&tagged);
             }
         }
-        RequestContext::new(self.pool, tagged.tag(), pred)
+        RequestContext::new(self.pool, tagged.tag(), accum)
     }
 
-    pub fn broadcast<T, Pred>(
+    pub fn broadcast<A>(
         self,
         request: <<Pool::C as Channel>::S as TaggedMessage>::Inner,
-        pred: Ghost<Pred>,
-    ) -> RequestContext<'a, Pool, T, Pred> where
-        Pred: InvariantPredicate<
-            Pred,
-            RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>,
-        >,
-
+        accum: A,
+    ) -> RequestContext<'a, Pool, A> where A: ReplyAccumulator<<Pool::C as Channel>::Id>
         requires
-            Pred::inv(pred@, RepliesView::empty()),
+            accum.spec_n_replies() == 0,
             vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
     {
-        self.broadcast_filter(request, pred, |_s| true)
+        self.broadcast_filter(request, accum, |_s| true)
     }
 }
 

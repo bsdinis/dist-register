@@ -1,40 +1,33 @@
 use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::ConnectionPool;
-use crate::verdist::rpc::replies::RepliesView;
+use crate::verdist::rpc::replies::ReplyAccumulator;
 use crate::verdist::rpc::Replies;
 
 #[allow(dead_code)]
 type Resp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
 
-use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 
 verus! {
 
-pub struct RequestContext<'a, Pool: ConnectionPool, T, Pred> where
-    Pred: InvariantPredicate<
-        Pred,
-        RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>,
-    >,
+pub struct RequestContext<'a, Pool: ConnectionPool, A> where
+    A: ReplyAccumulator<<Pool::C as Channel>::Id>,
  {
     pub pool: &'a Pool,
     pub request_tag: u64,
     #[allow(dead_code)]
-    pub replies: Replies<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R, Pred>,
+    pub replies: Replies<<Pool::C as Channel>::Id, <Pool::C as Channel>::R, A>,
 }
 
-impl<'a, Pool: ConnectionPool, T, Pred> RequestContext<'a, Pool, T, Pred> where
-    Pred: InvariantPredicate<
-        Pred,
-        RepliesView<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R>,
-    >,
+impl<'a, Pool: ConnectionPool, A> RequestContext<'a, Pool, A> where
+    A: ReplyAccumulator<<Pool::C as Channel>::Id>,
  {
-    pub fn new(pool: &'a Pool, request_tag: u64, pred: Ghost<Pred>) -> Self
+    pub fn new(pool: &'a Pool, request_tag: u64, accum: A) -> Self
         requires
-            Pred::inv(pred@, RepliesView::empty()),
+            accum.spec_n_replies() == 0,
             vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
     {
-        RequestContext { pool, request_tag, replies: Replies::new(pred) }
+        RequestContext { pool, request_tag, replies: Replies::new(accum) }
     }
 
     #[allow(dead_code)]
@@ -55,11 +48,11 @@ impl<'a, Pool: ConnectionPool, T, Pred> RequestContext<'a, Pool, T, Pred> where
     #[allow(dead_code)]
     #[verifier::exec_allows_no_decreases_clause]
     pub fn wait_for<F, V>(self, termination_cond: F, extractor_fn: V) -> (r: Result<
-        Replies<<Pool::C as Channel>::Id, T, Resp<Pool>, Pred>,
-        Replies<<Pool::C as Channel>::Id, T, Resp<Pool>, Pred>,
+        Replies<<Pool::C as Channel>::Id, Resp<Pool>, A>,
+        Replies<<Pool::C as Channel>::Id, Resp<Pool>, A>,
     >) where
-        F: Fn(&Replies<<Pool::C as Channel>::Id, T, <Pool::C as Channel>::R, Pred>) -> bool,
-        V: Fn(<Pool::C as Channel>::R) -> Result<T, <Pool::C as Channel>::R>,
+        F: Fn(&Replies<<Pool::C as Channel>::Id, <Pool::C as Channel>::R, A>) -> bool,
+        V: Fn(<Pool::C as Channel>::R) -> Result<A::T, <Pool::C as Channel>::R>,
 
         requires
             forall|replies| termination_cond.requires((&replies,)),

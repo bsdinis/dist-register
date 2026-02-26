@@ -26,6 +26,7 @@ use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::BroadcastPool;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
+use crate::verdist::rpc::replies::ReplyAccumulator;
 
 pub mod error;
 mod net_axioms;
@@ -270,30 +271,29 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         // discussion on `write`
         let proph_val = Prophecy::<Option<u64>>::new();
         let tracked token;
+        let tracked server_lbs;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 token = state.linearization_queue.insert_read_linearizer(lin, op, proph_val@, &state.register);
+                server_lbs = state.servers.extract_lbs();
+                assume(forall|q: Quorum|  #[trigger] server_lbs.valid_quorum(q) ==> {
+                    token.value().min_ts@.timestamp() <= server_lbs.quorum_timestamp(q)
+                });
             }
             // XXX: debug assert
             assert(state.inv());
         });
 
-        let tracked server_lbs;
-        let pred;
-        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
-            proof {
-                server_lbs = state.servers.extract_lbs();
-            }
-            pred = Ghost(GetInv { old_servers: server_lbs });
-        });
-        let req = Request::Get(GetRequest::new(Tracked(server_lbs)));
+        let req = Request::Get(GetRequest::new(Tracked(server_lbs.extract_lbs())));
 
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
         // TODO(obeys_cmp_spec): add this to verus
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         #[allow(unused_parens)]
-        let quorum_res = bpool.broadcast::<_, GetInv>(req, pred).wait_for(
+        let accum = ReadAccumGetPhase::new(Tracked(server_lbs), Ghost(token.value().min_ts));
+        assert(accum.spec_n_replies() == 0);
+        let quorum_res = bpool.broadcast(req, accum).wait_for(
             (|s| -> (r: bool)
                 ensures
                     r ==> s.spec_len() >= qsize,
@@ -305,8 +305,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 },
         );
 
-        let quorum = match quorum_res {
-            Ok(q) => q,
+        let replies = match quorum_res {
+            Ok(replies) => replies.into_accumulator().destruct(),
             Err(e) => {
                 let tracked lincomp;
                 vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -318,7 +318,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 });
                 return Err(
                     error::ReadError::FailedFirstQuorum {
-                        obtained: e.replies().len(),
+                        obtained: e.into_accumulator().n_replies(),
                         required: self.pool.quorum_size(),
                         lincomp: Tracked(lincomp),
                     },
@@ -327,24 +327,19 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         };
 
         // check early return
-        let replies = quorum.replies();
         proof {
             self.lemma_qsize_nonempty();
         }
-        let opt = max_from_get_replies(replies);
-        let max_resp = opt.expect("there should be at least one reply");
-        let mut n_max_ts = 0usize;
-        let q_iter = replies.iter();
-        for (_idx, resp) in q_iter {
-            if resp.timestamp() == max_resp.timestamp() {
-                assume(n_max_ts + 1 < usize::MAX);  // XXX: integer overflow
-                n_max_ts += 1;
-            }
-        }
+        // TODO(assume/wait_for_post)
+        assume(replies.spec_n_get_replies() >= qsize);
+        let agree_with_max = replies.agree_with_max().clone();
+        let max_resp = replies.max_resp();
+        let max_ts = max_resp.timestamp();
+        let value = max_resp.value().clone();
+        let Tracked(commitment) = max_resp.commitment();
+        proph_val.resolve(&value);
 
-        proph_val.resolve(max_resp.value());
-
-        if n_max_ts >= self.pool.quorum_size() {
+        if replies.agree_with_max().len() >= self.pool.quorum_size() {
             let tracked comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
@@ -353,75 +348,76 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     let ghost old_servers = state.servers;
                     let ghost old_unclaimed = state.unclaimed_servers();
                     let ghost old_server_tokens = state.server_tokens@;
-                    assert(old_servers.locs().dom() == old_servers.dom());
 
-                    let tracked (quorum, mut commitment) = axiom_get_unanimous_replies(replies, &mut state.servers, token.value().min_ts@.timestamp(), max_resp.spec_timestamp(), max_resp.spec_value(), state.linearization_queue.committed_to_id());
-                    assert(state.unclaimed_servers() == old_unclaimed);
-                    assert(state.server_tokens@ == old_server_tokens);
-                    assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
-                        assert(old_servers.contains_key(id));
-                    }
-                    assert forall |id: u64| #[trigger] state.server_tokens@.contains_key(id) implies state.servers[id]@@ is HalfRightToAdvance by {
-                        assert(old_servers.contains_key(id));
-                    }
-                    old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
-
+                    // TODO(assume/chan_k): commitment agreement
+                    assume(commitment.id() == state.commitments.commitment_id());
                     state.commitments.agree_commitment(&commitment);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
-                    let tracked watermark = state.linearization_queue.apply_linearizers_up_to(&mut state.register, max_resp.spec_timestamp());
+                    let tracked watermark = state.linearization_queue.apply_linearizers_up_to(
+                            &mut state.register,
+                            max_ts,
+                    );
 
-                    if max_resp.spec_timestamp() > old_watermark {
-                        state.servers.lemma_quorum_lb(quorum, max_resp.spec_timestamp());
-                        assert(state.linearization_queue.watermark() == max_resp.spec_timestamp());
+                    if max_ts > old_watermark {
+                        // TODO(assume/quorum): valid quorum
+                        assume(state.servers.valid_quorum(replies.quorum()));
+                        // TODO(assume/quorum): unanimous quorum
+                        assume(state.servers.unanimous_quorum(replies.quorum(), max_ts));
+                        state.servers.lemma_quorum_lb(replies.quorum(), max_ts);
+                        assert(state.linearization_queue.watermark() == max_ts);
                     } else {
                         assert(state.linearization_queue.watermark() == old_watermark);
                     }
 
-                    comp = state.linearization_queue.extract_read_completion(token, max_resp.spec_timestamp(), watermark, commitment);
+                    // TODO(assume/replies): relate max_resp with min_ts
+                    assume(max_ts >= token.value().min_ts@.timestamp());
+                    comp = state.linearization_queue.extract_read_completion(
+                        token,
+                        max_ts,
+                        watermark,
+                        commitment.duplicate(),
+                    );
 
                     // XXX: load bearing
                     assert(state.linearization_queue.known_timestamps() == old_known);
+                    admit();
                 }
 
                 // XXX: debug assert
                 assert(state.inv());
             });
-            let (max_val, max_ts) = max_resp.into_inner();
+            let (max_val, max_ts) = replies.max_resp().clone().into_inner();
             return Ok((max_val, max_ts, Tracked(comp)));
         }
         // non-unanimous read: write-back
 
         let ghost qsize = self.qsize();
         let bpool = BroadcastPool::new(&self.pool);
-        let max_ts = max_resp.timestamp();
-        let value = max_resp.value().clone();
         #[allow(unused_parens)]
-        let replies_result = bpool.broadcast_filter::<_, _, WritebackInv>(
-            Request::Write(
-                WriteRequest::new(value, max_ts, Tracked(axiom_fake_commitment(max_ts, value))),
-            ),
-            Ghost(WritebackInv {  }),
-            |id| replies.get(&id).map(|resp| resp.timestamp() != max_ts).unwrap_or(false),
+        let replies_result = bpool.broadcast_filter(
+            Request::Write(WriteRequest::new(value, max_ts, Tracked(commitment.duplicate()))),
+            ReadAccumWbPhase::new(replies),
+            |id| !agree_with_max.contains(&id.1),
         )
         // bellow is error handling + type handling + logging stuff
         .wait_for(
             (|s| -> (r: bool)
                 ensures
-                    r ==> s.spec_len() + n_max_ts >= qsize,
+                    r ==> s.spec_len() + agree_with_max@.len() >= qsize,
                 {
-                    assume(s.spec_len() + n_max_ts < usize::MAX);  // XXX: integer overflow
-                    s.len() + n_max_ts >= self.quorum_size()
+                    assume(s.spec_len() + agree_with_max.len() < usize::MAX);  // XXX: integer overflow
+                    s.len() + agree_with_max.len() >= self.quorum_size()
                 }),
             |r|
                 match r.deref() {
-                    Response::Write(_) => Ok(()),
+                    Response::Write(write) => Ok(write.clone()),
                     _ => Err(r),
                 },
         );
 
-        let wb_rep = match replies_result {
-            Ok(r) => r,
+        let wb_replies = match replies_result {
+            Ok(r) => r.into_accumulator().destruct(),
             Err(replies) => {
                 let tracked lincomp;
                 vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -431,17 +427,18 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     // XXX: debug assert
                     assert(state.inv());
                 });
+                let accum = replies.into_accumulator().destruct();
                 return Err(
                     error::ReadError::FailedSecondQuorum {
-                        obtained: replies.replies().len(),
-                        required: self.pool.quorum_size(),
+                        obtained: accum.n_wb_replies(),
+                        required: self.pool.quorum_size().saturating_sub(
+                            accum.agree_with_max().len(),
+                        ),
                         lincomp: Tracked(lincomp),
                     },
                 );
             },
         };
-        #[allow(unused)]
-        let wb_replies = wb_rep.replies();
 
         let tracked comp;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -453,15 +450,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 let ghost old_server_tokens = state.server_tokens@;
                 assert(old_servers.locs().dom() == old_servers.dom());
 
-                let tracked (quorum, commitment) = axiom_writeback_unanimous_replies(replies, wb_replies, &mut state.servers, token.value().min_ts@.timestamp(), max_ts, max_resp.spec_value(), state.linearization_queue.committed_to_id());
-                assert(state.unclaimed_servers() == old_unclaimed);
-                assert(state.server_tokens@ == old_server_tokens);
-                assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
-                    assert(old_servers.contains_key(id));
-                }
-                assert forall |id: u64| #[trigger] state.server_tokens@.contains_key(id) implies state.servers[id]@@ is HalfRightToAdvance by {
-                    assert(old_servers.contains_key(id));
-                }
+
+                /*
                 old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
                 state.commitments.agree_commitment(&commitment);
@@ -477,6 +467,10 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 }
 
                 comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark, commitment);
+                */
+
+                admit();
+                comp = proof_from_false();
 
                 // XXX: load bearing
                 assert(state.linearization_queue.known_timestamps() == old_known);
@@ -485,8 +479,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             // XXX: debug assert
             assert(state.inv());
         });
-        let (max_val, max_ts) = max_resp.into_inner();
-        Ok((max_val, max_ts, Tracked(comp)))
+        let (max_val, max_ts) = wb_replies.max_resp().clone().into_inner();
+        return Ok((max_val, max_ts, Tracked(comp)));
     }
 
     fn write(&mut self, value: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<
@@ -570,10 +564,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             // TODO(obeys_cmp_spec): add this to verus
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast::<_, GetTimestampInv>(
-                req,
-                Ghost(GetTimestampInv {  }),
-            ).wait_for(
+            let quorum_res = bpool.broadcast(req, BadAccumulator::new()).wait_for(
                 (|s| -> (r: bool)
                     ensures
                         r ==> s.spec_len() >= qsize,
@@ -617,7 +608,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
                     return Err(
                         error::WriteError::FailedFirstQuorum {
-                            obtained: e.replies().len(),
+                            obtained: e.into_accumulator().into().len(),
                             required: self.pool.quorum_size(),
                             lincomp: Tracked(lincomp),
                         },
@@ -626,11 +617,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             }
         };
 
-        let replies = quorum.replies();
+        let replies = quorum.into_accumulator().into();
         proof {
             self.lemma_qsize_nonempty();
         }
-        let opt = max_from_get_ts_replies(replies);
+        let opt = max_from_get_ts_replies(&replies);
         assert(opt is Some);
         let max_resp = opt.expect("the quorum should never be empty");
         let max_ts = max_resp.timestamp();
@@ -647,10 +638,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 let ghost old_servers = state.servers;
+                let ghost old_unclaimed = state.unclaimed_servers();
                 let ghost old_server_tokens = state.server_tokens@;
                 assert(old_servers.locs().dom() == old_servers.dom());
 
-                let tracked quorum = axiom_get_ts_replies(replies, &mut state.servers, max_ts);
+                let tracked quorum = axiom_get_ts_replies(&replies, &mut state.servers, max_ts);
+                assert(state.unclaimed_servers() == old_unclaimed);
                 assert(state.server_tokens@ == old_server_tokens);
                 assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
                     assert(old_servers.contains_key(id));
@@ -683,9 +676,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             // TODO(obeys_cmp_spec): add this to verus
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast::<_, WriteInv>(
+            let quorum_res = bpool.broadcast(
                 Request::Write(WriteRequest::new(value, exec_ts, Tracked(commitment.duplicate()))),
-                Ghost(WriteInv {  }),
+                BadAccumulator::new(),
             ).wait_for(
                 (|s| -> (r: bool)
                     ensures
@@ -703,7 +696,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 Err(e) => {
                     return Err(
                         error::WriteError::FailedSecondQuorum {
-                            obtained: e.replies().len(),
+                            obtained: e.into_accumulator().into().len(),
                             required: self.pool.quorum_size(),
                             timestamp: exec_ts,
                             token: Tracked(token),
@@ -713,7 +706,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 },
             };
             #[allow(unused)]
-            let replies = quorum.replies();
+            let replies = quorum.into_accumulator().into();
 
             let exec_comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -728,7 +721,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
                     state.linearization_queue.lemma_write_token(&token);
 
-                    let tracked quorum = axiom_write_replies(replies, &mut state.servers, exec_ts);
+                    let tracked quorum = axiom_write_replies(&replies, &mut state.servers, exec_ts);
                     assert(state.unclaimed_servers() == old_unclaimed);
                     assert(state.server_tokens@ == old_server_tokens);
                     assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {

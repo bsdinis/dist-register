@@ -7,6 +7,11 @@ use vstd::prelude::*;
 #[cfg(verus_only)]
 use vstd::resource::Loc;
 
+// TODO(proto_lb):
+// - inline the request id
+// - add the *sent* lowerbound / token to the request to the *response*
+// - add type invariant that orders the lowerbounds on the response
+
 use super::invariants::ServerToken;
 
 verus! {
@@ -266,6 +271,10 @@ impl GetResponse {
         self.value
     }
 
+    pub closed spec fn spec_commitment(self) -> WriteCommitment {
+        self.commitment@
+    }
+
     pub closed spec fn server_id(self) -> u64 {
         self.server_token@.key()
     }
@@ -288,9 +297,11 @@ impl GetResponse {
             commitment@.key() == timestamp,
             commitment@.value() == value,
         ensures
-            r.lb() == lb@,
+            r.lb().loc() == lb@.loc(),
+            r.lb()@.timestamp() == lb@@.timestamp(),
             r.spec_timestamp() == timestamp,
             r.spec_value() == value,
+            r.spec_commitment() == commitment@,
             r.server_id() == server_token@.key(),
             r.loc() == server_token@.value(),
     {
@@ -300,13 +311,15 @@ impl GetResponse {
     pub fn timestamp(&self) -> (ts: Timestamp)
         ensures
             ts == self.spec_timestamp(),
+        no_unwind
     {
-        self.timestamp.clone()
+        self.timestamp
     }
 
     pub fn value(&self) -> (value: &Option<u64>)
         ensures
             *value == self.spec_value(),
+        no_unwind
     {
         &self.value
     }
@@ -317,6 +330,47 @@ impl GetResponse {
             r.1 == self.spec_timestamp(),
     {
         (self.value, self.timestamp)
+    }
+
+    pub fn duplicate_lb(&self) -> (r: Tracked<MonotonicTimestampResource>)
+        ensures
+            r@.loc() == self.lb().loc(),
+            r@@.timestamp() == self.lb()@.timestamp(),
+            r@@ is LowerBound,
+        no_unwind
+    {
+        let tracked lb;
+        proof {
+            use_type_invariant(self);
+            lb = self.lb.borrow().extract_lower_bound();
+        }
+        Tracked(lb)
+    }
+
+    pub fn commitment(&self) -> (r: Tracked<WriteCommitment>)
+        ensures
+            r@.id() == self.spec_commitment().id(),
+            r@.key() == self.spec_timestamp(),
+            r@.value() == self.spec_value(),
+        no_unwind
+    {
+        let tracked commitment;
+        proof {
+            use_type_invariant(self);
+            commitment = self.commitment.borrow().duplicate();
+        }
+        Tracked(commitment)
+    }
+
+    pub fn lemma_get_response(&self)
+        ensures
+            self.lb()@ is LowerBound,
+            self.spec_timestamp() == self.lb()@.timestamp(),
+        no_unwind
+    {
+        proof {
+            use_type_invariant(self);
+        }
     }
 }
 

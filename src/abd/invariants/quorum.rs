@@ -291,6 +291,53 @@ impl ServerUniverse {
         }
     }
 
+    pub proof fn tracked_update_lb(
+        tracked &mut self,
+        server_id: u64,
+        tracked r: MonotonicTimestampResource,
+    )
+        requires
+            old(self).inv(),
+            old(self).is_lb(),
+            old(self).contains_key(server_id),
+            r@ is LowerBound,
+            old(self)[server_id]@.loc() == r.loc(),
+            old(self)[server_id]@@.timestamp() <= r@.timestamp(),
+        ensures
+            self.inv(),
+            self.is_lb(),
+            self.dom() == old(self).dom(),
+            self.locs() == old(self).locs(),
+            forall|id| #[trigger]
+                self.contains_key(id) ==> {
+                    &&& id != server_id ==> self[id]@@.timestamp() == old(self)[id]@@.timestamp()
+                    &&& id == server_id ==> self[id]@@.timestamp() == r@.timestamp()
+                },
+            self[server_id]@@.timestamp() == r@.timestamp(),
+            old(self).leq(*self),
+    {
+        let ghost orig_map = *self;
+
+        let tracked old_r = self.tracked_remove_lb(server_id);
+        let ghost unchanged_map = *self;
+
+        self.tracked_insert_lb(server_id, r);
+
+        assert forall|id| #[trigger] self.contains_key(id) implies {
+            &&& id != server_id ==> self[id]@@.timestamp() == orig_map[id]@@.timestamp()
+            &&& id == server_id ==> self[id]@@.timestamp() == r@.timestamp()
+        } by {
+            if id != server_id {
+                assert(unchanged_map.contains_key(id));
+            }
+        }
+
+        assert forall|id| #[trigger] orig_map.contains_key(id) implies orig_map[id]@@.timestamp()
+            <= self[id]@@.timestamp() by {
+            assert(self.contains_key(id));
+        }
+    }
+
     proof fn lemma_vals(self, q: Quorum) -> (r: (Set<Timestamp>, Timestamp))
         requires
             self.inv(),
@@ -500,7 +547,8 @@ impl ServerUniverse {
         }
     }
 
-    pub proof fn lemma_lower_bound(tracked &mut self, tracked other: &Self)
+    // NOTE: unused (but probably true)
+    pub proof fn lemma_lb(tracked &mut self, tracked other: &Self)
         requires
             old(self).inv(),
             old(self).is_lb(),
@@ -653,6 +701,10 @@ impl ServerUniverse {
 impl Quorum {
     pub open spec fn view(self) -> Set<u64> {
         self.servers
+    }
+
+    pub open spec fn from_set(servers: Set<u64>) -> Self {
+        Quorum { servers }
     }
 
     pub open spec fn inv(self) -> bool {

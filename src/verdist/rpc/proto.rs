@@ -7,9 +7,12 @@ verus! {
 exec static REQUEST_TAG: AtomicU64 = AtomicU64::new(0);
 
 pub trait TaggedMessage {
-    type Inner;
+    spec fn spec_tag(self) -> u64;
 
-    fn tag(&self) -> u64;
+    fn tag(&self) -> (r: u64)
+        ensures
+            r == self.spec_tag(),
+    ;
 }
 
 #[derive(Debug, Copy)]
@@ -42,9 +45,11 @@ impl<R> Tagged<R> {
 }
 
 impl<R> TaggedMessage for Tagged<R> {
-    type Inner = R;
-
     fn tag(&self) -> u64 {
+        self.tag
+    }
+
+    closed spec fn spec_tag(self) -> u64 {
         self.tag
     }
 }

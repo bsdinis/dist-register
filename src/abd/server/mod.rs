@@ -21,7 +21,7 @@ use crate::verdist::network::channel::Channel;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::modelled::ModelledConnector;
 use crate::verdist::network::modelled::ModelledListener;
-use crate::verdist::rpc::proto::Tagged;
+use crate::verdist::rpc::proto::TaggedMessage;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -70,7 +70,7 @@ pub struct RegisterServer<L, C, ML, RL> where
 
 impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     L: Listener<C>,
-    C: Channel<R = Tagged<Request>, S = Tagged<Response>, Id = (u64, u64)>,
+    C: Channel<R = Request, S = Response, Id = (u64, u64)>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
@@ -92,25 +92,38 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         handle.release_write(guard);
     }
 
-    fn handle_get(&self, req: GetRequest) -> Response {
+    fn handle_get(&self, req: GetRequest) -> (r: Response)
+        ensures
+            r.spec_tag() == req.spec_tag(),
+            r is Get,
+    {
         Response::Get(self.register.read(req))
     }
 
-    fn handle_get_timestamp(&self, req: GetTimestampRequest) -> Response {
+    fn handle_get_timestamp(&self, req: GetTimestampRequest) -> (r: Response)
+        ensures
+            r.spec_tag() == req.spec_tag(),
+            r is GetTimestamp,
+    {
         Response::GetTimestamp(self.register.read_timestamp(req))
     }
 
-    // TODO: must receive a lower bound here
-    fn handle_write(&self, req: WriteRequest) -> Response {
+    fn handle_write(&self, req: WriteRequest) -> (r: Response)
+        ensures
+            r.spec_tag() == req.spec_tag(),
+            r is Write,
+    {
         Response::Write(self.register.write(req))
     }
 
-    fn handle(&self, request: Tagged<Request>, _client_id: u64) -> Tagged<Response> {
-        let tag = request.tag;
-        match request.into_inner() {
-            Request::Get(req) => { Tagged { tag, inner: self.handle_get(req) } },
-            Request::GetTimestamp(req) => { Tagged { tag, inner: self.handle_get_timestamp(req) } },
-            Request::Write(req) => { Tagged { tag, inner: self.handle_write(req) } },
+    fn handle(&self, request: Request, _client_id: u64) -> (r: Response)
+        ensures
+            r.spec_tag() == request.spec_tag(),
+    {
+        match request {
+            Request::Get(req) => self.handle_get(req),
+            Request::GetTimestamp(req) => self.handle_get_timestamp(req),
+            Request::Write(req) => self.handle_write(req),
         }
     }
 
@@ -165,7 +178,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
 
 fn create_server<L, C, ML, RL>(server_id: u64, listener: L) -> RegisterServer<L, C, ML, RL> where
     L: Listener<C>,
-    C: Channel<R = Tagged<Request>, S = Tagged<Response>, Id = (u64, u64)>,
+    C: Channel<R = Request, S = Response, Id = (u64, u64)>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
@@ -178,7 +191,7 @@ fn create_server<L, C, ML, RL>(server_id: u64, listener: L) -> RegisterServer<L,
 }
 
 } // verus!
-pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Tagged<Response>, Tagged<Request>> {
+pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Response, Request> {
     let (listener, connector) = crate::verdist::network::modelled::listen_channel(server_id);
     std::thread::spawn(move || {
         let server = Arc::new(create_server::<_, _, WritePerm, ReadPerm<'_>>(

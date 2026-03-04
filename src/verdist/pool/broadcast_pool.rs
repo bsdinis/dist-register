@@ -19,9 +19,9 @@ pub struct BroadcastPool<'a, Pool> {
 
 impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     Pool: ConnectionPool,
-    Pool::C: Channel<S = Tagged<Request>>,
+    Pool::C: Channel<S = Request>,
     <Pool::C as Channel>::R: TaggedMessage + std::fmt::Debug,
-    Request: Clone + std::fmt::Debug,
+    Request: TaggedMessage + Clone + std::fmt::Debug,
  {
     pub fn new(pool: &'a Pool) -> BroadcastPool<'a, Pool> {
         BroadcastPool { pool }
@@ -38,7 +38,6 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
             accum.spec_n_replies() == 0,
             vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
     {
-        let tagged = Tagged::tag(request);
         let conns = self.pool.conns();
         for idx in 0..conns.len()
             invariant
@@ -46,17 +45,15 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         {
             let channel = &conns[idx];
             if filter_fn(channel.id()) {
-                let _res = channel.send(&tagged);
+                let _res = channel.send(&request);
             }
         }
-        RequestContext::new(self.pool, tagged.tag(), accum)
+        RequestContext::new(self.pool, request.tag(), accum)
     }
 
-    pub fn broadcast<A>(
-        self,
-        request: <<Pool::C as Channel>::S as TaggedMessage>::Inner,
-        accum: A,
-    ) -> RequestContext<'a, Pool, A> where A: ReplyAccumulator<<Pool::C as Channel>::Id>
+    pub fn broadcast<A>(self, request: Request, accum: A) -> RequestContext<'a, Pool, A> where
+        A: ReplyAccumulator<<Pool::C as Channel>::Id>,
+
         requires
             accum.spec_n_replies() == 0,
             vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),

@@ -1,20 +1,23 @@
 use crate::abd::invariants::committed_to::WriteCommitment;
 use crate::abd::invariants::quorum::ServerUniverse;
+use crate::abd::invariants::ServerToken;
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::abd::timestamp::Timestamp;
+use crate::verdist::rpc::proto::TaggedMessage;
 
 use vstd::prelude::*;
 #[cfg(verus_only)]
 use vstd::resource::Loc;
 
 // TODO(proto_lb):
-// - inline the request id
 // - add the *sent* lowerbound / token to the request to the *response*
 // - add type invariant that orders the lowerbounds on the response
 
-use super::invariants::ServerToken;
+use std::sync::atomic::AtomicU64;
 
 verus! {
+
+exec static REQUEST_TAG: AtomicU64 = AtomicU64::new(0);
 
 #[allow(unused)]
 #[derive(Debug)]
@@ -24,18 +27,39 @@ pub enum Request {
     Write(WriteRequest),
 }
 
+impl TaggedMessage for Request {
+    fn tag(&self) -> u64 {
+        match self {
+            Request::Get(req) => req.tag(),
+            Request::GetTimestamp(req) => req.tag(),
+            Request::Write(req) => req.tag(),
+        }
+    }
+
+    open spec fn spec_tag(self) -> u64 {
+        match self {
+            Request::Get(req) => req.spec_tag(),
+            Request::GetTimestamp(req) => req.spec_tag(),
+            Request::Write(req) => req.spec_tag(),
+        }
+    }
+}
+
 #[allow(unused)]
 pub struct GetRequest {
+    request_id: u64,
     servers: Tracked<ServerUniverse>,
 }
 
 #[allow(unused)]
 pub struct GetTimestampRequest {
+    request_id: u64,
     servers: Tracked<ServerUniverse>,
 }
 
 #[allow(unused)]
 pub struct WriteRequest {
+    request_id: u64,
     value: Option<u64>,
     timestamp: Timestamp,
     commitment: Tracked<WriteCommitment>,
@@ -61,7 +85,8 @@ impl GetRequest {
         ensures
             r.servers() == servers@,
     {
-        GetRequest { servers }
+        let request_id = REQUEST_TAG.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        GetRequest { request_id, servers }
     }
 
     pub fn server_lower_bound(&mut self, server_id: Ghost<u64>) -> (r: Tracked<
@@ -70,6 +95,7 @@ impl GetRequest {
         requires
             old(self).servers().contains_key(server_id@),
         ensures
+            old(self).spec_tag() == self.spec_tag(),
             self.servers().locs() == old(self).servers().locs(),
             forall|id| #[trigger]
                 self.servers().contains_key(id) ==> {
@@ -106,6 +132,16 @@ impl GetRequest {
     }
 }
 
+impl TaggedMessage for GetRequest {
+    fn tag(&self) -> u64 {
+        self.request_id
+    }
+
+    closed spec fn spec_tag(self) -> u64 {
+        self.request_id
+    }
+}
+
 impl Clone for GetRequest {
     fn clone(&self) -> (r: Self) {
         let tracked new_servers;
@@ -113,7 +149,7 @@ impl Clone for GetRequest {
             use_type_invariant(self);
             new_servers = self.servers.borrow().extract_lbs();
         }
-        GetRequest::new(Tracked(new_servers))
+        GetRequest { request_id: self.request_id, servers: Tracked(new_servers) }
     }
 }
 
@@ -134,7 +170,18 @@ impl GetTimestampRequest {
         ensures
             r.servers() == servers@,
     {
-        GetTimestampRequest { servers }
+        let request_id = REQUEST_TAG.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        GetTimestampRequest { request_id, servers }
+    }
+}
+
+impl TaggedMessage for GetTimestampRequest {
+    fn tag(&self) -> u64 {
+        self.request_id
+    }
+
+    closed spec fn spec_tag(self) -> u64 {
+        self.request_id
     }
 }
 
@@ -145,7 +192,7 @@ impl Clone for GetTimestampRequest {
             use_type_invariant(self);
             new_servers = self.servers.borrow().extract_lbs();
         }
-        GetTimestampRequest::new(Tracked(new_servers))
+        GetTimestampRequest { request_id: self.request_id, servers: Tracked(new_servers) }
     }
 }
 
@@ -177,7 +224,8 @@ impl WriteRequest {
             r.spec_timestamp() == timestamp,
             r.spec_value() == value,
     {
-        WriteRequest { value, timestamp, commitment }
+        let request_id = REQUEST_TAG.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        WriteRequest { request_id, value, timestamp, commitment }
     }
 
     pub fn destruct(self) -> (r: (Option<u64>, Timestamp, Tracked<WriteCommitment>))
@@ -195,6 +243,16 @@ impl WriteRequest {
     }
 }
 
+impl TaggedMessage for WriteRequest {
+    fn tag(&self) -> u64 {
+        self.request_id
+    }
+
+    closed spec fn spec_tag(self) -> u64 {
+        self.request_id
+    }
+}
+
 impl Clone for WriteRequest {
     fn clone(&self) -> (r: Self) {
         let tracked new_commitment;
@@ -202,7 +260,12 @@ impl Clone for WriteRequest {
             use_type_invariant(self);
             new_commitment = self.commitment.borrow().duplicate()
         }
-        WriteRequest::new(self.value.clone(), self.timestamp.clone(), Tracked(new_commitment))
+        WriteRequest {
+            request_id: self.request_id,
+            value: self.value.clone(),
+            timestamp: self.timestamp.clone(),
+            commitment: Tracked(new_commitment),
+        }
     }
 }
 
@@ -223,8 +286,27 @@ pub enum Response {
     Write(WriteResponse),
 }
 
+impl TaggedMessage for Response {
+    fn tag(&self) -> u64 {
+        match self {
+            Response::Get(resp) => resp.tag(),
+            Response::GetTimestamp(resp) => resp.tag(),
+            Response::Write(resp) => resp.tag(),
+        }
+    }
+
+    open spec fn spec_tag(self) -> u64 {
+        match self {
+            Response::Get(resp) => resp.spec_tag(),
+            Response::GetTimestamp(resp) => resp.spec_tag(),
+            Response::Write(resp) => resp.spec_tag(),
+        }
+    }
+}
+
 #[allow(unused)]
 pub struct GetResponse {
+    request_id: u64,
     value: Option<u64>,
     timestamp: Timestamp,
     lb: Tracked<MonotonicTimestampResource>,
@@ -234,12 +316,14 @@ pub struct GetResponse {
 
 #[allow(unused)]
 pub struct GetTimestampResponse {
+    request_id: u64,
     timestamp: Timestamp,
     lb: Tracked<MonotonicTimestampResource>,
 }
 
 #[allow(unused)]
 pub struct WriteResponse {
+    request_id: u64,
     // TODO: there is no exec state that ties this together
     lb: Tracked<MonotonicTimestampResource>,
 }
@@ -284,6 +368,7 @@ impl GetResponse {
     }
 
     pub fn new(
+        request_id: u64,
         value: Option<u64>,
         timestamp: Timestamp,
         lb: Tracked<MonotonicTimestampResource>,
@@ -297,6 +382,7 @@ impl GetResponse {
             commitment@.key() == timestamp,
             commitment@.value() == value,
         ensures
+            r.spec_tag() == request_id,
             r.lb().loc() == lb@.loc(),
             r.lb()@.timestamp() == lb@@.timestamp(),
             r.spec_timestamp() == timestamp,
@@ -305,7 +391,7 @@ impl GetResponse {
             r.server_id() == server_token@.key(),
             r.loc() == server_token@.value(),
     {
-        GetResponse { value, timestamp, lb, commitment, server_token }
+        GetResponse { request_id, value, timestamp, lb, commitment, server_token }
     }
 
     pub fn timestamp(&self) -> (ts: Timestamp)
@@ -374,6 +460,16 @@ impl GetResponse {
     }
 }
 
+impl TaggedMessage for GetResponse {
+    fn tag(&self) -> u64 {
+        self.request_id
+    }
+
+    closed spec fn spec_tag(self) -> u64 {
+        self.request_id
+    }
+}
+
 impl Clone for GetResponse {
     fn clone(&self) -> (r: Self) {
         let tracked lb;
@@ -386,6 +482,7 @@ impl Clone for GetResponse {
             server_token = self.server_token.borrow().duplicate();
         }
         GetResponse::new(
+            self.request_id,
             self.value.clone(),
             self.timestamp.clone(),
             Tracked(lb),
@@ -415,15 +512,20 @@ impl GetTimestampResponse {
         self.lb().loc()
     }
 
-    pub fn new(timestamp: Timestamp, lb: Tracked<MonotonicTimestampResource>) -> (r: Self)
+    pub fn new(
+        request_id: u64,
+        timestamp: Timestamp,
+        lb: Tracked<MonotonicTimestampResource>,
+    ) -> (r: Self)
         requires
             lb@@ is LowerBound,
             lb@@.timestamp() == timestamp,
         ensures
+            r.spec_tag() == request_id,
             r.lb() == lb@,
             r.spec_timestamp() == timestamp,
     {
-        GetTimestampResponse { timestamp, lb }
+        GetTimestampResponse { request_id, timestamp, lb }
     }
 
     pub fn timestamp(&self) -> (ts: Timestamp)
@@ -434,6 +536,16 @@ impl GetTimestampResponse {
     }
 }
 
+impl TaggedMessage for GetTimestampResponse {
+    fn tag(&self) -> u64 {
+        self.request_id
+    }
+
+    closed spec fn spec_tag(self) -> u64 {
+        self.request_id
+    }
+}
+
 impl Clone for GetTimestampResponse {
     fn clone(&self) -> (r: Self) {
         let tracked new_lb;
@@ -441,7 +553,7 @@ impl Clone for GetTimestampResponse {
             use_type_invariant(self);
             new_lb = self.lb.borrow().extract_lower_bound();
         }
-        GetTimestampResponse::new(self.timestamp.clone(), Tracked(new_lb))
+        GetTimestampResponse::new(self.request_id, self.timestamp.clone(), Tracked(new_lb))
     }
 }
 
@@ -464,14 +576,25 @@ impl WriteResponse {
         self.lb().loc()
     }
 
-    pub fn new(lb: Tracked<MonotonicTimestampResource>) -> (r: Self)
+    pub fn new(request_id: u64, lb: Tracked<MonotonicTimestampResource>) -> (r: Self)
         requires
             lb@@ is LowerBound,
         ensures
+            r.spec_tag() == request_id,
             r.lb() == lb@,
             r.spec_timestamp() == lb@@.timestamp(),
     {
-        WriteResponse { lb }
+        WriteResponse { request_id, lb }
+    }
+}
+
+impl TaggedMessage for WriteResponse {
+    fn tag(&self) -> u64 {
+        self.request_id
+    }
+
+    closed spec fn spec_tag(self) -> u64 {
+        self.request_id
     }
 }
 
@@ -482,7 +605,7 @@ impl Clone for WriteResponse {
             use_type_invariant(self);
             new_lb = self.lb.borrow().extract_lower_bound();
         }
-        WriteResponse::new(Tracked(new_lb))
+        WriteResponse::new(self.request_id, Tracked(new_lb))
     }
 }
 

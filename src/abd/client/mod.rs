@@ -25,7 +25,6 @@ use crate::abd::timestamp::Timestamp;
 use crate::verdist::network::channel::Channel;
 use crate::verdist::pool::BroadcastPool;
 use crate::verdist::pool::ConnectionPool;
-use crate::verdist::rpc::proto::Tagged;
 use crate::verdist::rpc::replies::ReplyAccumulator;
 
 pub mod error;
@@ -161,7 +160,7 @@ pub struct AbdPool<Pool, ML, RL> where
 
 impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Tagged<Response>, S = Tagged<Request>>,
+    C: Channel<R = Response, S = Request>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
@@ -234,7 +233,7 @@ pub struct AbdRegisterLocs {
 
 impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Tagged<Response>, S = Tagged<Request>, Id = (u64, u64)>,
+    C: Channel<R = Response, S = Request, Id = (u64, u64)>,
     C::Id: Eq + Hash,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -299,7 +298,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     r ==> s.spec_len() >= qsize,
                 { s.len() >= self.quorum_size() }),
             |r|
-                match r.deref() {
+                match r {
                     Response::Get(get) => { Ok(get.clone()) },
                     _ => Err(r),
                 },
@@ -410,7 +409,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     s.len() + agree_with_max.len() >= self.quorum_size()
                 }),
             |r|
-                match r.deref() {
+                match r {
                     Response::Write(write) => Ok(write.clone()),
                     _ => Err(r),
                 },
@@ -570,7 +569,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                         r ==> s.spec_len() >= qsize,
                     { s.len() >= self.quorum_size() }),
                 |r|
-                    match r.deref() {
+                    match r {
                         Response::GetTimestamp(get_ts) => Ok(get_ts.clone()),
                         _ => Err(r),
                     },
@@ -685,7 +684,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                         r ==> s.spec_len() >= qsize,
                     { s.len() >= self.quorum_size() }),
                 |r|
-                    match r.deref() {
+                    match r {
                         Response::Write(_) => Ok(()),
                         _ => Err(r),
                     },
@@ -763,7 +762,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
 pub proof fn lemma_inv<Pool, C, ML, RL>(c: AbdPool<Pool, ML, RL>) where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Tagged<Response>, S = Tagged<Request>, Id = (u64, u64)>,
+    C: Channel<R = Response, S = Request, Id = (u64, u64)>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 

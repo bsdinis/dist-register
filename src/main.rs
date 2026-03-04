@@ -26,7 +26,6 @@ use verdist::network::channel::Connector;
 use verdist::network::error::ConnectError;
 use verdist::pool::ConnectionPool;
 use verdist::pool::FlawlessPool;
-use verdist::rpc::proto::Tagged;
 
 use vstd::logatom::MutLinearizer;
 #[allow(unused_imports)]
@@ -190,10 +189,7 @@ fn report_write(client_id: u64, value: Option<u64>) {
 fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
     BufChannel<C>,
     ConnectError,
-> where
-    Conn: Connector<C>,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
- {
+> where Conn: Connector<C>, C: Channel<R = abd::proto::Response, S = abd::proto::Request> {
     let mut channel = connector.connect(client_id)?;
     if !args.no_delay {
         channel.add_latency(
@@ -207,10 +203,7 @@ fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
 fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r: Result<
     Vec<BufChannel<C>>,
     ConnectError,
->) where
-    Conn: Connector<C>,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
-
+>) where Conn: Connector<C>, C: Channel<R = abd::proto::Response, S = abd::proto::Request>
     ensures
         r is Ok ==> connectors.len() == r->Ok_0.len(),
 {
@@ -230,7 +223,7 @@ fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r:
 fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error>
 where
     Conn: Connector<C> + Send + Sync,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+    C: Channel<R = abd::proto::Response, S = abd::proto::Request>,
     C: Sync + Send,
 {
     use std::sync::Arc;
@@ -365,7 +358,7 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<Permis
     Tracked<RegisterView>,
 )) where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>>,
+    C: Channel<R = abd::proto::Response, S = abd::proto::Request>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 
@@ -408,7 +401,7 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     Error<WritePerm, GhostVar<Option<u64>>, ReadPerm<'a>, &'a GhostVar<Option<u64>>>,
 > where
     Conn: Connector<C> + Send + Sync,
-    C: Channel<R = Tagged<abd::proto::Response>, S = Tagged<abd::proto::Request>, Id = (u64, u64)>,
+    C: Channel<R = abd::proto::Response, S = abd::proto::Request, Id = (u64, u64)>,
     C: Sync + Send,
 
     requires

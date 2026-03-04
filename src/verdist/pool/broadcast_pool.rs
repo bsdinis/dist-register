@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use crate::verdist::network::channel::Channel;
+use crate::verdist::network::channel::ChannelInvariant;
 use crate::verdist::pool::ConnectionPool;
 use crate::verdist::rpc::proto::Tagged;
 use crate::verdist::rpc::proto::TaggedMessage;
@@ -17,6 +18,7 @@ pub struct BroadcastPool<'a, Pool> {
     pub pool: &'a Pool,
 }
 
+// TODO: remove request generic
 impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     Pool: ConnectionPool,
     Pool::C: Channel<S = Request>,
@@ -27,16 +29,25 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         BroadcastPool { pool }
     }
 
-    pub fn broadcast_filter<A, F: Fn(<Pool::C as Channel>::Id) -> bool>(
+    pub fn broadcast_filter<Pred, A, F>(
         self,
         request: Request,
+        pred: Ghost<Pred>,
         accum: A,
         filter_fn: F,
-    ) -> RequestContext<'a, Pool, A> where A: ReplyAccumulator<<Pool::C as Channel>::Id>
+    ) -> (r: RequestContext<'a, Pool, Pred, A>)
+        where
+            Pred: InvariantPredicate<Pred, A>,
+            A: ReplyAccumulator<<Pool::C as Channel>::Id, Pred>,
+            F: Fn(<Pool::C as Channel>::Id) -> bool,
         requires
+            // TODO: forall |chan| #[trigger] Chann::K::send_inv(chan.constant(), chan.id(), request)
+            Pred::inv(pred@, accum),
             forall|id| filter_fn.requires((id,)),
             accum.spec_n_replies() == 0,
             vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
+        ensures
+            r.pred() == pred@,
     {
         let conns = self.pool.conns();
         for idx in 0..conns.len()
@@ -45,20 +56,29 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         {
             let channel = &conns[idx];
             if filter_fn(channel.id()) {
+                assume(<Pool::C as Channel>::K::send_inv(channel.constant(), channel.spec_id(), request));
                 let _res = channel.send(&request);
             }
         }
-        RequestContext::new(self.pool, request.tag(), accum)
+        RequestContext::new(self.pool, request.tag(), pred, accum)
     }
 
-    pub fn broadcast<A>(self, request: Request, accum: A) -> RequestContext<'a, Pool, A> where
-        A: ReplyAccumulator<<Pool::C as Channel>::Id>,
-
+    pub fn broadcast<Pred, A>(self,
+        request: Request,
+        pred: Ghost<Pred>,
+        accum: A
+    ) -> (r: RequestContext<'a, Pool, Pred, A>)
+    where
+        Pred: InvariantPredicate<Pred, A>,
+        A: ReplyAccumulator<<Pool::C as Channel>::Id, Pred>,
         requires
+            Pred::inv(pred@, accum),
             accum.spec_n_replies() == 0,
             vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
+        ensures
+            r.pred() == pred@,
     {
-        self.broadcast_filter(request, accum, |_s| true)
+        self.broadcast_filter(request, pred, accum, |_s| true)
     }
 }
 

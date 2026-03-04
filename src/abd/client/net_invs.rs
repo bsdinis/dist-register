@@ -1,16 +1,38 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 use vstd::resource::Loc;
 
 #[cfg(verus_only)]
 use crate::abd::invariants::quorum::Quorum;
 use crate::abd::invariants::quorum::ServerUniverse;
+#[cfg(verus_only)]
+use crate::invariants::StatePredicate;
+
 use crate::abd::proto::{GetResponse, WriteResponse};
 use crate::abd::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::verdist::rpc::replies::ReplyAccumulator;
 
 verus! {
+
+pub struct ReadPred {
+    pub server_locs: Map<u64, Loc>,
+    pub watermark_loc: Loc,
+    pub commitment_id: Loc,
+    pub server_tokens_id: Loc,
+}
+
+impl ReadPred {
+    pub open spec fn from_state(state: StatePredicate) -> ReadPred {
+        ReadPred {
+            server_locs: state.server_locs,
+            watermark_loc: state.lin_queue_ids.watermark_id,
+            commitment_id: state.commitments_ids.commitment_id,
+            server_tokens_id: state.server_tokens_id,
+        }
+    }
+}
 
 #[allow(dead_code)]
 pub struct ReadAccumulator {
@@ -32,18 +54,35 @@ pub struct ReadAccumulator {
     /// Over time, we monotonically gain knowledge that every quorum is bounded bellow by
     /// `max_resp.timestamp()`
     servers: Tracked<ServerUniverse>,
+
     /// The original watermark at creation time
     old_watermark: Ghost<MonotonicTimestampResource>,
+
     /// The quorum being constructed
     quorum: Tracked<Set<u64>>,
+
+    /// The id of the commitment map
+    commitment_id: Ghost<Loc>,
+
+    /// The id of the server tokens
+    server_tokens_id: Ghost<Loc>,
+}
+
+impl InvariantPredicate<ReadPred, ReadAccumulator> for ReadPred {
+    open spec fn inv(pred: ReadPred, v: ReadAccumulator) -> bool {
+        pred == v.constant()
+    }
 }
 
 impl ReadAccumulator {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         old_watermark: Ghost<MonotonicTimestampResource>,
+        read_pred: Ghost<ReadPred>
     ) -> (r: Self)
         requires
+            read_pred@.server_locs == servers@.locs(),
+            read_pred@.watermark_loc == old_watermark@.loc(),
             servers@.inv(),
             servers@.is_lb(),
             forall|q: Quorum| #[trigger]
@@ -51,6 +90,7 @@ impl ReadAccumulator {
                     old_watermark@@.timestamp() <= servers@.quorum_timestamp(q)
                 },
         ensures
+            r.constant() == read_pred@,
             r.spec_n_get_replies() == 0,
             r.spec_n_wb_replies() == 0,
             r.server_locs() == servers@.locs(),
@@ -64,6 +104,8 @@ impl ReadAccumulator {
             servers,
             old_watermark,
             quorum: Tracked(Set::tracked_empty()),
+            commitment_id: Ghost(read_pred@.commitment_id),
+            server_tokens_id: Ghost(read_pred@.server_tokens_id),
         }
     }
 
@@ -80,13 +122,26 @@ impl ReadAccumulator {
             self.servers@.valid_quorum(q) ==> {
                 self.old_watermark@@.timestamp() <= self.servers@.quorum_timestamp(q)
             }
-        &&& self.max_resp is Some ==> forall|id| #[trigger]
-            self.agree_with_max@.contains(id) ==> {
-                self.servers@[id]@@.timestamp() == self.max_resp->Some_0.spec_timestamp()
+        &&& self.max_resp is Some ==> {
+            let resp = self.max_resp->Some_0;
+            &&& forall|id| #[trigger] self.agree_with_max@.contains(id) ==> {
+                self.servers@[id]@@.timestamp() == resp.spec_timestamp()
             }
+            &&& resp.spec_commitment().id() == self.commitment_id@
+            &&& resp.server_loc() == self.server_tokens_id@
+        }
         &&& self.n_get_replies as nat == self.quorum@.len()
         &&& self.wb_replies@.dom().finite()
         &&& self.wb_replies@.len() == self.spec_n_wb_replies()
+    }
+
+    pub closed spec fn constant(self) -> ReadPred {
+        ReadPred {
+            server_locs: self.server_locs(),
+            watermark_loc: self.watermark_loc(),
+            commitment_id: self.commitment_id@,
+            server_tokens_id: self.server_tokens_id@,
+        }
     }
 
     pub closed spec fn server_locs(self) -> Map<u64, Loc> {
@@ -296,10 +351,7 @@ impl ReadAccumulator {
 
     fn insert_get(&mut self, id: (u64, u64), resp: GetResponse)
         ensures
-    // TODO: this must be asserted by come constant associated with this
-
-            self.server_locs() == old(self).server_locs(),
-            self.watermark_loc() == old(self).watermark_loc(),
+            self.constant() == old(self).constant(),
             self.spec_n_get_replies() == old(self).spec_n_get_replies() + 1,
             self.spec_n_wb_replies() == old(self).spec_n_wb_replies(),
         no_unwind
@@ -321,6 +373,8 @@ impl ReadAccumulator {
             // This requires the request <-> reply matching predicate on the channel
             // see TODO(proto_lb)
             assume(self.servers[id.1]@@.timestamp() <= resp.lb()@.timestamp());
+            assume(resp.server_loc() == self.server_tokens_id@);
+            assume(resp.spec_commitment().id() == self.commitment_id@);
             // This requires the uniqueness of the request tag
             // TODO(chan_pred)
             assume(!self.quorum@.contains(id.1));
@@ -361,10 +415,7 @@ impl ReadAccumulator {
 
     fn insert_write(&mut self, id: (u64, u64), resp: WriteResponse)
         ensures
-    // TODO: this must be asserted by come constant associated with this
-
-            self.server_locs() == old(self).server_locs(),
-            self.watermark_loc() == old(self).watermark_loc(),
+            self.constant() == old(self).constant(),
             self.wb_replies@ == old(self).wb_replies@.insert(id, resp),
             self.spec_n_get_replies() == old(self).spec_n_get_replies(),
             self.spec_n_wb_replies() == old(self).spec_n_wb_replies() + 1,
@@ -404,8 +455,11 @@ impl ReadAccumGetPhase {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         old_watermark: Ghost<MonotonicTimestampResource>,
+        read_pred: Ghost<ReadPred>
     ) -> (r: Self)
         requires
+            read_pred@.server_locs == servers@.locs(),
+            read_pred@.watermark_loc == old_watermark@.loc(),
             servers@.inv(),
             servers@.is_lb(),
             forall|q: Quorum| #[trigger]
@@ -413,11 +467,10 @@ impl ReadAccumGetPhase {
                     old_watermark@@.timestamp() <= servers@.quorum_timestamp(q)
                 },
         ensures
+            r.constant() == read_pred@,
             r.spec_n_replies() == 0,
-            r.server_locs() == servers@.locs(),
-            r.watermark_loc() == old_watermark@.loc(),
     {
-        ReadAccumGetPhase(ReadAccumulator::new(servers, old_watermark))
+        ReadAccumGetPhase(ReadAccumulator::new(servers, old_watermark, read_pred))
     }
 
     #[verifier::type_invariant]
@@ -425,16 +478,13 @@ impl ReadAccumGetPhase {
         &&& self.0.spec_n_wb_replies() == 0
     }
 
-    pub closed spec fn server_locs(self) -> Map<u64, Loc> {
-        self.0.server_locs()
-    }
-
-    pub closed spec fn watermark_loc(self) -> Loc {
-        self.0.watermark_loc()
+    pub closed spec fn constant(self) -> ReadPred {
+        self.0.constant()
     }
 
     pub fn destruct(self) -> (r: ReadAccumulator)
         ensures
+            r.constant() == self.constant(),
             r.spec_n_wb_replies() == 0,
     {
         proof { use_type_invariant(&self) }
@@ -443,38 +493,48 @@ impl ReadAccumGetPhase {
     }
 }
 
+impl InvariantPredicate<ReadPred, ReadAccumGetPhase> for ReadPred {
+    open spec fn inv(pred: ReadPred, v: ReadAccumGetPhase) -> bool {
+        pred == v.constant()
+    }
+}
+
+
 impl ReadAccumWbPhase {
     pub fn new(accum: ReadAccumulator) -> (r: Self)
         requires
             accum.spec_n_wb_replies() == 0,
         ensures
             r.spec_n_replies() == 0,
-            r.server_locs() == accum.server_locs(),
-            r.watermark_loc() == accum.watermark_loc(),
+            r.constant() == accum.constant(),
     {
         ReadAccumWbPhase(accum)
     }
 
-    pub closed spec fn server_locs(self) -> Map<u64, Loc> {
-        self.0.server_locs()
+    pub closed spec fn constant(self) -> ReadPred {
+        self.0.constant()
     }
 
-    pub closed spec fn watermark_loc(self) -> Loc {
-        self.0.watermark_loc()
-    }
-
-    pub fn destruct(self) -> (r: ReadAccumulator) {
+    pub fn destruct(self) -> (r: ReadAccumulator)
+        ensures
+            r.constant() == self.constant(),
+    {
         self.0
     }
 }
 
-impl ReplyAccumulator<(u64, u64)> for ReadAccumGetPhase {
+impl InvariantPredicate<ReadPred, ReadAccumWbPhase> for ReadPred {
+    open spec fn inv(pred: ReadPred, v: ReadAccumWbPhase) -> bool {
+        pred == v.constant()
+    }
+}
+
+impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumGetPhase {
     type T = GetResponse;
 
-    fn insert(&mut self, id: (u64, u64), resp: GetResponse)
+    fn insert(&mut self, pred: Ghost<ReadPred>, id: (u64, u64), resp: GetResponse)
         ensures
-            self.server_locs() == old(self).server_locs(),
-            self.watermark_loc() == old(self).watermark_loc(),
+            self.constant() == old(self).constant(),
     {
         proof {
             use_type_invariant(&*self);
@@ -491,13 +551,12 @@ impl ReplyAccumulator<(u64, u64)> for ReadAccumGetPhase {
     }
 }
 
-impl ReplyAccumulator<(u64, u64)> for ReadAccumWbPhase {
+impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumWbPhase {
     type T = WriteResponse;
 
-    fn insert(&mut self, id: (u64, u64), resp: WriteResponse)
+    fn insert(&mut self, pred: Ghost<ReadPred>, id: (u64, u64), resp: WriteResponse)
         ensures
-            self.server_locs() == old(self).server_locs(),
-            self.watermark_loc() == old(self).watermark_loc(),
+            self.constant() == old(self).constant(),
     {
         self.0.insert_write(id, resp);
     }
@@ -515,11 +574,11 @@ pub struct BadAccumulator<T> {
     replies: BTreeMap<(u64, u64), T>,
 }
 
-impl<T> ReplyAccumulator<(u64, u64)> for BadAccumulator<T> {
+impl<T> ReplyAccumulator<(u64, u64), EmptyPred> for BadAccumulator<T> {
     type T = T;
 
     #[allow(unused_variables)]
-    fn insert(&mut self, id: (u64, u64), resp: T) {
+    fn insert(&mut self, pred: Ghost<EmptyPred>, id: (u64, u64), resp: T) {
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         assume(!self.replies@.contains_key(id));
         assert(self.replies@.dom().finite());
@@ -550,6 +609,13 @@ impl<T> BadAccumulator<T> {
             r@.len() == self.spec_n_replies(),
     {
         self.replies
+    }
+}
+
+pub struct EmptyPred;
+impl<T> InvariantPredicate<EmptyPred, BadAccumulator<T>> for EmptyPred {
+    open spec fn inv(pred: EmptyPred, v: BadAccumulator<T>) -> bool {
+        true
     }
 }
 

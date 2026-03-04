@@ -359,6 +359,10 @@ impl GetResponse {
         self.commitment@
     }
 
+    pub closed spec fn server_loc(self) -> Loc {
+        self.server_token@.id()
+    }
+
     pub closed spec fn server_id(self) -> u64 {
         self.server_token@.key()
     }

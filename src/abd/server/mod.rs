@@ -1,5 +1,6 @@
 #![allow(unused, non_shorthand_field_patterns)]
 
+use crate::abd::channel::ChannelInv;
 use crate::abd::invariants;
 use crate::abd::invariants::committed_to::WriteCommitment;
 use crate::abd::invariants::logatom::ReadPerm;
@@ -18,6 +19,7 @@ use crate::abd::server::register::MonotonicRegister;
 use crate::abd::server::register::MonotonicRegisterInner;
 use crate::abd::timestamp::Timestamp;
 use crate::verdist::network::channel::Channel;
+use crate::verdist::network::channel::ChannelInvariant;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::modelled::ModelledConnector;
 use crate::verdist::network::modelled::ModelledListener;
@@ -26,23 +28,17 @@ use crate::verdist::rpc::proto::TaggedMessage;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use vstd::invariant::InvariantPredicate;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::rwlock::RwLock;
+use vstd::rwlock::RwLockPredicate;
 
 mod register;
 
 verus! {
-
-struct EmptyCond;
-
-impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
-    open spec fn inv(self, v: V) -> bool {
-        true
-    }
-}
 
 #[allow(dead_code)]
 struct LowerBoundPredicate {
@@ -50,7 +46,7 @@ struct LowerBoundPredicate {
     loc: Loc,
 }
 
-impl vstd::rwlock::RwLockPredicate<Tracked<MonotonicTimestampResource>> for LowerBoundPredicate {
+impl RwLockPredicate<Tracked<MonotonicTimestampResource>> for LowerBoundPredicate {
     closed spec fn inv(self, lb: Tracked<MonotonicTimestampResource>) -> bool {
         &&& lb@@ is LowerBound
         &&& lb@.loc() == self.loc
@@ -61,16 +57,17 @@ impl vstd::rwlock::RwLockPredicate<Tracked<MonotonicTimestampResource>> for Lowe
 pub struct RegisterServer<L, C, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
+    C: Channel<R = Request, S = Response, Id = (u64, u64), K = ChannelInv>,
  {
     id: u64,
     listener: L,
-    connected: RwLock<HashMap<u64, C>, EmptyCond>,
+    connected: RwLock<HashMap<u64, C>, ChannelInv>,
     register: MonotonicRegister<ML, RL>,
 }
 
 impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     L: Listener<C>,
-    C: Channel<R = Request, S = Response, Id = (u64, u64)>,
+    C: Channel<R = Request, S = Response, Id = (u64, u64), K = ChannelInv>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
@@ -78,10 +75,13 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         requires
             state_inv@.namespace() == invariants::state_inv_id(),
     {
+        let empty = HashMap::new();
+        let ghost pred = ChannelInv{};
+        assert(pred.inv(empty));
         RegisterServer {
             id,
             register: MonotonicRegister::new(id, state_inv),
-            connected: RwLock::new(HashMap::new(), Ghost(EmptyCond)),
+            connected: RwLock::new(empty, Ghost(pred)),
             listener,
         }
     }
@@ -134,7 +134,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         while i > 0
             decreases i,
         {
-            match self.listener.try_accept() {
+            match self.listener.try_accept(|_listener| Ghost(ChannelInv{})) {
                 Ok(channel) => self.accept(channel),
                 Err(crate::verdist::network::error::TryListenError::Empty) => {
                     break ;
@@ -178,7 +178,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
 
 fn create_server<L, C, ML, RL>(server_id: u64, listener: L) -> RegisterServer<L, C, ML, RL> where
     L: Listener<C>,
-    C: Channel<R = Request, S = Response, Id = (u64, u64)>,
+    C: Channel<R = Request, S = Response, Id = (u64, u64), K = ChannelInv>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {

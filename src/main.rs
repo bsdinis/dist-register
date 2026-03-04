@@ -6,6 +6,7 @@ use vstd::atomic::PermissionU64;
 mod abd;
 mod verdist;
 
+use abd::channel::ChannelInv;
 use abd::client::AbdPool;
 #[allow(unused_imports)]
 use abd::client::AbdRegisterClient;
@@ -189,8 +190,11 @@ fn report_write(client_id: u64, value: Option<u64>) {
 fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
     BufChannel<C>,
     ConnectError,
-> where Conn: Connector<C>, C: Channel<R = abd::proto::Response, S = abd::proto::Request> {
-    let mut channel = connector.connect(client_id)?;
+> where
+    Conn: Connector<C>,
+    C: Channel<Id = (u64, u64), K = ChannelInv, R = abd::proto::Response, S = abd::proto::Request>,
+{
+    let mut channel = connector.connect(client_id, |_connector, _client_id| Ghost(ChannelInv{}))?;
     if !args.no_delay {
         channel.add_latency(
             std::time::Duration::from_millis(REQUEST_LATENCY_DEFAULT_MS),
@@ -203,7 +207,10 @@ fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
 fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r: Result<
     Vec<BufChannel<C>>,
     ConnectError,
->) where Conn: Connector<C>, C: Channel<R = abd::proto::Response, S = abd::proto::Request>
+>)
+where
+    Conn: Connector<C>,
+    C: Channel<Id = (u64, u64), K = ChannelInv, R = abd::proto::Response, S = abd::proto::Request>,
     ensures
         r is Ok ==> connectors.len() == r->Ok_0.len(),
 {
@@ -365,7 +372,7 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<Permis
     requires
         client_perm@.value() == 0,
     ensures
-        r.0@.key() == pool.pool_id(),
+        r.0@.key() == pool.spec_id(),
         r.0@.value().0 == 0,
         r.0@.value().1 == client_perm@.id(),
         r.0@.id() == r.1@.constant().commitments_ids.client_ctr_id,
@@ -384,8 +391,8 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<Permis
         proof {
             let tracked Tracked(client_p) = client_perm;
             // XXX(assume/client_disjoint): client_id uniqueness: could be resolved by a client id service
-            assume(!state.commitments.client_map().contains_key(pool.pool_id()));
-            client_ctr_token = state.commitments.login(pool.pool_id(), client_p);
+            assume(!state.commitments.client_map().contains_key(pool.spec_id()));
+            client_ctr_token = state.commitments.login(pool.spec_id(), client_p);
             state.commitments.agree_client_token(&client_ctr_token);
         }
 
@@ -401,7 +408,7 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     Error<WritePerm, GhostVar<Option<u64>>, ReadPerm<'a>, &'a GhostVar<Option<u64>>>,
 > where
     Conn: Connector<C> + Send + Sync,
-    C: Channel<R = abd::proto::Response, S = abd::proto::Request, Id = (u64, u64)>,
+    C: Channel<K = abd::channel::ChannelInv, R = abd::proto::Response, S = abd::proto::Request, Id = (u64, u64)>,
     C: Sync + Send,
 
     requires
@@ -409,9 +416,7 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
 {
     let pool = connect_all(&args, connectors, 0)?;
     let pool = FlawlessPool::new(pool, 0);
-    assert(pool.n() == connectors.len()) by {
-        verdist::pool::connection_pool::lemma_pool_len(pool);
-    }
+    assert(pool.spec_len() == connectors.len());
 
     let (client_ctr, client_ctr_perm) = PAtomicU64::new(0);
 

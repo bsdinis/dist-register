@@ -1,17 +1,23 @@
-#![allow(dead_code)]
 use std::collections::BTreeMap;
 
 use crate::verdist::network::error::TryRecvError;
+use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 
 verus! {
 
-pub trait ReplyAccumulator<ChanId> {
+pub trait ReplyAccumulator<ChanId, Pred>: Sized
+    where
+        Pred: InvariantPredicate<Pred, Self>,
+{
     /// Type that is accumulated
     type T;
 
-    fn insert(&mut self, id: ChanId, reply: Self::T)
+    fn insert(&mut self, pred: Ghost<Pred>, id: ChanId, reply: Self::T)
+        requires
+            Pred::inv(pred@, *old(self)),
         ensures
+            Pred::inv(pred@, *self),
             self.spec_n_replies() == old(self).spec_n_replies() + 1,
         no_unwind
     ;
@@ -24,7 +30,13 @@ pub trait ReplyAccumulator<ChanId> {
     ;
 }
 
-pub struct Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<ChanId> {
+pub struct Replies<ChanId, Pred, R, A>
+where
+    ChanId: Ord,
+    Pred: InvariantPredicate<Pred, A>,
+    A: ReplyAccumulator<ChanId, Pred>,
+{
+    pred: Ghost<Pred>,
     reply_accum: A,
     n_replies: usize,
     n_received: usize,
@@ -32,15 +44,23 @@ pub struct Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<ChanId> 
     errors: BTreeMap<ChanId, TryRecvError>,
 }
 
-impl<ChanId, R, A> Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<ChanId> {
-    pub fn new(accum: A) -> (r: Self)
+impl<ChanId, Pred, R, A> Replies<ChanId, Pred, R, A>
+where
+    ChanId: Ord,
+    Pred: InvariantPredicate<Pred, A>,
+    A: ReplyAccumulator<ChanId, Pred>,
+{
+    pub fn new(pred: Ghost<Pred>, accum: A) -> (r: Self)
         requires
+            Pred::inv(pred@, accum),
             accum.spec_n_replies() == 0,
             vstd::laws_cmp::obeys_cmp_spec::<ChanId>(),
         ensures
             r.spec_len() == 0,
+            r.pred() == pred@,
     {
         Replies {
+            pred,
             reply_accum: accum,
             invalid_replies: BTreeMap::new(),
             errors: BTreeMap::new(),
@@ -55,6 +75,20 @@ impl<ChanId, R, A> Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<
             == self.n_received as nat
         &&& self.spec_len() == self.n_replies as nat
         &&& vstd::laws_cmp::obeys_cmp_spec::<ChanId>()
+        &&& Pred::inv(self.pred(), self.reply_accum)
+    }
+
+    pub fn lemma_pred(&self)
+        ensures
+            Pred::inv(self.pred(), self.accumulator())
+    {
+        proof {
+            use_type_invariant(self);
+        }
+    }
+
+    pub closed spec fn pred(self) -> Pred {
+        self.pred@
     }
 
     pub fn len(&self) -> (r: usize)
@@ -116,7 +150,7 @@ impl<ChanId, R, A> Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<
         &self.errors
     }
 
-    pub fn jinto_errors(self) -> (r: BTreeMap<ChanId, TryRecvError>)
+    pub fn into_errors(self) -> (r: BTreeMap<ChanId, TryRecvError>)
         ensures
             r@ == self.spec_errors(),
     {
@@ -128,11 +162,13 @@ impl<ChanId, R, A> Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<
             self.spec_len() == old(self).spec_len() + 1,
             self.spec_invalid_replies() == old(self).spec_invalid_replies(),
             self.spec_errors() == old(self).spec_errors(),
+            self.pred() == old(self).pred(),
     {
         proof {
             use_type_invariant(&*self);
         }
         Self::insert_reply_helper(
+            self.pred,
             &mut self.reply_accum,
             &mut self.n_replies,
             &mut self.n_received,
@@ -146,6 +182,7 @@ impl<ChanId, R, A> Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<
             self.accumulator() == old(self).accumulator(),
             self.spec_invalid_replies() == old(self).spec_invalid_replies().insert(id, resp),
             self.spec_errors() == old(self).spec_errors(),
+            self.pred() == old(self).pred(),
     {
         proof {
             use_type_invariant(&*self);
@@ -158,6 +195,7 @@ impl<ChanId, R, A> Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<
             self.accumulator() == old(self).accumulator(),
             self.spec_invalid_replies() == old(self).spec_invalid_replies(),
             self.spec_errors() == old(self).spec_errors().insert(id, err),
+            self.pred() == old(self).pred(),
     {
         proof {
             use_type_invariant(&*self);
@@ -166,6 +204,7 @@ impl<ChanId, R, A> Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<
     }
 
     fn insert_reply_helper(
+        pred: Ghost<Pred>,
         accum: &mut A,
         n_replies: &mut usize,
         n_received: &mut usize,
@@ -173,8 +212,10 @@ impl<ChanId, R, A> Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<
         v: A::T,
     )
         requires
+            Pred::inv(pred@, *old(accum)),
             old(accum).spec_n_replies() == *old(n_replies),
         ensures
+            Pred::inv(pred@, *accum),
             accum.spec_n_replies() == *n_replies,
             old(n_received) - old(accum).spec_n_replies() == n_received - accum.spec_n_replies(),
             accum.spec_n_replies() == old(accum).spec_n_replies() + 1,
@@ -185,7 +226,7 @@ impl<ChanId, R, A> Replies<ChanId, R, A> where ChanId: Ord, A: ReplyAccumulator<
         assume(n_received < usize::MAX);  // XXX: integer overflow
         assume(n_replies < usize::MAX);  // XXX: integer overflow
 
-        accum.insert(id, v);
+        accum.insert(pred, id, v);
         *n_replies += 1;
         *n_received += 1;
     }

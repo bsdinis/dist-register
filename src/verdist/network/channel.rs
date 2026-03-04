@@ -41,25 +41,47 @@ pub assume_specification[ park_thread ](mean: Duration, std_dev: Duration)
 pub assume_specification[ default_delay ]() -> (a: (Duration, Duration))
 ;
 
+pub trait ChannelInvariant<K, Id, R, S> {
+    spec fn recv_inv(k: K, id: Id, r: R) -> bool;
+    spec fn send_inv(k: K, id: Id, s: S) -> bool;
+}
+
 /// A reliable and typed channel
 ///
 /// The spec is in the type -- by virtue of having a type `R` the receiver learns something
 pub trait Channel {
+    /// Id of the channel
+    type Id: Ord;
+
     /// Type being received
     type R;
 
     /// Type being sent
     type S: Clone;
 
-    /// Id of the channel
-    type Id: Ord;
+    /// Constant maintained by the channel
+    // (e.g., K holds the loc of the gmap from req_id \to X)
+    // in our case X can be a more specific set of locations
+    type K: ChannelInvariant<Self::K, Self::Id, Self::R, Self::S>;
 
-    // Id of the channel itself
-    fn try_recv(&self) -> Result<Self::R, TryRecvError>;
+    fn send(&self, s: &Self::S) -> Result<(), SendError<Self::S>>
+    // TODO
+     requires
+        Self::K::send_inv(self.constant(), self.spec_id(), *s),
+    ;
 
-    fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>>;
+    fn try_recv(&self) -> (r: Result<Self::R, TryRecvError>)
+    // TODO
+        ensures
+           r is Ok ==> Self::K::recv_inv(self.constant(), self.spec_id(), r->Ok_0)
+    ;
 
-    fn id(&self) -> Self::Id;
+    fn id(&self) -> (r: Self::Id)
+        ensures
+            r == self.spec_id(),
+        ;
+
+    spec fn spec_id(self) -> Self::Id;
 
     fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {
     }
@@ -72,14 +94,18 @@ pub trait Channel {
         let (mean, std_dev) = self.delay();
         park_thread(mean, std_dev);
     }
+
+    spec fn constant(self) -> Self::K;
 }
 
 pub trait Listener<C> where C: Channel {
-    fn try_accept(&self) -> Result<C, TryListenError>;
+    fn try_accept<F>(&self, gen_pred: F) -> Result<C, TryListenError>
+        where F: FnOnce(&Self) -> Ghost<C::K>;
 }
 
 pub trait Connector<C> where C: Channel {
-    fn connect(&self, id: u64) -> Result<C, ConnectError>;
+    fn connect<F>(&self, local_id: u64, gen_pred: F) -> Result<C, ConnectError>
+        where F: FnOnce(&Self, u64) -> Ghost<C::K>;
 }
 
 pub struct BufChannel<C: Channel> {
@@ -127,8 +153,18 @@ impl<C: Channel> Channel for BufChannel<C> {
 
     type Id = C::Id;
 
+    type K = C::K;
+
+    closed spec fn constant(self) -> Self::K {
+        self.channel.constant()
+    }
+
     fn id(&self) -> Self::Id {
         self.channel.id()
+    }
+
+    closed spec fn spec_id(self) -> Self::Id {
+        self.channel.spec_id()
     }
 
     fn try_recv(&self) -> Result<Self::R, TryRecvError> {

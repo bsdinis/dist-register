@@ -171,10 +171,10 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     ) -> (r: Self)
         requires
-            pool.n() > 0,
+            pool.spec_len() > 0,
             state_inv@.namespace() == invariants::state_inv_id(),
             state_inv@.constant().commitments_ids.client_ctr_id == client_ctr_token@.id(),
-            client_ctr_token@.key() == pool.pool_id(),
+            client_ctr_token@.key() == pool.spec_id(),
             client_ctr_token@.value().0 == 0,
             client_ctr_token@.value().1 == client_ctr.id(),
         ensures
@@ -189,12 +189,16 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         }
     }
 
+    closed spec fn spec_len(self) -> nat {
+        self.pool.spec_len()
+    }
+
     closed spec fn id(self) -> u64 {
-        self.pool.pool_id()
+        self.pool.spec_id()
     }
 
     pub closed spec fn _inv(self) -> bool {
-        &&& self.pool.n() > 0
+        &&& self.pool.spec_len() > 0
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
         &&& self.state_inv@.constant().commitments_ids.client_ctr_id == self.client_ctr_token@.id()
@@ -204,20 +208,20 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
 
     pub fn quorum_size(&self) -> (r: usize)
         ensures
-            r == self.qsize(),
+            r == self.spec_quorum_size(),
     {
         self.pool.quorum_size()
     }
 
-    pub closed spec fn qsize(self) -> nat {
-        self.pool.qsize()
+    pub closed spec fn spec_quorum_size(self) -> nat {
+        self.pool.spec_quorum_size()
     }
 
-    proof fn lemma_qsize_nonempty(self)
+    proof fn lemma_quorum_nonzero(self)
         requires
-            self.pool.n() > 0,
+            self.spec_len() > 0,
         ensures
-            self.qsize() > 0,
+            self.spec_quorum_size() > 0,
     {
         self.pool.lemma_quorum_nonzero();
     }
@@ -271,6 +275,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let proph_val = Prophecy::<Option<u64>>::new();
         let tracked token;
         let tracked server_lbs;
+        let read_pred = Ghost(ReadPred::from_state(self.state_inv@.constant()));
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 token = state.linearization_queue.insert_read_linearizer(lin, op, proph_val@, &state.register);
@@ -285,14 +290,17 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
         let req = Request::Get(GetRequest::new(Tracked(server_lbs.extract_lbs())));
 
-        let ghost qsize = self.qsize();
+        let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
         // TODO(obeys_cmp_spec): add this to verus
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         #[allow(unused_parens)]
-        let accum = ReadAccumGetPhase::new(Tracked(server_lbs), Ghost(token.value().min_ts));
-        assert(accum.spec_n_replies() == 0);
-        let quorum_res = bpool.broadcast(req, accum).wait_for(
+        let accum = ReadAccumGetPhase::new(
+            Tracked(server_lbs),
+            Ghost(token.value().min_ts),
+            read_pred,
+        );
+        let quorum_res = bpool.broadcast(req, read_pred, accum).wait_for(
             (|s| -> (r: bool)
                 ensures
                     r ==> s.spec_len() >= qsize,
@@ -327,7 +335,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
         // check early return
         proof {
-            self.lemma_qsize_nonempty();
+            self.lemma_quorum_nonzero();
         }
         // TODO(assume/wait_for_post)
         assume(replies.spec_n_get_replies() >= qsize);
@@ -391,15 +399,15 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         }
         // non-unanimous read: write-back
 
-        let ghost qsize = self.qsize();
+        let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
         let replies_result = bpool.broadcast_filter(
             Request::Write(WriteRequest::new(value, max_ts, Tracked(commitment.duplicate()))),
+            read_pred,
             ReadAccumWbPhase::new(replies),
-            |id| !agree_with_max.contains(&id.1),
+            |id: (u64, u64)| !agree_with_max.contains(&id.1),
         )
-        // bellow is error handling + type handling + logging stuff
         .wait_for(
             (|s| -> (r: bool)
                 ensures
@@ -558,12 +566,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         });
         let req = Request::GetTimestamp(GetTimestampRequest::new(Tracked(server_lbs)));
         let quorum = {
-            let ghost qsize = self.qsize();
+            let ghost qsize = self.spec_quorum_size();
             let bpool = BroadcastPool::new(&self.pool);
             // TODO(obeys_cmp_spec): add this to verus
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast(req, BadAccumulator::new()).wait_for(
+            let quorum_res = bpool.broadcast::<EmptyPred, _>(req, Ghost(EmptyPred), BadAccumulator::new()).wait_for(
                 (|s| -> (r: bool)
                     ensures
                         r ==> s.spec_len() >= qsize,
@@ -618,7 +626,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
         let replies = quorum.into_accumulator().into();
         proof {
-            self.lemma_qsize_nonempty();
+            self.lemma_quorum_nonzero();
         }
         let opt = max_from_get_ts_replies(&replies);
         assert(opt is Some);
@@ -671,12 +679,13 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
         {
             let bpool = BroadcastPool::new(&self.pool);
-            let ghost qsize = self.qsize();
+            let ghost qsize = self.spec_quorum_size();
             // TODO(obeys_cmp_spec): add this to verus
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast(
+            let quorum_res = bpool.broadcast::<EmptyPred, _>(
                 Request::Write(WriteRequest::new(value, exec_ts, Tracked(commitment.duplicate()))),
+                Ghost(EmptyPred),
                 BadAccumulator::new(),
             ).wait_for(
                 (|s| -> (r: bool)

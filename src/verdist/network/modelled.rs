@@ -5,6 +5,7 @@ use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
 
 use crate::verdist::network::channel::Channel;
+use crate::verdist::network::channel::ChannelInvariant;
 use crate::verdist::network::channel::Connector;
 use crate::verdist::network::channel::Listener;
 use crate::verdist::network::error::ConnectError;
@@ -12,18 +13,43 @@ use crate::verdist::network::error::SendError;
 use crate::verdist::network::error::TryListenError;
 use crate::verdist::network::error::TryRecvError;
 
+use vstd::prelude::*;
+
+verus! {
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types_in_ground_variants(T)]
+pub struct ExReceiver<T>(Receiver<T>);
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+#[verifier::reject_recursive_types_in_ground_variants(T)]
+pub struct ExSender<T>(Sender<T>);
+
+#[verifier::external_body]
+#[verifier::reject_recursive_types(R)]
+#[verifier::reject_recursive_types(S)]
 pub struct ModelledListener<R, S> {
     id: u64,
     registering_rx: Receiver<u64>,
     connection_tx: Sender<(u64, Sender<R>, Receiver<S>)>,
 }
 
+#[verifier::external_body]
+#[verifier::reject_recursive_types(R)]
+#[verifier::reject_recursive_types(S)]
 pub struct ModelledConnector<R, S> {
     registering_tx: Sender<u64>,
     connection_rx: Receiver<(u64, Sender<S>, Receiver<R>)>,
 }
 
-pub struct ClientChannel<R, S> {
+#[verifier::external_body]
+#[verifier::reject_recursive_types(K)]
+#[verifier::reject_recursive_types(R)]
+#[verifier::reject_recursive_types(S)]
+pub struct ClientChannel<K, R, S> {
+    pred: Ghost<K>,
     tx: Sender<S>,
     rx: Receiver<R>,
     client_id: u64,
@@ -33,7 +59,12 @@ pub struct ClientChannel<R, S> {
     stddev_latency: std::time::Duration,
 }
 
-pub struct ServerChannel<R, S> {
+#[verifier::external_body]
+#[verifier::reject_recursive_types(K)]
+#[verifier::reject_recursive_types(R)]
+#[verifier::reject_recursive_types(S)]
+pub struct ServerChannel<K, R, S> {
+    pred: Ghost<K>,
     tx: Sender<S>,
     rx: Receiver<R>,
     client_id: u64,
@@ -43,11 +74,60 @@ pub struct ServerChannel<R, S> {
     stddev_latency: std::time::Duration,
 }
 
-impl<R, S: Clone> Channel for ClientChannel<R, S> {
+impl<K, R, S> ClientChannel<K, R, S> {
+    #[verifier::external_body]
+    pub fn new(client_id: u64, server_id: u64, pred: Ghost<K>, tx: Sender<S>, rx: Receiver<R>) -> Self {
+        ClientChannel {
+            pred,
+            tx,
+            rx,
+            client_id,
+            server_id,
+            faulty: AtomicBool::new(false),
+            avg_latency: Default::default(),
+            stddev_latency: Default::default(),
+        }
+    }
+}
+
+impl<K, R, S> ServerChannel<K, R, S> {
+    #[verifier::external_body]
+    pub fn new(server_id: u64, client_id: u64, pred: Ghost<K>, tx: Sender<S>, rx: Receiver<R>) -> Self {
+        ServerChannel {
+            pred,
+            tx,
+            rx,
+            server_id,
+            client_id,
+            faulty: AtomicBool::new(false),
+            avg_latency: Default::default(),
+            stddev_latency: Default::default(),
+        }
+    }
+}
+
+pub struct EmptyChanInv;
+impl<Id, R, S> ChannelInvariant<EmptyChanInv, Id, R, S> for EmptyChanInv {
+    open spec fn recv_inv(k: Self, id: Id, r: R) -> bool { true }
+    open spec fn send_inv(k: Self, id: Id, s: S) -> bool { true }
+}
+
+impl<K, R, S> Channel for ClientChannel<K, R, S>
+    where
+        K: ChannelInvariant<K, (u64, u64), R, S>,
+        S: Clone,
+{
     type R = R;
     type S = S;
     type Id = (u64, u64);
+    type K = K;
 
+    #[verifier::external_body]
+    closed spec fn constant(self) -> Self::K {
+        self.pred@
+    }
+
+    #[verifier::external_body]
     fn try_recv(&self) -> Result<R, crate::verdist::network::error::TryRecvError> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
@@ -57,6 +137,7 @@ impl<R, S: Clone> Channel for ClientChannel<R, S> {
         }
     }
 
+    #[verifier::external_body]
     fn send(&self, v: &S) -> Result<(), crate::verdist::network::error::SendError<S>> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
@@ -66,25 +147,44 @@ impl<R, S: Clone> Channel for ClientChannel<R, S> {
         Ok(())
     }
 
+    #[verifier::external_body]
     fn id(&self) -> Self::Id {
         (self.client_id, self.server_id)
     }
 
+    #[verifier::external_body]
+    closed spec fn spec_id(self) -> Self::Id {
+        (self.client_id, self.server_id)
+    }
+
+    #[verifier::external_body]
     fn add_latency(&mut self, avg: std::time::Duration, stddev: std::time::Duration) {
         self.avg_latency = avg;
         self.stddev_latency = stddev;
     }
 
+    #[verifier::external_body]
     fn delay(&self) -> (std::time::Duration, std::time::Duration) {
         (self.avg_latency, self.stddev_latency)
     }
 }
 
-impl<R, S: Clone> Channel for ServerChannel<R, S> {
+impl<K, R, S> Channel for ServerChannel<K, R, S>
+    where
+        K: ChannelInvariant<K, (u64, u64), R, S>,
+        S: Clone,
+{
     type R = R;
     type S = S;
     type Id = (u64, u64);
+    type K = K;
 
+    #[verifier::external_body]
+    closed spec fn constant(self) -> Self::K {
+        self.pred@
+    }
+
+    #[verifier::external_body]
     fn try_recv(&self) -> Result<R, crate::verdist::network::error::TryRecvError> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
@@ -94,6 +194,7 @@ impl<R, S: Clone> Channel for ServerChannel<R, S> {
         }
     }
 
+    #[verifier::external_body]
     fn send(&self, v: &S) -> Result<(), crate::verdist::network::error::SendError<S>> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
@@ -103,78 +204,93 @@ impl<R, S: Clone> Channel for ServerChannel<R, S> {
         Ok(())
     }
 
+    #[verifier::external_body]
     fn id(&self) -> Self::Id {
         (self.server_id, self.client_id)
     }
 
+    #[verifier::external_body]
+    closed spec fn spec_id(self) -> Self::Id {
+        (self.client_id, self.server_id)
+    }
+
+    #[verifier::external_body]
     fn add_latency(&mut self, avg: std::time::Duration, stddev: std::time::Duration) {
         self.avg_latency = avg;
         self.stddev_latency = stddev;
     }
 
+    #[verifier::external_body]
     fn delay(&self) -> (std::time::Duration, std::time::Duration) {
         (self.avg_latency, self.stddev_latency)
     }
 }
 
-impl<R, S> ClientChannel<R, S> {
-    pub fn new(client_id: u64, server_id: u64, tx: Sender<S>, rx: Receiver<R>) -> Self {
-        ClientChannel {
-            tx,
-            rx,
-            client_id,
-            server_id,
-            faulty: AtomicBool::new(false),
-            avg_latency: Default::default(),
-            stddev_latency: Default::default(),
-        }
-    }
+
+#[verifier::external_body]
+#[allow(unused)]
+fn report_accept(server_id: u64, client_id: u64) {
+    eprintln!(
+        "[server|{server_id:>3}]: accepting a connection from client {client_id}",
+    );
 }
 
-impl<R, S> ServerChannel<R, S> {
-    pub fn new(server_id: u64, client_id: u64, tx: Sender<S>, rx: Receiver<R>) -> Self {
-        ServerChannel {
-            tx,
-            rx,
-            server_id,
-            client_id,
-            faulty: AtomicBool::new(false),
-            avg_latency: Default::default(),
-            stddev_latency: Default::default(),
-        }
-    }
+#[verifier::external_body]
+#[allow(unused)]
+fn report_connect(client_id: u64) {
+    eprintln!(
+        "[server|{client_id:>3}]: connecting from client"
+    );
 }
 
-impl<R, S: Clone> Listener<ClientChannel<R, S>> for ModelledListener<R, S> {
-    fn try_accept(
+
+// TODO: this is where we create the ghost map and the channel invariant
+impl<K, R, S> Listener<ClientChannel<K, R, S>> for ModelledListener<R, S>
+    where
+        K: ChannelInvariant<K, (u64, u64), R, S>,
+        S: Clone,
+{
+    #[verifier::external_body]
+    fn try_accept<F>(
         &self,
-    ) -> Result<ClientChannel<R, S>, crate::verdist::network::error::TryListenError> {
+        gen_pred: F,
+    ) -> Result<ClientChannel<K, R, S>, crate::verdist::network::error::TryListenError>
+        where F: FnOnce(&Self) -> Ghost<K>
+    {
         let client_id = self.registering_rx.try_recv()?;
-        eprintln!(
-            "[server|{:>3}]: accepting a connection from client {client_id}",
-            self.id
-        );
+        report_accept(self.id, client_id);
 
         let (resp_tx, resp_rx) = unbounded();
         let (req_tx, req_rx) = unbounded();
 
         self.connection_tx
             .send((self.id, req_tx, resp_rx))
-            .map_err(|_| TryListenError::Disconnected)?;
+            .map_err(|_x| TryListenError::Disconnected)?;
 
-        Ok(ClientChannel::new(client_id, self.id, resp_tx, req_rx))
+        let pred = gen_pred(self);
+
+        Ok(ClientChannel::new(client_id, self.id, pred, resp_tx, req_rx))
     }
 }
 
-impl<R, S: Clone> Connector<ServerChannel<R, S>> for ModelledConnector<R, S> {
-    fn connect(&self, id: u64) -> Result<ServerChannel<R, S>, ConnectError> {
-        eprintln!("[client|{id:>3}]: connecting from client");
-        self.registering_tx.send(id).map_err(|_| ConnectError)?;
-        let (server_id, tx, rx) = self.connection_rx.recv().map_err(|_| ConnectError)?;
-        Ok(ServerChannel::new(server_id, id, tx, rx))
+impl<K, R, S> Connector<ServerChannel<K, R, S>> for ModelledConnector<R, S>
+    where
+        K: ChannelInvariant<K, (u64, u64), R, S>,
+        S: Clone,
+{
+    #[verifier::external_body]
+    fn connect<F>(&self, local_id: u64, gen_pred: F) -> Result<ServerChannel<K, R, S>, ConnectError>
+        where F: FnOnce(&Self, u64) -> Ghost<K>
+    {
+        report_connect(local_id);
+        self.registering_tx.send(local_id).map_err(|_e| ConnectError)?;
+        let (server_id, tx, rx) = self.connection_rx.recv().map_err(|_e| ConnectError)?;
+        let pred = gen_pred(self, local_id);
+        Ok(ServerChannel::new(server_id, local_id, pred, tx, rx))
     }
 }
 
+#[verifier::external_body]
 pub fn listen_channel<R, S>(server_id: u64) -> (ModelledListener<R, S>, ModelledConnector<S, R>) {
     let (registering_tx, registering_rx) = unbounded();
     let (connection_tx, connection_rx) = unbounded();
@@ -192,26 +308,30 @@ pub fn listen_channel<R, S>(server_id: u64) -> (ModelledListener<R, S>, Modelled
     (listener, connector)
 }
 
+}
+
 impl From<crossbeam_channel::TryRecvError> for TryListenError {
     fn from(value: crossbeam_channel::TryRecvError) -> Self {
-        match value {
-            crossbeam_channel::TryRecvError::Empty => TryListenError::Empty,
-            crossbeam_channel::TryRecvError::Disconnected => TryListenError::Disconnected,
+        if value.is_empty() {
+            TryListenError::Empty
+        } else {
+            TryListenError::Disconnected
         }
     }
 }
 
 impl From<crossbeam_channel::TryRecvError> for TryRecvError {
     fn from(value: crossbeam_channel::TryRecvError) -> Self {
-        match value {
-            crossbeam_channel::TryRecvError::Empty => TryRecvError::Empty,
-            crossbeam_channel::TryRecvError::Disconnected => TryRecvError::Disconnected,
+        if value.is_empty() {
+            TryRecvError::Empty
+        } else {
+            TryRecvError::Disconnected
         }
     }
 }
 
 impl<S> From<crossbeam_channel::SendError<S>> for SendError<S> {
     fn from(value: crossbeam_channel::SendError<S>) -> Self {
-        SendError(value.0)
+        SendError(value.into_inner())
     }
 }

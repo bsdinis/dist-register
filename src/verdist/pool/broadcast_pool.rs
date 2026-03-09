@@ -35,13 +35,14 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         pred: Ghost<Pred>,
         accum: A,
         filter_fn: F,
-    ) -> (r: RequestContext<'a, Pool, Pred, A>)
-        where
-            Pred: InvariantPredicate<Pred, A>,
-            A: ReplyAccumulator<<Pool::C as Channel>::Id, Pred>,
-            F: Fn(<Pool::C as Channel>::Id) -> bool,
+    ) -> (r: RequestContext<'a, Pool, Pred, A>) where
+        Pred: InvariantPredicate<Pred, A>,
+        A: ReplyAccumulator<<Pool::C as Channel>::Id, Pred>,
+        F: Fn(<Pool::C as Channel>::Id) -> bool,
+
         requires
-            // TODO: forall |chan| #[trigger] Chann::K::send_inv(chan.constant(), chan.id(), request)
+    // TODO: forall |chan| #[trigger] Chann::K::send_inv(chan.constant(), chan.id(), request)
+
             Pred::inv(pred@, accum),
             forall|id| filter_fn.requires((id,)),
             accum.spec_n_replies() == 0,
@@ -56,21 +57,22 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         {
             let channel = &conns[idx];
             if filter_fn(channel.id()) {
-                assume(<Pool::C as Channel>::K::send_inv(channel.constant(), channel.spec_id(), request));
+                assume(<Pool::C as Channel>::K::send_inv(
+                    channel.constant(),
+                    channel.spec_id(),
+                    request,
+                ));
                 let _res = channel.send(&request);
             }
         }
         RequestContext::new(self.pool, request.tag(), pred, accum)
     }
 
-    pub fn broadcast<Pred, A>(self,
-        request: Request,
-        pred: Ghost<Pred>,
-        accum: A
-    ) -> (r: RequestContext<'a, Pool, Pred, A>)
-    where
+    pub fn broadcast<Pred, A>(self, request: Request, pred: Ghost<Pred>, accum: A) -> (r:
+        RequestContext<'a, Pool, Pred, A>) where
         Pred: InvariantPredicate<Pred, A>,
         A: ReplyAccumulator<<Pool::C as Channel>::Id, Pred>,
+
         requires
             Pred::inv(pred@, accum),
             accum.spec_n_replies() == 0,

@@ -54,16 +54,12 @@ pub struct ReadAccumulator {
     /// Over time, we monotonically gain knowledge that every quorum is bounded bellow by
     /// `max_resp.timestamp()`
     servers: Tracked<ServerUniverse>,
-
     /// The original watermark at creation time
     old_watermark: Ghost<MonotonicTimestampResource>,
-
     /// The quorum being constructed
     quorum: Tracked<Set<u64>>,
-
     /// The id of the commitment map
     commitment_id: Ghost<Loc>,
-
     /// The id of the server tokens
     server_tokens_id: Ghost<Loc>,
 }
@@ -78,7 +74,7 @@ impl ReadAccumulator {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         old_watermark: Ghost<MonotonicTimestampResource>,
-        read_pred: Ghost<ReadPred>
+        read_pred: Ghost<ReadPred>,
     ) -> (r: Self)
         requires
             read_pred@.server_locs == servers@.locs(),
@@ -124,9 +120,10 @@ impl ReadAccumulator {
             }
         &&& self.max_resp is Some ==> {
             let resp = self.max_resp->Some_0;
-            &&& forall|id| #[trigger] self.agree_with_max@.contains(id) ==> {
-                self.servers@[id]@@.timestamp() == resp.spec_timestamp()
-            }
+            &&& forall|id| #[trigger]
+                self.agree_with_max@.contains(id) ==> {
+                    self.servers@[id]@@.timestamp() == resp.spec_timestamp()
+                }
             &&& resp.spec_commitment().id() == self.commitment_id@
             &&& resp.server_loc() == self.server_tokens_id@
         }
@@ -455,7 +452,7 @@ impl ReadAccumGetPhase {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         old_watermark: Ghost<MonotonicTimestampResource>,
-        read_pred: Ghost<ReadPred>
+        read_pred: Ghost<ReadPred>,
     ) -> (r: Self)
         requires
             read_pred@.server_locs == servers@.locs(),
@@ -498,7 +495,6 @@ impl InvariantPredicate<ReadPred, ReadAccumGetPhase> for ReadPred {
         pred == v.constant()
     }
 }
-
 
 impl ReadAccumWbPhase {
     pub fn new(accum: ReadAccumulator) -> (r: Self)
@@ -613,6 +609,7 @@ impl<T> BadAccumulator<T> {
 }
 
 pub struct EmptyPred;
+
 impl<T> InvariantPredicate<EmptyPred, BadAccumulator<T>> for EmptyPred {
     open spec fn inv(pred: EmptyPred, v: BadAccumulator<T>) -> bool {
         true

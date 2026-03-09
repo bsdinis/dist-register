@@ -407,8 +407,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             read_pred,
             ReadAccumWbPhase::new(replies),
             |id: (u64, u64)| !agree_with_max.contains(&id.1),
-        )
-        .wait_for(
+        ).wait_for(
             (|s| -> (r: bool)
                 ensures
                     r ==> s.spec_len() + agree_with_max@.len() >= qsize,
@@ -571,7 +570,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             // TODO(obeys_cmp_spec): add this to verus
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast::<EmptyPred, _>(req, Ghost(EmptyPred), BadAccumulator::new()).wait_for(
+            let quorum_res = bpool.broadcast::<EmptyPred, _>(
+                req,
+                Ghost(EmptyPred),
+                BadAccumulator::new(),
+            ).wait_for(
                 (|s| -> (r: bool)
                     ensures
                         r ==> s.spec_len() >= qsize,

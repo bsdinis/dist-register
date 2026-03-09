@@ -193,8 +193,11 @@ fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
 > where
     Conn: Connector<C>,
     C: Channel<Id = (u64, u64), K = ChannelInv, R = abd::proto::Response, S = abd::proto::Request>,
-{
-    let mut channel = connector.connect(client_id, |_connector, _client_id| Ghost(ChannelInv{}))?;
+ {
+    let mut channel = connector.connect(
+        client_id,
+        |_connector, _client_id| Ghost(ChannelInv {  }),
+    )?;
     if !args.no_delay {
         channel.add_latency(
             std::time::Duration::from_millis(REQUEST_LATENCY_DEFAULT_MS),
@@ -207,10 +210,10 @@ fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
 fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r: Result<
     Vec<BufChannel<C>>,
     ConnectError,
->)
-where
+>) where
     Conn: Connector<C>,
     C: Channel<Id = (u64, u64), K = ChannelInv, R = abd::proto::Response, S = abd::proto::Request>,
+
     ensures
         r is Ok ==> connectors.len() == r->Ok_0.len(),
 {
@@ -408,7 +411,12 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     Error<WritePerm, GhostVar<Option<u64>>, ReadPerm<'a>, &'a GhostVar<Option<u64>>>,
 > where
     Conn: Connector<C> + Send + Sync,
-    C: Channel<K = abd::channel::ChannelInv, R = abd::proto::Response, S = abd::proto::Request, Id = (u64, u64)>,
+    C: Channel<
+        K = abd::channel::ChannelInv,
+        R = abd::proto::Response,
+        S = abd::proto::Request,
+        Id = (u64, u64),
+    >,
     C: Sync + Send,
 
     requires

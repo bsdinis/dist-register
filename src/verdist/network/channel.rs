@@ -43,6 +43,7 @@ pub assume_specification[ default_delay ]() -> (a: (Duration, Duration))
 
 pub trait ChannelInvariant<K, Id, R, S> {
     spec fn recv_inv(k: K, id: Id, r: R) -> bool;
+
     spec fn send_inv(k: K, id: Id, s: S) -> bool;
 }
 
@@ -66,20 +67,22 @@ pub trait Channel {
 
     fn send(&self, s: &Self::S) -> Result<(), SendError<Self::S>>
     // TODO
-     requires
-        Self::K::send_inv(self.constant(), self.spec_id(), *s),
+
+        requires
+            Self::K::send_inv(self.constant(), self.spec_id(), *s),
     ;
 
     fn try_recv(&self) -> (r: Result<Self::R, TryRecvError>)
     // TODO
+
         ensures
-           r is Ok ==> Self::K::recv_inv(self.constant(), self.spec_id(), r->Ok_0)
+            r is Ok ==> Self::K::recv_inv(self.constant(), self.spec_id(), r->Ok_0),
     ;
 
     fn id(&self) -> (r: Self::Id)
         ensures
             r == self.spec_id(),
-        ;
+    ;
 
     spec fn spec_id(self) -> Self::Id;
 
@@ -99,13 +102,15 @@ pub trait Channel {
 }
 
 pub trait Listener<C> where C: Channel {
-    fn try_accept<F>(&self, gen_pred: F) -> Result<C, TryListenError>
-        where F: FnOnce(&Self) -> Ghost<C::K>;
+    fn try_accept<F>(&self, gen_pred: F) -> Result<C, TryListenError> where
+        F: FnOnce(&Self) -> Ghost<C::K>,
+    ;
 }
 
 pub trait Connector<C> where C: Channel {
-    fn connect<F>(&self, local_id: u64, gen_pred: F) -> Result<C, ConnectError>
-        where F: FnOnce(&Self, u64) -> Ghost<C::K>;
+    fn connect<F>(&self, local_id: u64, gen_pred: F) -> Result<C, ConnectError> where
+        F: FnOnce(&Self, u64) -> Ghost<C::K>,
+    ;
 }
 
 pub struct BufChannel<C: Channel> {

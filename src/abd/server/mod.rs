@@ -76,7 +76,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
             state_inv@.namespace() == invariants::state_inv_id(),
     {
         let empty = HashMap::new();
-        let ghost pred = ChannelInv{};
+        let ghost pred = ChannelInv {  };
         assert(pred.inv(empty));
         RegisterServer {
             id,
@@ -134,7 +134,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         while i > 0
             decreases i,
         {
-            match self.listener.try_accept(|_listener| Ghost(ChannelInv{})) {
+            match self.listener.try_accept(|_listener| Ghost(ChannelInv {  })) {
                 Ok(channel) => self.accept(channel),
                 Err(crate::verdist::network::error::TryListenError::Empty) => {
                     break ;

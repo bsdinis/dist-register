@@ -69,10 +69,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
 
         requires
             forall|replies| termination_cond.requires((&replies,)),
-            forall|r|
-                extractor_fn.requires(
-                    (r,),
-                ),
+            forall|r| extractor_fn.requires((r,)),
         ensures
             r is Ok ==> {
                 &&& call_ensures(termination_cond, (&r->Ok_0,), true)
@@ -80,7 +77,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
             },
             r is Err ==> {
                 &&& Pred::inv(self.pred(), r->Err_0.accumulator())
-            }
+            },
     {
         let ghost pred = self.pred();
         let mut self_mut = self;

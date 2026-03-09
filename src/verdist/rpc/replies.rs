@@ -6,10 +6,7 @@ use vstd::prelude::*;
 
 verus! {
 
-pub trait ReplyAccumulator<ChanId, Pred>: Sized
-    where
-        Pred: InvariantPredicate<Pred, Self>,
-{
+pub trait ReplyAccumulator<ChanId, Pred>: Sized where Pred: InvariantPredicate<Pred, Self> {
     /// Type that is accumulated
     type T;
 
@@ -30,12 +27,11 @@ pub trait ReplyAccumulator<ChanId, Pred>: Sized
     ;
 }
 
-pub struct Replies<ChanId, Pred, R, A>
-where
+pub struct Replies<ChanId, Pred, R, A> where
     ChanId: Ord,
     Pred: InvariantPredicate<Pred, A>,
     A: ReplyAccumulator<ChanId, Pred>,
-{
+ {
     pred: Ghost<Pred>,
     reply_accum: A,
     n_replies: usize,
@@ -44,12 +40,11 @@ where
     errors: BTreeMap<ChanId, TryRecvError>,
 }
 
-impl<ChanId, Pred, R, A> Replies<ChanId, Pred, R, A>
-where
+impl<ChanId, Pred, R, A> Replies<ChanId, Pred, R, A> where
     ChanId: Ord,
     Pred: InvariantPredicate<Pred, A>,
     A: ReplyAccumulator<ChanId, Pred>,
-{
+ {
     pub fn new(pred: Ghost<Pred>, accum: A) -> (r: Self)
         requires
             Pred::inv(pred@, accum),
@@ -80,7 +75,7 @@ where
 
     pub fn lemma_pred(&self)
         ensures
-            Pred::inv(self.pred(), self.accumulator())
+            Pred::inv(self.pred(), self.accumulator()),
     {
         proof {
             use_type_invariant(self);

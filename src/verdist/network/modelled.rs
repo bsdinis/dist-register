@@ -76,7 +76,13 @@ pub struct ServerChannel<K, R, S> {
 
 impl<K, R, S> ClientChannel<K, R, S> {
     #[verifier::external_body]
-    pub fn new(client_id: u64, server_id: u64, pred: Ghost<K>, tx: Sender<S>, rx: Receiver<R>) -> Self {
+    pub fn new(
+        client_id: u64,
+        server_id: u64,
+        pred: Ghost<K>,
+        tx: Sender<S>,
+        rx: Receiver<R>,
+    ) -> Self {
         ClientChannel {
             pred,
             tx,
@@ -92,7 +98,13 @@ impl<K, R, S> ClientChannel<K, R, S> {
 
 impl<K, R, S> ServerChannel<K, R, S> {
     #[verifier::external_body]
-    pub fn new(server_id: u64, client_id: u64, pred: Ghost<K>, tx: Sender<S>, rx: Receiver<R>) -> Self {
+    pub fn new(
+        server_id: u64,
+        client_id: u64,
+        pred: Ghost<K>,
+        tx: Sender<S>,
+        rx: Receiver<R>,
+    ) -> Self {
         ServerChannel {
             pred,
             tx,
@@ -107,19 +119,27 @@ impl<K, R, S> ServerChannel<K, R, S> {
 }
 
 pub struct EmptyChanInv;
+
 impl<Id, R, S> ChannelInvariant<EmptyChanInv, Id, R, S> for EmptyChanInv {
-    open spec fn recv_inv(k: Self, id: Id, r: R) -> bool { true }
-    open spec fn send_inv(k: Self, id: Id, s: S) -> bool { true }
+    open spec fn recv_inv(k: Self, id: Id, r: R) -> bool {
+        true
+    }
+
+    open spec fn send_inv(k: Self, id: Id, s: S) -> bool {
+        true
+    }
 }
 
-impl<K, R, S> Channel for ClientChannel<K, R, S>
-    where
-        K: ChannelInvariant<K, (u64, u64), R, S>,
-        S: Clone,
-{
+impl<K, R, S> Channel for ClientChannel<K, R, S> where
+    K: ChannelInvariant<K, (u64, u64), R, S>,
+    S: Clone,
+ {
     type R = R;
+
     type S = S;
+
     type Id = (u64, u64);
+
     type K = K;
 
     #[verifier::external_body]
@@ -143,7 +163,6 @@ impl<K, R, S> Channel for ClientChannel<K, R, S>
             self.wait();
             self.tx.send(v.clone())?;
         }
-
         Ok(())
     }
 
@@ -169,14 +188,16 @@ impl<K, R, S> Channel for ClientChannel<K, R, S>
     }
 }
 
-impl<K, R, S> Channel for ServerChannel<K, R, S>
-    where
-        K: ChannelInvariant<K, (u64, u64), R, S>,
-        S: Clone,
-{
+impl<K, R, S> Channel for ServerChannel<K, R, S> where
+    K: ChannelInvariant<K, (u64, u64), R, S>,
+    S: Clone,
+ {
     type R = R;
+
     type S = S;
+
     type Id = (u64, u64);
+
     type K = K;
 
     #[verifier::external_body]
@@ -200,7 +221,6 @@ impl<K, R, S> Channel for ServerChannel<K, R, S>
             self.wait();
             self.tx.send(v.clone())?;
         }
-
         Ok(())
     }
 
@@ -226,7 +246,6 @@ impl<K, R, S> Channel for ServerChannel<K, R, S>
     }
 }
 
-
 #[verifier::external_body]
 #[allow(unused)]
 fn report_accept(server_id: u64, client_id: u64) {
@@ -243,29 +262,25 @@ fn report_connect(client_id: u64) {
     );
 }
 
-
 // TODO: this is where we create the ghost map and the channel invariant
-impl<K, R, S> Listener<ClientChannel<K, R, S>> for ModelledListener<R, S>
-    where
-        K: ChannelInvariant<K, (u64, u64), R, S>,
-        S: Clone,
-{
+impl<K, R, S> Listener<ClientChannel<K, R, S>> for ModelledListener<R, S> where
+    K: ChannelInvariant<K, (u64, u64), R, S>,
+    S: Clone,
+ {
     #[verifier::external_body]
-    fn try_accept<F>(
-        &self,
-        gen_pred: F,
-    ) -> Result<ClientChannel<K, R, S>, crate::verdist::network::error::TryListenError>
-        where F: FnOnce(&Self) -> Ghost<K>
-    {
+    fn try_accept<F>(&self, gen_pred: F) -> Result<
+        ClientChannel<K, R, S>,
+        crate::verdist::network::error::TryListenError,
+    > where F: FnOnce(&Self) -> Ghost<K> {
         let client_id = self.registering_rx.try_recv()?;
         report_accept(self.id, client_id);
 
         let (resp_tx, resp_rx) = unbounded();
         let (req_tx, req_rx) = unbounded();
 
-        self.connection_tx
-            .send((self.id, req_tx, resp_rx))
-            .map_err(|_x| TryListenError::Disconnected)?;
+        self.connection_tx.send((self.id, req_tx, resp_rx)).map_err(
+            |_x| TryListenError::Disconnected,
+        )?;
 
         let pred = gen_pred(self);
 
@@ -273,15 +288,15 @@ impl<K, R, S> Listener<ClientChannel<K, R, S>> for ModelledListener<R, S>
     }
 }
 
-impl<K, R, S> Connector<ServerChannel<K, R, S>> for ModelledConnector<R, S>
-    where
-        K: ChannelInvariant<K, (u64, u64), R, S>,
-        S: Clone,
-{
+impl<K, R, S> Connector<ServerChannel<K, R, S>> for ModelledConnector<R, S> where
+    K: ChannelInvariant<K, (u64, u64), R, S>,
+    S: Clone,
+ {
     #[verifier::external_body]
-    fn connect<F>(&self, local_id: u64, gen_pred: F) -> Result<ServerChannel<K, R, S>, ConnectError>
-        where F: FnOnce(&Self, u64) -> Ghost<K>
-    {
+    fn connect<F>(&self, local_id: u64, gen_pred: F) -> Result<
+        ServerChannel<K, R, S>,
+        ConnectError,
+    > where F: FnOnce(&Self, u64) -> Ghost<K> {
         report_connect(local_id);
         self.registering_tx.send(local_id).map_err(|_e| ConnectError)?;
         let (server_id, tx, rx) = self.connection_rx.recv().map_err(|_e| ConnectError)?;
@@ -294,22 +309,14 @@ impl<K, R, S> Connector<ServerChannel<K, R, S>> for ModelledConnector<R, S>
 pub fn listen_channel<R, S>(server_id: u64) -> (ModelledListener<R, S>, ModelledConnector<S, R>) {
     let (registering_tx, registering_rx) = unbounded();
     let (connection_tx, connection_rx) = unbounded();
-    let listener = ModelledListener {
-        id: server_id,
-        registering_rx,
-        connection_tx,
-    };
+    let listener = ModelledListener { id: server_id, registering_rx, connection_tx };
 
-    let connector = ModelledConnector {
-        registering_tx,
-        connection_rx,
-    };
+    let connector = ModelledConnector { registering_tx, connection_rx };
 
     (listener, connector)
 }
 
-}
-
+} // verus!
 impl From<crossbeam_channel::TryRecvError> for TryListenError {
     fn from(value: crossbeam_channel::TryRecvError) -> Self {
         if value.is_empty() {

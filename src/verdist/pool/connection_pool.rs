@@ -62,12 +62,7 @@ pub struct FlawlessPool<C> {
     id: u64,
 }
 
-impl<C> FlawlessPool<BufChannel<C>>
-where
-    C: Channel,
-    C::S: TaggedMessage,
-    C::R: TaggedMessage,
-{
+impl<C> FlawlessPool<BufChannel<C>> where C: Channel, C::S: TaggedMessage, C::R: TaggedMessage {
     pub fn new(pool: Vec<BufChannel<C>>, id: u64) -> (r: Self)
         ensures
             r.spec_len() == pool.len(),
@@ -76,12 +71,11 @@ where
     }
 }
 
-impl<C> ConnectionPool for FlawlessPool<BufChannel<C>>
-where
+impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where
     C: Channel,
     C::S: TaggedMessage,
     C::R: TaggedMessage,
-{
+ {
     type C = BufChannel<C>;
 
     fn conns(&self) -> &[Self::C] {

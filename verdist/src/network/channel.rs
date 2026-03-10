@@ -1,0 +1,192 @@
+use std::collections::HashMap;
+use std::time::Duration;
+
+use crate::network::error::ConnectError;
+use crate::network::error::SendError;
+use crate::network::error::TryListenError;
+use crate::network::error::TryRecvError;
+use crate::rpc::proto::TaggedMessage;
+
+use rand_distr::{Distribution, Normal};
+
+use vstd::prelude::*;
+use vstd::rwlock::RwLock;
+
+fn park_thread(mean: Duration, std_dev: Duration) {
+    let normal = Normal::new(mean.as_secs_f64(), std_dev.as_secs_f64())
+        .expect("should be able to construct normal distribution");
+    let wait = normal.sample(&mut rand::rng());
+    if wait.is_sign_positive() {
+        std::thread::sleep(Duration::from_secs_f64(wait));
+    }
+}
+
+fn default_delay() -> (Duration, Duration) {
+    Default::default()
+}
+
+verus! {
+
+struct EmptyCond;
+
+impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
+    open spec fn inv(self, v: V) -> bool {
+        true
+    }
+}
+
+pub assume_specification[ park_thread ](mean: Duration, std_dev: Duration)
+;
+
+pub assume_specification[ default_delay ]() -> (a: (Duration, Duration))
+;
+
+pub trait ChannelInvariant<K, Id, R, S> {
+    spec fn recv_inv(k: K, id: Id, r: R) -> bool;
+
+    spec fn send_inv(k: K, id: Id, s: S) -> bool;
+}
+
+/// A reliable and typed channel
+///
+/// The spec is in the type -- by virtue of having a type `R` the receiver learns something
+pub trait Channel {
+    /// Id of the channel
+    type Id: Ord;
+
+    /// Type being received
+    type R;
+
+    /// Type being sent
+    type S: Clone;
+
+    /// Constant maintained by the channel
+    // (e.g., K holds the loc of the gmap from req_id \to X)
+    // in our case X can be a more specific set of locations
+    type K: ChannelInvariant<Self::K, Self::Id, Self::R, Self::S>;
+
+    fn send(&self, s: &Self::S) -> Result<(), SendError<Self::S>>
+        requires
+            Self::K::send_inv(self.constant(), self.spec_id(), *s),
+    ;
+
+    fn try_recv(&self) -> (r: Result<Self::R, TryRecvError>)
+        ensures
+            r is Ok ==> Self::K::recv_inv(self.constant(), self.spec_id(), r->Ok_0),
+    ;
+
+    fn id(&self) -> (r: Self::Id)
+        ensures
+            r == self.spec_id(),
+    ;
+
+    spec fn spec_id(self) -> Self::Id;
+
+    fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {
+    }
+
+    fn delay(&self) -> (Duration, Duration) {
+        default_delay()
+    }
+
+    fn wait(&self) {
+        let (mean, std_dev) = self.delay();
+        park_thread(mean, std_dev);
+    }
+
+    spec fn constant(self) -> Self::K;
+}
+
+pub trait Listener<C> where C: Channel {
+    fn try_accept<F>(&self, gen_pred: F) -> Result<C, TryListenError> where
+        F: FnOnce(&Self) -> Ghost<C::K>,
+    ;
+}
+
+pub trait Connector<C> where C: Channel {
+    fn connect<F>(&self, local_id: u64, gen_pred: F) -> Result<C, ConnectError> where
+        F: FnOnce(&Self, u64) -> Ghost<C::K>,
+    ;
+}
+
+pub struct BufChannel<C: Channel> {
+    channel: C,
+    #[allow(dead_code)]
+    buffered: RwLock<HashMap<u64, C::R>, EmptyCond>,
+}
+
+impl<C: Channel> BufChannel<C> {
+    pub fn new(channel: C) -> Self {
+        BufChannel { channel, buffered: RwLock::new(HashMap::new(), Ghost(EmptyCond)) }
+    }
+}
+
+impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
+    #[allow(dead_code)]
+    pub fn try_recv_tag(&self, tag: u64) -> Result<Option<C::R>, TryRecvError> {
+        let (mut guard, handle) = self.buffered.acquire_write();
+        if let Some(r) = guard.remove(&tag) {
+            handle.release_write(guard);
+            return Ok(Some(r));
+        }
+        handle.release_write(guard);
+
+        match self.channel.try_recv() {
+            Ok(r) if r.tag() == tag => Ok(Some(r)),
+            Ok(r) => {
+                let (mut guard, handle) = self.buffered.acquire_write();
+                guard.insert(r.tag(), r);
+                handle.release_write(guard);
+                Ok(None)
+            },
+            Err(crate::network::error::TryRecvError::Disconnected) => Err(
+                TryRecvError::Disconnected,
+            ),
+            Err(crate::network::error::TryRecvError::Empty) => Ok(None),
+        }
+    }
+}
+
+impl<C: Channel> Channel for BufChannel<C> {
+    type R = C::R;
+
+    type S = C::S;
+
+    type Id = C::Id;
+
+    type K = C::K;
+
+    closed spec fn constant(self) -> Self::K {
+        self.channel.constant()
+    }
+
+    fn id(&self) -> Self::Id {
+        self.channel.id()
+    }
+
+    closed spec fn spec_id(self) -> Self::Id {
+        self.channel.spec_id()
+    }
+
+    fn try_recv(&self) -> Result<Self::R, TryRecvError> {
+        self.channel.try_recv()
+    }
+
+    fn send(&self, v: &Self::S) -> Result<(), SendError<Self::S>> {
+        self.channel.send(v)
+    }
+
+    fn wait(&self) {
+        self.channel.wait();
+    }
+
+    fn delay(&self) -> (Duration, Duration) {
+        self.channel.delay()
+    }
+
+    fn add_latency(&mut self, avg: Duration, stddev: Duration) {
+        self.channel.add_latency(avg, stddev);
+    }
+}
+
+} // verus!

@@ -78,7 +78,6 @@ impl<ML, RL> State<ML, RL> where
         &&& self.linearization_queue.inv()
         &&& self.servers.inv()
         &&& self.servers.is_auth()
-        &&& self.commitments.inv()
         &&& self.commitments.is_full()
         // server claims
         &&& self.unclaimed_servers().finite()

@@ -1,8 +1,8 @@
 use crate::proto::Request;
 use crate::proto::Response;
+use std::collections::HashMap;
 use verdist::network::channel::Channel;
 use verdist::network::channel::ChannelInvariant;
-use std::collections::HashMap;
 
 use vstd::prelude::*;
 #[cfg(verus_only)]

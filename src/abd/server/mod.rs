@@ -182,16 +182,24 @@ fn create_server<L, C, ML, RL>(server_id: u64, listener: L) -> RegisterServer<L,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
+    // XXX: this comes from the limitation on run_modelled_server
+    let ghost server_ids = arbitrary::<Set<u64>>().insert(server_id);
     let tracked state_inv;
     proof {
-        let tracked (s, v) = invariants::get_system_state::<ML, RL>();
+        let tracked (s, v) = invariants::get_system_state::<ML, RL>(server_ids);
         state_inv = s;
     }
     RegisterServer::new(listener, server_id, Tracked(state_inv))
 }
 
 } // verus!
-pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Response, Request> {
+// Why is this unverified:
+// - minor: no support for tracing
+// - major: verus does not support threads
+pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Response, Request>
+// requires
+    // server_ids@.contains(server_id),
+{
     let (listener, connector) = crate::verdist::network::modelled::listen_channel(server_id);
     std::thread::spawn(move || {
         let server = Arc::new(create_server::<_, _, WritePerm, ReadPerm<'_>>(

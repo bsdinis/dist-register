@@ -48,12 +48,6 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
         self.pool.len()
     }
 
-    // TODO: remove!
-    #[allow(dead_code)]
-    pub fn quorum_size(&self) -> usize {
-        self.pool.quorum_size()
-    }
-
     pub closed spec fn pred(self) -> Pred {
         self.replies.pred()
     }
@@ -94,8 +88,9 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
                 assert(self_mut.replies.pred() == pred);
                 return Ok(self_mut.replies);
             }
-            if self_mut.replies.len() >= self_mut.pool.quorum_size()
-                || self_mut.replies.n_received() >= self_mut.n_nodes() {
+            // TODO: we can try to figure out a better "give up" condition
+
+            if self_mut.replies.n_received() >= self_mut.n_nodes() {
                 let replies = self_mut.replies;
                 replies.lemma_pred();
 

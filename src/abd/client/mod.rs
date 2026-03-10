@@ -152,6 +152,7 @@ pub struct AbdPool<Pool, ML, RL> where
     RL: ReadLinearizer<RegisterRead>,
  {
     pool: Pool,
+    id: u64,
     register_id: Ghost<Loc>,
     state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     client_ctr_token: Tracked<ClientCtrToken>,
@@ -160,21 +161,28 @@ pub struct AbdPool<Pool, ML, RL> where
 
 impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Response, S = Request>,
+    C: Channel<R = Response, S = Request, Id = (u64, u64)>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
     pub fn new(
         pool: Pool,
+        id: u64,
         client_ctr: PAtomicU64,
         client_ctr_token: Tracked<ClientCtrToken>,
         state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     ) -> (r: Self)
         requires
             pool.spec_len() > 0,
+            forall|cid: (u64, u64)| #[trigger]
+                pool.spec_conns().contains_key(cid) ==> {
+                    &&& cid.0 == id
+                    &&& state_inv@.constant().server_locs.contains_key(cid.1)
+                },
             state_inv@.namespace() == invariants::state_inv_id(),
             state_inv@.constant().commitments_ids.client_ctr_id == client_ctr_token@.id(),
-            client_ctr_token@.key() == pool.spec_id(),
+            state_inv@.constant().server_locs.len() == pool.spec_len(),
+            client_ctr_token@.key() == id,
             client_ctr_token@.value().0 == 0,
             client_ctr_token@.value().1 == client_ctr.id(),
         ensures
@@ -182,6 +190,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
     {
         AbdPool {
             pool,
+            id,
             state_inv,
             register_id: Ghost(state_inv@.constant().register_id),
             client_ctr_token,
@@ -194,7 +203,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
     }
 
     closed spec fn id(self) -> u64 {
-        self.pool.spec_id()
+        self.id
     }
 
     pub closed spec fn _inv(self) -> bool {
@@ -210,11 +219,11 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         ensures
             r == self.spec_quorum_size(),
     {
-        self.pool.quorum_size()
+        self.pool.len() / 2 + 1
     }
 
     pub closed spec fn spec_quorum_size(self) -> nat {
-        self.pool.spec_quorum_size()
+        self.spec_len() / 2 + 1
     }
 
     proof fn lemma_quorum_nonzero(self)
@@ -223,7 +232,6 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         ensures
             self.spec_quorum_size() > 0,
     {
-        self.pool.lemma_quorum_nonzero();
     }
 }
 
@@ -326,7 +334,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 return Err(
                     error::ReadError::FailedFirstQuorum {
                         obtained: e.into_accumulator().n_replies(),
-                        required: self.pool.quorum_size(),
+                        required: self.quorum_size(),
                         lincomp: Tracked(lincomp),
                     },
                 );
@@ -346,7 +354,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let Tracked(commitment) = max_resp.commitment();
         proph_val.resolve(&value);
 
-        if replies.agree_with_max().len() >= self.pool.quorum_size() {
+        if replies.agree_with_max().len() >= self.quorum_size() {
             let tracked comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
@@ -437,9 +445,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 return Err(
                     error::ReadError::FailedSecondQuorum {
                         obtained: accum.n_wb_replies(),
-                        required: self.pool.quorum_size().saturating_sub(
-                            accum.agree_with_max().len(),
-                        ),
+                        required: self.quorum_size().saturating_sub(accum.agree_with_max().len()),
                         lincomp: Tracked(lincomp),
                     },
                 );
@@ -619,7 +625,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     return Err(
                         error::WriteError::FailedFirstQuorum {
                             obtained: e.into_accumulator().into().len(),
-                            required: self.pool.quorum_size(),
+                            required: self.quorum_size(),
                             lincomp: Tracked(lincomp),
                         },
                     );
@@ -639,7 +645,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         // XXX: timestamp recycling would be interesting
         assume(max_ts.seqno < u64::MAX - 1);  // XXX: integer overflow
         let exec_seqno = max_ts.seqno + 1;
-        let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.pool.id(), client_ctr };
+        let exec_ts = Timestamp { seqno: exec_seqno, client_id: self.id, client_ctr };
         proph_seqno.resolve(&exec_seqno);
         assert(proph_ts == exec_ts);
 
@@ -708,7 +714,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     return Err(
                         error::WriteError::FailedSecondQuorum {
                             obtained: e.into_accumulator().into().len(),
-                            required: self.pool.quorum_size(),
+                            required: self.quorum_size(),
                             timestamp: exec_ts,
                             token: Tracked(token),
                             commitment: Tracked(commitment),

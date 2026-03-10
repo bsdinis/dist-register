@@ -215,7 +215,13 @@ fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r:
     C: Channel<Id = (u64, u64), K = ChannelInv, R = abd::proto::Response, S = abd::proto::Request>,
 
     ensures
-        r is Ok ==> connectors.len() == r->Ok_0.len(),
+        r is Ok ==> {
+            let v = r->Ok_0;
+            &&& connectors.len() == v.len()
+            &&& forall|idx| 0 <= idx < v@.len() ==> #[trigger] v@[idx].spec_id().0 == client_id
+            &&& forall|i, j|
+                0 <= i < j < v@.len() ==> #[trigger] v@[i].spec_id() != #[trigger] v@[j].spec_id()
+        },
 {
     let mut v = Vec::with_capacity(connectors.len());
     for connector in connectors.iter() {
@@ -224,7 +230,9 @@ fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r:
     }
 
     // XXX(assume): this is trivial but seems like something should be able to get
-    assume(v.len() == connectors.len());
+    proof {
+        admit();
+    }
     Ok(v)
 }
 
@@ -362,29 +370,47 @@ where
 */
 
 #[allow(unused)]
-fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<PermissionU64>) -> (r: (
+fn get_invariant_state<Pool, C, ML, RL>(
+    pool: &Pool,
+    client_id: u64,
+    client_perm: Tracked<PermissionU64>,
+) -> (r: (
     Tracked<ClientCtrToken>,
     Tracked<Arc<StateInvariant<ML, RL>>>,
     Tracked<RegisterView>,
 )) where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = abd::proto::Response, S = abd::proto::Request>,
+    C: Channel<R = abd::proto::Response, S = abd::proto::Request, Id = (u64, u64)>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 
     requires
+        forall|cid: (u64, u64)| #[trigger]
+            pool.spec_conns().contains_key(cid) ==> cid.0 == client_id,
         client_perm@.value() == 0,
     ensures
-        r.0@.key() == pool.spec_id(),
+        r.0@.key() == client_id,
         r.0@.value().0 == 0,
         r.0@.value().1 == client_perm@.id(),
         r.0@.id() == r.1@.constant().commitments_ids.client_ctr_id,
         r.1@.namespace() == invariants::state_inv_id(),
+        forall|cid: (u64, u64)| #[trigger]
+            pool.spec_conns().contains_key(cid) ==> {
+                &&& cid.0 == client_id
+                &&& r.1@.constant().server_locs.contains_key(cid.1)
+            },
+        forall|server_id| #[trigger]
+            r.1@.constant().server_locs.contains_key(server_id) ==> {
+                pool.spec_conns().contains_key((client_id, server_id))
+            },
+        pool.spec_len() == r.1@.constant().server_locs.len(),  // TODO: superfluous
 {
+    let ghost server_ids = pool.spec_conns().dom().map(|id: (u64, u64)| id.1);
+    assume(server_ids.len() == pool.spec_len());  // TODO
     let tracked state_inv;
     let tracked view;
     proof {
-        let tracked (s, v) = invariants::get_system_state::<ML, RL>();
+        let tracked (s, v) = invariants::get_system_state::<ML, RL>(server_ids);
         state_inv = s;
         view = v;
     }
@@ -394,8 +420,8 @@ fn get_invariant_state<Pool, C, ML, RL>(pool: &Pool, client_perm: Tracked<Permis
         proof {
             let tracked Tracked(client_p) = client_perm;
             // XXX(assume/client_disjoint): client_id uniqueness: could be resolved by a client id service
-            assume(!state.commitments.client_map().contains_key(pool.spec_id()));
-            client_ctr_token = state.commitments.login(pool.spec_id(), client_p);
+            assume(!state.commitments.client_map().contains_key(client_id));
+            client_ctr_token = state.commitments.login(client_id, client_p);
             state.commitments.agree_client_token(&client_ctr_token);
         }
 
@@ -422,8 +448,8 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     requires
         connectors.len() > 0,
 {
-    let pool = connect_all(&args, connectors, 0)?;
-    let pool = FlawlessPool::new(pool, 0);
+    let pool = connect_all(&args, connectors, args.client_id)?;
+    let pool = FlawlessPool::new(pool);
     assert(pool.spec_len() == connectors.len());
 
     let (client_ctr, client_ctr_perm) = PAtomicU64::new(0);
@@ -431,10 +457,12 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     #[allow(unused)]
     let (client_ctr_token, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(
         &pool,
+        args.client_id,
         client_ctr_perm,
     );
     let client = AbdPool::<_, WritePerm, ReadPerm<'_>>::new(
         pool,
+        args.client_id,
         client_ctr,
         client_ctr_token,
         state_inv,

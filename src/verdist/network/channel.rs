@@ -66,15 +66,11 @@ pub trait Channel {
     type K: ChannelInvariant<Self::K, Self::Id, Self::R, Self::S>;
 
     fn send(&self, s: &Self::S) -> Result<(), SendError<Self::S>>
-    // TODO
-
         requires
             Self::K::send_inv(self.constant(), self.spec_id(), *s),
     ;
 
     fn try_recv(&self) -> (r: Result<Self::R, TryRecvError>)
-    // TODO
-
         ensures
             r is Ok ==> Self::K::recv_inv(self.constant(), self.spec_id(), r->Ok_0),
     ;

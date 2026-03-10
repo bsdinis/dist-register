@@ -171,13 +171,14 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
     (Arc::new(state_inv), view)
 }
 
-pub axiom fn get_system_state<ML, RL>() -> (tracked r: (
+pub axiom fn get_system_state<ML, RL>(server_ids: Set<u64>) -> (tracked r: (
     Arc<StateInvariant<ML, RL>>,
     RegisterView,
 )) where ML: MutLinearizer<RegisterWrite>, RL: ReadLinearizer<RegisterRead>
     ensures
         r.0.namespace() == state_inv_id(),
         r.0.constant().register_id == r.1.id(),
+        r.0.constant().server_locs.dom() == server_ids,
 ;
 
 } // verus!

@@ -562,7 +562,7 @@ impl ServerUniverse {
             *old(self) == *self,
             self.leq(*other),
     {
-        admit();  // TODO: This probably necessitates recursion
+        admit();  // TODO(unused): This probably necessitates recursion
     }
 
     // This is the big quorum lemma

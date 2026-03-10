@@ -9,7 +9,7 @@ use vstd::prelude::*;
 #[cfg(verus_only)]
 use vstd::resource::Loc;
 
-// TODO(proto_lb):
+// TODO(qed/proto_lb):
 // - add the *sent* lowerbound / token to the request to the *response*
 // - add type invariant that orders the lowerbounds on the response
 
@@ -62,8 +62,10 @@ pub struct WriteRequest {
     request_id: u64,
     value: Option<u64>,
     timestamp: Timestamp,
-    commitment: Tracked<WriteCommitment>,
-    // TODO: add lower bound
+    commitment: Tracked<
+        WriteCommitment,
+    >,
+    // TODO(qed/read/proto): add lower bound to write request
 }
 
 #[allow(unused)]
@@ -311,7 +313,10 @@ pub struct GetResponse {
     timestamp: Timestamp,
     lb: Tracked<MonotonicTimestampResource>,
     commitment: Tracked<WriteCommitment>,
-    server_token: Tracked<ServerToken>,
+    server_token: Tracked<
+        ServerToken,
+    >,
+    // TODO(qed/read/phase_1): return the lower bound that originated from it
 }
 
 #[allow(unused)]
@@ -324,8 +329,9 @@ pub struct GetTimestampResponse {
 #[allow(unused)]
 pub struct WriteResponse {
     request_id: u64,
-    // TODO: there is no exec state that ties this together
     lb: Tracked<MonotonicTimestampResource>,
+    // TODO(qed/read/phase_2):
+    //  - return the ghost request that was sent in the request to tie down the lb here
 }
 
 #[allow(unused)]

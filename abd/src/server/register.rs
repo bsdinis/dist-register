@@ -321,7 +321,7 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();
-        // TODO: pipe through the lower bound
+        // TODO(qed/writes/server_spec): pipe through the lower bound
         let res = inner.read_timestamp(req);
         handle.release_read();
 

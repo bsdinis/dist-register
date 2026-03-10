@@ -288,6 +288,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             proof {
                 token = state.linearization_queue.insert_read_linearizer(lin, op, proph_val@, &state.register);
                 server_lbs = state.servers.extract_lbs();
+                // TODO(qed/read): this should be true
                 assume(forall|q: Quorum|  #[trigger] server_lbs.valid_quorum(q) ==> {
                     token.value().min_ts@.timestamp() <= server_lbs.quorum_timestamp(q)
                 });
@@ -300,8 +301,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
-        // TODO(obeys_cmp_spec): add this to verus
-        assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+        assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
         #[allow(unused_parens)]
         let accum = ReadAccumGetPhase::new(
             Tracked(server_lbs),
@@ -345,7 +345,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         proof {
             self.lemma_quorum_nonzero();
         }
-        // TODO(assume/wait_for_post)
+        // TODO(qed/assume/wait_for_post)
         assume(replies.spec_n_get_replies() >= qsize);
         let agree_with_max = replies.agree_with_max().clone();
         let max_resp = replies.max_resp();
@@ -364,7 +364,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     let ghost old_unclaimed = state.unclaimed_servers();
                     let ghost old_server_tokens = state.server_tokens@;
 
-                    // TODO(assume/chan_k): commitment agreement
+                    // TODO(qed/assume/chan_k): commitment agreement
                     assume(commitment.id() == state.commitments.commitment_id());
                     state.commitments.agree_commitment(&commitment);
 
@@ -375,9 +375,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     );
 
                     if max_ts > old_watermark {
-                        // TODO(assume/quorum): valid quorum
+                        // TODO(qed/assume/quorum): valid quorum
                         assume(state.servers.valid_quorum(replies.quorum()));
-                        // TODO(assume/quorum): unanimous quorum
+                        // TODO(qed/assume/quorum): unanimous quorum
                         assume(state.servers.unanimous_quorum(replies.quorum(), max_ts));
                         state.servers.lemma_quorum_lb(replies.quorum(), max_ts);
                         assert(state.linearization_queue.watermark() == max_ts);
@@ -385,7 +385,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                         assert(state.linearization_queue.watermark() == old_watermark);
                     }
 
-                    // TODO(assume/replies): relate max_resp with min_ts
+                    // TODO(qed/assume/replies): relate max_resp with min_ts
                     assume(max_ts >= token.value().min_ts@.timestamp());
                     comp = state.linearization_queue.extract_read_completion(
                         token,
@@ -396,7 +396,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
                     // XXX: load bearing
                     assert(state.linearization_queue.known_timestamps() == old_known);
-                    admit();
+                    admit(); // TODO(qed/read/phase_1)
                 }
 
                 // XXX: debug assert
@@ -481,7 +481,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark, commitment);
                 */
 
-                admit();
+                admit(); // TODO(qed/read/phase_2)
                 comp = proof_from_false();
 
                 // XXX: load bearing

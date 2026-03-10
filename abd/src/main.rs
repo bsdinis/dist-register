@@ -230,9 +230,8 @@ fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r:
         v.push(conn);
     }
 
-    // XXX(assume): this is trivial but seems like something should be able to get
     proof {
-        admit();
+        admit();  // XXX(assume): this is trivial but seems like something should be able to get
     }
     Ok(v)
 }

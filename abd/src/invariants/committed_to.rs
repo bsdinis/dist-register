@@ -266,7 +266,6 @@ impl Commitments {
     {
         let tracked r = perm_map.tracked_remove(client_token.key());
         *missing_perm = Some((client_token.key(), r.id()));
-        admit();
         r
     }
 

@@ -44,10 +44,10 @@ pub struct ReadAccumulator {
     agree_with_max: BTreeSet<u64>,
     /// Number of received get replies
     n_get_replies: usize,
-    // TODO: finangle
+    // TODO(qed/read/phase_2/write_inv): add write inv
     wb_replies: BTreeMap<(u64, u64), WriteResponse>,
     // Spec state
-    // TODO: persistent server_tokens_submap (MonotonicMap?)
+    // TODO(qed/read): persistent server_tokens_submap (MonotonicMap?)
     /// Constructed view over the server map
     ///
     /// In the beginning, we only know that every quorum is bounded bellow by the watermark
@@ -231,7 +231,7 @@ impl ReadAccumulator {
         proof {
             quorum.borrow_mut().tracked_insert(server_id);
         }
-        assume(n_get_replies < usize::MAX);
+        assume(n_get_replies < usize::MAX);  // XXX: integer overflow
         *n_get_replies += 1
     }
 
@@ -364,7 +364,7 @@ impl ReadAccumulator {
 
             // HACK
             // We could instead derive these by agreement on resp.server_token
-            // TODO(chan_pred)
+            // TODO(qed/read/phase_1/chan_pred): look at the channel invariant to solve this
             assume(self.servers.contains_key(id.1));
             assume(self.servers[id.1]@.loc() == resp.lb().loc());
             // This requires the request <-> reply matching predicate on the channel
@@ -373,7 +373,7 @@ impl ReadAccumulator {
             assume(resp.server_loc() == self.server_tokens_id@);
             assume(resp.spec_commitment().id() == self.commitment_id@);
             // This requires the uniqueness of the request tag
-            // TODO(chan_pred)
+            // TODO(qed/read/phase_1/chan_pred): look at the channel invariant to solve this
             assume(!self.quorum@.contains(id.1));
 
             Self::update_servers(
@@ -420,6 +420,7 @@ impl ReadAccumulator {
     {
         proof {
             use_type_invariant(&*self);
+            // TODO(qed/read/phase_2): write back phase
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             assume(!self.wb_replies@.contains_key(id));
             assert(self.wb_replies@.insert(id, resp).contains_key(id));
@@ -575,6 +576,7 @@ impl<T> ReplyAccumulator<(u64, u64), EmptyPred> for BadAccumulator<T> {
 
     #[allow(unused_variables)]
     fn insert(&mut self, pred: Ghost<EmptyPred>, id: (u64, u64), resp: T) {
+        // TODO(qed): remove later on
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         assume(!self.replies@.contains_key(id));
         assert(self.replies@.dom().finite());

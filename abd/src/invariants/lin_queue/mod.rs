@@ -621,6 +621,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             token.value().lin == lin,
             token.value().op == op,
             token.value().min_ts.loc() == self.watermark_id(),
+            token.value().min_ts@.timestamp() == self.watermark(),
         opens_invariants Set::new(|id: int| id != super::state_inv_id())
     {
         let key = (value, self.next_read_op);

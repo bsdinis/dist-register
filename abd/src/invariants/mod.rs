@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use vlib::monotonic::map::GhostMonotonicMap;
 #[allow(unused_imports)]
 use vstd::atomic::PermissionU64;
 use vstd::invariant::AtomicInvariant;
@@ -61,7 +62,7 @@ pub struct State<ML, RL> where ML: MutLinearizer<RegisterWrite>, RL: ReadLineari
     pub tracked register: GhostVarAuth<Option<u64>>,
     pub tracked linearization_queue: LinearizationQueue<ML, RL>,
     pub tracked servers: ServerUniverse,
-    pub tracked server_tokens: GhostMapAuth<u64, Loc>,
+    pub tracked server_tokens: GhostMonotonicMap<u64, Loc>,
     pub tracked commitments: Commitments,
 }
 
@@ -136,7 +137,7 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
     let tracked commitments = Commitments::new(zero_perm);
     let tracked zero_commitment = commitments.zero_commitment();
     let tracked mut linearization_queue = LinearizationQueue::new(register.id(), zero_commitment);
-    let tracked (server_tokens, _) = GhostMapAuth::new(Map::empty());
+    let tracked server_tokens = GhostMonotonicMap::empty();
 
     commitments.agree_commitment_submap(linearization_queue.tracked_committed_values());
     // XXX: load bearing

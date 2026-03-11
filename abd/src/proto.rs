@@ -6,7 +6,7 @@ use crate::timestamp::Timestamp;
 use verdist::rpc::proto::TaggedMessage;
 
 use vstd::prelude::*;
-#[cfg(verus_only)]
+use vstd::resource::map::GhostPersistentSubmap;
 use vstd::resource::Loc;
 
 // TODO(qed/proto_lb):
@@ -365,7 +365,7 @@ impl GetResponse {
         self.commitment@
     }
 
-    pub closed spec fn server_loc(self) -> Loc {
+    pub closed spec fn server_token_id(self) -> Loc {
         self.server_token@.id()
     }
 
@@ -466,6 +466,22 @@ impl GetResponse {
     {
         proof {
             use_type_invariant(self);
+        }
+    }
+
+    pub fn lemma_token_agree(&self, server_tokens: &mut Tracked<GhostPersistentSubmap<u64, Loc>>)
+        requires
+            self.server_token_id() == old(server_tokens)@.id(),
+        ensures
+            server_tokens@.id() == old(server_tokens)@.id(),
+            server_tokens@@ == old(server_tokens)@@,
+            server_tokens@@.contains_key(self.server_id()) ==> server_tokens@@[self.server_id()]
+                == self.loc(),
+        no_unwind
+    {
+        proof {
+            use_type_invariant(self);
+            server_tokens.borrow_mut().intersection_agrees_points_to(self.server_token.borrow());
         }
     }
 }

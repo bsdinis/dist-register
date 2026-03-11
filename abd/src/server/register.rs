@@ -66,7 +66,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
 
                 assume(state.unclaimed_servers().contains(server_id)); // XXX: server login
                 resource = state.servers.split_auth(server_id);
-                server_token = state.server_tokens.insert(server_id, resource.loc()).persist();
+                server_token = state.server_tokens.insert(server_id, resource.loc());
                 assert forall |id| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
                     assert(old_servers.contains_key(id)); // TRIGGER
                     // TRIGGER case search (?)
@@ -207,7 +207,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
                     assert(state.server_tokens@ <= old_servers.locs());
                     assert(old_servers.locs().dom() == old_servers.dom());
 
-                    self.server_token.borrow().agree(&state.server_tokens);
+                    state.server_tokens.lemma_lb_points_to(self.server_token.borrow());
                     let ghost server_id = self.server_token@.key();
                     assert(state.servers.locs().contains_key(server_id));
 

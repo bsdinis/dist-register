@@ -213,6 +213,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         &&& self.state_inv@.constant().commitments_ids.client_ctr_id == self.client_ctr_token@.id()
         &&& self.client_ctr_token@.key() == self.id()
         &&& self.client_ctr_token@.value().1 == self.client_ctr.id()
+        &&& self.pool.spec_len() == self.state_inv@.constant().server_locs.len()
     }
 
     pub fn quorum_size(&self) -> (r: usize)
@@ -283,13 +284,18 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let proph_val = Prophecy::<Option<u64>>::new();
         let tracked token;
         let tracked server_lbs;
-        let read_pred = Ghost(ReadPred::from_state(self.state_inv@.constant()));
+        let tracked server_tokens_lb;
+        let ghost state_constant = self.state_inv@.constant();
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                token = state.linearization_queue.insert_read_linearizer(lin, op, proph_val@, &state.register);
+                broadcast use vstd::map_lib::lemma_submap_of_trans;
                 server_lbs = state.servers.extract_lbs();
-                // TODO(qed/read): this should be true
-                assume(forall|q: Quorum|  #[trigger] server_lbs.valid_quorum(q) ==> {
+                server_tokens_lb = state.server_tokens.lower_bound();
+                assert(server_tokens_lb@ == state.server_tokens@);
+                state.servers.lemma_leq_quorums(server_lbs, state.linearization_queue.watermark());
+                token = state.linearization_queue.insert_read_linearizer(lin, op, proph_val@, &state.register);
+
+                assert(forall|q: Quorum|  #[trigger] server_lbs.valid_quorum(q) ==> {
                     token.value().min_ts@.timestamp() <= server_lbs.quorum_timestamp(q)
                 });
             }
@@ -301,11 +307,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
+        let read_pred = Ghost(ReadPred::from_state(state_constant, token.value().min_ts));
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
         #[allow(unused_parens)]
         let accum = ReadAccumGetPhase::new(
             Tracked(server_lbs),
-            Ghost(token.value().min_ts),
+            Tracked(server_tokens_lb),
             read_pred,
         );
         let quorum_res = bpool.broadcast(req, read_pred, accum).wait_for(
@@ -341,12 +348,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             },
         };
 
-        // check early return
-        proof {
-            self.lemma_quorum_nonzero();
-        }
-        // TODO(qed/assume/wait_for_post)
-        assume(replies.spec_n_get_replies() >= qsize);
+        assert(replies.constant() == read_pred@);
         let agree_with_max = replies.agree_with_max().clone();
         let max_resp = replies.max_resp();
         let max_ts = max_resp.timestamp();
@@ -354,19 +356,28 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let Tracked(commitment) = max_resp.commitment();
         proph_val.resolve(&value);
 
+        // check early return
         if replies.agree_with_max().len() >= self.quorum_size() {
+            replies.lemma_quorum();
+            replies.lemma_max_timestamp();
+            let Tracked(replies_servers) = replies.servers_lb();  // needed to have an owned instance
             let tracked comp;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
-                    let ghost old_watermark = state.linearization_queue.watermark();
                     let ghost old_known = state.linearization_queue.known_timestamps();
-                    let ghost old_servers = state.servers;
-                    let ghost old_unclaimed = state.unclaimed_servers();
-                    let ghost old_server_tokens = state.server_tokens@;
+                    state.servers.lemma_locs();
+                    replies_servers.lemma_locs();
 
-                    // TODO(qed/assume/chan_k): commitment agreement
-                    assume(commitment.id() == state.commitments.commitment_id());
                     state.commitments.agree_commitment(&commitment);
+                    // NOTE: this is an annoying thing from the way that equality works for
+                    // ServerUniverse. Even though replies_server does not change, it is not `==`
+                    let ghost old_replies_servers = replies_servers;
+                    replies_servers.lemma_lb(&state.servers);
+                    old_replies_servers.lemma_eq(replies_servers);
+                    assert(old_replies_servers.valid_quorum(replies.quorum()));
+                    replies_servers.lemma_leq_implies_validity(state.servers, replies.quorum());
+                    replies_servers.lemma_leq_retains_unanimity(state.servers, replies.quorum(), max_ts);
+                    state.servers.lemma_quorum_lb(replies.quorum(), max_ts);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
                     let tracked watermark = state.linearization_queue.apply_linearizers_up_to(
@@ -374,19 +385,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                             max_ts,
                     );
 
-                    if max_ts > old_watermark {
-                        // TODO(qed/assume/quorum): valid quorum
-                        assume(state.servers.valid_quorum(replies.quorum()));
-                        // TODO(qed/assume/quorum): unanimous quorum
-                        assume(state.servers.unanimous_quorum(replies.quorum(), max_ts));
-                        state.servers.lemma_quorum_lb(replies.quorum(), max_ts);
-                        assert(state.linearization_queue.watermark() == max_ts);
-                    } else {
-                        assert(state.linearization_queue.watermark() == old_watermark);
-                    }
-
-                    // TODO(qed/assume/replies): relate max_resp with min_ts
-                    assume(max_ts >= token.value().min_ts@.timestamp());
                     comp = state.linearization_queue.extract_read_completion(
                         token,
                         max_ts,
@@ -396,14 +394,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
                     // XXX: load bearing
                     assert(state.linearization_queue.known_timestamps() == old_known);
-                    admit(); // TODO(qed/read/phase_1)
                 }
 
                 // XXX: debug assert
                 assert(state.inv());
             });
-            let (max_val, max_ts) = replies.max_resp().clone().into_inner();
-            return Ok((max_val, max_ts, Tracked(comp)));
+            return Ok((value, max_ts, Tracked(comp)));
         }
         // non-unanimous read: write-back
 

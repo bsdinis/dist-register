@@ -78,6 +78,15 @@ impl ServerUniverse {
         self.map.map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc())
     }
 
+    pub proof fn lemma_locs(self)
+        requires
+            self.inv(),
+        ensures
+            self.locs().dom() == self.dom(),
+    {
+        vlib::map::lemma_map_values_dom(self.map, |r: Tracked<MonotonicTimestampResource>| r@.loc())
+    }
+
     pub open spec fn valid_quorum(self, q: Quorum) -> bool
         recommends
             self.inv(),
@@ -472,7 +481,29 @@ impl ServerUniverse {
             self.contains_key(k) ==> self[k]@@.timestamp() <= other[k]@@.timestamp()
     }
 
-    proof fn lemma_leq_implies_validity(self, other: ServerUniverse, q: Quorum)
+    pub open spec fn eq(self, other: ServerUniverse) -> bool
+        recommends
+            self.inv(),
+            other.inv(),
+    {
+        &&& self.locs() == other.locs()
+        &&& forall|id: u64| #[trigger]
+            self.contains_key(id) ==> {
+                &&& self[id]@@.timestamp() == other[id]@@.timestamp()
+                &&& self[id]@@ is HalfRightToAdvance == other[id]@@ is HalfRightToAdvance
+                &&& self[id]@@ is FullRightToAdvance == other[id]@@ is FullRightToAdvance
+                &&& self[id]@@ is LowerBound == other[id]@@ is LowerBound
+            }
+        &&& forall|id: u64| #[trigger]
+            other.contains_key(id) ==> {
+                &&& self[id]@@.timestamp() == other[id]@@.timestamp()
+                &&& self[id]@@ is HalfRightToAdvance == other[id]@@ is HalfRightToAdvance
+                &&& self[id]@@ is FullRightToAdvance == other[id]@@ is FullRightToAdvance
+                &&& self[id]@@ is LowerBound == other[id]@@ is LowerBound
+            }
+    }
+
+    pub proof fn lemma_leq_implies_validity(self, other: ServerUniverse, q: Quorum)
         requires
             self.inv(),
             other.inv(),
@@ -494,7 +525,7 @@ impl ServerUniverse {
         }
     }
 
-    proof fn lemma_leq_retains_unanimity(self, other: ServerUniverse, q: Quorum, lb: Timestamp)
+    pub proof fn lemma_leq_retains_unanimity(self, other: ServerUniverse, q: Quorum, lb: Timestamp)
         requires
             self.inv(),
             other.inv(),
@@ -547,7 +578,39 @@ impl ServerUniverse {
         }
     }
 
-    // NOTE: unused (but probably true)
+    pub proof fn lemma_eq(self, other: ServerUniverse)
+        requires
+            self.inv(),
+            other.inv(),
+            self.eq(other),
+        ensures
+            forall|q: Quorum| #[trigger] self.valid_quorum(q) <==> other.valid_quorum(q),
+            forall|q: Quorum| #[trigger]
+                self.valid_quorum(q) ==> {
+                    &&& self.quorum_timestamp(q) == other.quorum_timestamp(q)
+                    &&& forall|ts: Timestamp| #[trigger]
+                        self.unanimous_quorum(q, ts) <==> other.unanimous_quorum(q, ts)
+                },
+    {
+        /*
+        assert forall |q: Quorum| #[trigger] self.servers().valid_quorum(q) implies {
+            &&& lbs.valid_quorum(q)
+            &&& self.servers().quorum_timestamp(q) == lbs.quorum_timestamp(q)
+        } by {
+            lbs.lemma_leq_implies_validity(self.servers(), q);
+            lbs.lemma_leq_quorums(self.servers(), self.servers().quorum_timestamp(q));
+            self.servers().lemma_leq_quorums(lbs, self.servers().quorum_timestamp(q));
+            admit();
+        }
+        assert forall |q: Quorum| #[trigger] lbs.valid_quorum(q) implies {
+            &&& self.servers().valid_quorum(q)
+        } by {
+            self.servers().lemma_leq_implies_validity(lbs, q);
+        }
+        */
+        admit();  // TODO(qed/read1)
+    }
+
     pub proof fn lemma_lb(tracked &mut self, tracked other: &Self)
         requires
             old(self).inv(),
@@ -557,12 +620,78 @@ impl ServerUniverse {
             old(self).locs() == other.locs(),
         ensures
             self.inv(),
-            self.locs() == old(self).locs(),
             self.is_lb(),
-            *old(self) == *self,
             self.leq(*other),
+            // NOTE: as a trick, we could extract the lowerbounds from self
+            // keep the fact that self.eq(self_lbs) in the recursion
+            // and internalize the idiocy of the == issue here
+            self.eq(*old(self)),
     {
-        admit();  // TODO(unused): This probably necessitates recursion
+        self.prove_lower_bound(other, Set::empty());
+    }
+
+    proof fn prove_lower_bound(tracked &mut self, tracked other: &Self, visited: Set<u64>)
+        requires
+            old(self).inv(),
+            old(self).is_lb(),
+            other.inv(),
+            other.is_auth(),
+            old(self).locs() == other.locs(),
+            visited.finite(),
+            visited <= old(self).dom(),
+            forall|id| #[trigger]
+                visited.contains(id) ==> old(self)[id]@@.timestamp() <= other[id]@@.timestamp(),
+        ensures
+            self.inv(),
+            self.is_lb(),
+            self.locs() == old(self).locs(),
+            self.leq(*other),
+            self.eq(*old(self)),
+        decreases other.dom().difference(visited).len(),
+    {
+        admit();  // TODO(qed/read_1)
+        let ghost old_map = *self;
+        self.lemma_locs();
+        other.lemma_locs();
+        if other.dom().difference(visited).is_empty() {
+            assert(self.locs() == old(self).locs());
+            assert(self.eq(*old(self)));
+            return ;
+        }
+        assert(exists|id| #[trigger] other.dom().contains(id) && !visited.contains(id));
+        let server_id = choose|id| #[trigger] other.dom().contains(id) && !visited.contains(id);
+        assert(other.dom().contains(server_id));
+        assert(self.dom().contains(server_id));
+        assume(self[server_id]@.loc() == other[server_id]@.loc());
+
+        let tracked Tracked(mut r) = self.map.tracked_remove(server_id);
+        r.lemma_lower_bound(other.map.tracked_borrow(server_id).borrow());
+        self.map.tracked_insert(server_id, Tracked(r));
+
+        other.dom().lemma_set_insert_diff_decreases(visited, server_id);
+
+        assume(self.locs() == old(self).locs());
+        assume(self.eq(*old(self)));
+        self.prove_lower_bound(
+            other,
+            visited.insert(server_id),
+        )/*
+        assert forall |id| #[trigger]
+            old_map.contains_key(id) implies {
+            &&& old_map[id]@@.timestamp() == self[id]@@.timestamp()
+            &&& old_map[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
+            &&& old_map[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
+            &&& old_map[id]@@ is LowerBound ==> self[id]@@ is LowerBound
+        } by {
+            if id == server_id {
+                assert(self.contains_key(server_id));
+                admit();
+            } else {
+                admit();
+            }
+        }
+        */
+
     }
 
     // This is the big quorum lemma
@@ -642,11 +771,12 @@ impl ServerUniverse {
         ensures
             r.inv(),
             r.is_lb(),
-            self.leq(r),
-            r.leq(*self),
+            self.eq(r),
     {
         let tracked mut map = Map::tracked_empty();
         Self::duplicate_map(&self.map, &mut map);
+
+        admit();  // TODO(qed/read_phase1)
 
         ServerUniverse { map }
     }

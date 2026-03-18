@@ -50,22 +50,18 @@ impl<Req, Resp> ChannelState<Req, Resp> {
     //requires !self.history@.contains_key(self.current_tag),
 
         ensures
-            //r.0.buffered == self.buffered,
-            //r.0.pending == self.pending@.insert(self.current_tag, request),
-            //r.0.history == self.history,
-            //r.0.current_tag == self.current_tag + 1,
-            //r.1.request_tag == self.current_tag,
+    //r.0.buffered == self.buffered,
+    //r.0.pending == self.pending@.insert(self.current_tag, request),
+    //r.0.history == self.history,
+    //r.0.current_tag == self.current_tag + 1,
+    //r.1.request_tag == self.current_tag,
+
     {
         proof {
             use_type_invariant(&self);
         }
         #[allow(non_shorthand_field_patterns)]
-        let ChannelState {
-            buffered,
-            pending,
-            history,
-            current_tag
-        } = self;
+        let ChannelState { buffered, pending, history, current_tag } = self;
         assume(current_tag < u64::MAX);
         assume(!history@.contains_key(current_tag));
 
@@ -87,23 +83,20 @@ impl<Req, Resp> ChannelState<Req, Resp> {
     // called on channel.recv()
     pub fn add_response(self, request_tag: u64, response: Resp) -> (r: Self)
         requires
-            //self.pending@.contains_key(request_tag),
+    //self.pending@.contains_key(request_tag),
+
         ensures
-            //r.buffered@ == self.buffered@.insert(request_tag, response),
-            //r.pending == self.pending,
-            //r.history == self.history,
+    //r.buffered@ == self.buffered@.insert(request_tag, response),
+    //r.pending == self.pending,
+    //r.history == self.history,
+
     {
         proof {
             use_type_invariant(&self);
             admit();
         }
         #[allow(non_shorthand_field_patterns)]
-        let ChannelState {
-            mut buffered,
-            pending,
-            history,
-            current_tag
-        } = self;
+        let ChannelState { mut buffered, pending, history, current_tag } = self;
         buffered.insert(request_tag, response);
         ChannelState { buffered, pending, history, current_tag }
     }
@@ -111,14 +104,16 @@ impl<Req, Resp> ChannelState<Req, Resp> {
     // called when channel.poll(id) hits
     pub fn move_request(self, request_tag: u64) -> (r: Self)
         requires
-            //self.buffered@.contains_key(request_tag),
+    //self.buffered@.contains_key(request_tag),
+
         ensures
-            //r.buffered@ == self.buffered@.remove(request_tag),
-            //r.pending == self.pending@.remove(request_tag),
-            //r.history == self.history@.insert(
-                //request_tag,
-                //(self.pending@[request_tag], self.buffered@[request_tag]),
-            //),
+    //r.buffered@ == self.buffered@.remove(request_tag),
+    //r.pending == self.pending@.remove(request_tag),
+    //r.history == self.history@.insert(
+    //request_tag,
+    //(self.pending@[request_tag], self.buffered@[request_tag]),
+    //),
+
     {
         proof {
             use_type_invariant(&self);
@@ -127,12 +122,7 @@ impl<Req, Resp> ChannelState<Req, Resp> {
 
         #[allow(unused_variables)]
         #[allow(non_shorthand_field_patterns)]
-        let ChannelState {
-            mut buffered,
-            pending,
-            history,
-            current_tag,
-        } = self;
+        let ChannelState { mut buffered, pending, history, current_tag } = self;
 
         let ghost request = pending@[request_tag];
         #[allow(unused_variables)]
@@ -150,7 +140,12 @@ impl<Req, Resp> ChannelState<Req, Resp> {
             assert(new_intersect =~= old_intersect);
         }
 
-        ChannelState { buffered, pending: Ghost(new_pending), history: Ghost(new_history), current_tag }
+        ChannelState {
+            buffered,
+            pending: Ghost(new_pending),
+            history: Ghost(new_history),
+            current_tag,
+        }
     }
 }
 

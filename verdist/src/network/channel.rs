@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::network::error::ConnectError;
@@ -26,14 +27,6 @@ fn default_delay() -> (Duration, Duration) {
 }
 
 verus! {
-
-struct EmptyCond;
-
-impl<V> vstd::rwlock::RwLockPredicate<V> for EmptyCond {
-    open spec fn inv(self, v: V) -> bool {
-        true
-    }
-}
 
 pub assume_specification[ park_thread ](mean: Duration, std_dev: Duration)
 ;
@@ -82,7 +75,12 @@ pub trait Channel {
 
     spec fn spec_id(self) -> Self::Id;
 
-    fn add_latency(&mut self, _avg: Duration, _stddev: Duration) {
+    fn add_latency(&mut self, _avg: Duration, _stddev: Duration)
+        ensures
+            self.spec_id() == old(self).spec_id(),
+            self.constant() == old(self).constant(),
+        no_unwind
+    {
     }
 
     fn delay(&self) -> (Duration, Duration) {
@@ -109,21 +107,65 @@ pub trait Connector<C> where C: Channel {
     ;
 }
 
-pub struct BufChannel<C: Channel> {
-    channel: C,
-    #[allow(dead_code)]
-    buffered: RwLock<HashMap<u64, C::R>, EmptyCond>,
+#[allow(dead_code)]
+struct BufChannelInv<K, Id, S> {
+    ghost channel_inv: K,
+    ghost channel_id: Id,
+    _marker: PhantomData<S>,
 }
 
-impl<C: Channel> BufChannel<C> {
-    pub fn new(channel: C) -> Self {
-        BufChannel { channel, buffered: RwLock::new(HashMap::new(), Ghost(EmptyCond)) }
+impl<K, Id, R, S> vstd::rwlock::RwLockPredicate<HashMap<u64, R>> for BufChannelInv<K, Id, S> where
+    K: ChannelInvariant<K, Id, R, S>,
+    R: TaggedMessage,
+ {
+    closed spec fn inv(self, v: HashMap<u64, R>) -> bool {
+        forall|tag: u64| #[trigger]
+            v@.contains_key(tag) ==> {
+                &&& v@[tag].spec_tag() == tag
+                &&& K::recv_inv(self.channel_inv, self.channel_id, v@[tag])
+            }
+    }
+}
+
+pub struct BufChannel<C> where C: Channel, C::R: TaggedMessage {
+    channel: C,
+    #[allow(dead_code)]
+    buffered: RwLock<HashMap<u64, C::R>, BufChannelInv<C::K, C::Id, C::S>>,
+}
+
+impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
+    pub fn new(channel: C) -> (r: Self)
+        ensures
+            r.spec_id() == channel.spec_id(),
+            r.constant() == channel.constant(),
+    {
+        let ghost lock_pred = BufChannelInv {
+            channel_inv: channel.constant(),
+            channel_id: channel.spec_id(),
+            _marker: PhantomData,
+        };
+        BufChannel { channel, buffered: RwLock::new(HashMap::new(), Ghost(lock_pred)) }
+    }
+
+    #[verifier::type_invariant]
+    spec fn inv(self) -> bool {
+        &&& self.buffered.pred().channel_inv == self.constant()
+        &&& self.buffered.pred().channel_id == self.spec_id()
     }
 }
 
 impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
-    #[allow(dead_code)]
-    pub fn try_recv_tag(&self, tag: u64) -> Result<Option<C::R>, TryRecvError> {
+    pub fn try_recv_tag(&self, tag: u64) -> (r: Result<Option<C::R>, TryRecvError>)
+        ensures
+            r is Ok && r->Ok_0 is Some ==> {
+                let resp = r->Ok_0->Some_0;
+                &&& C::K::recv_inv(self.constant(), self.spec_id(), resp)
+                &&& resp.spec_tag() == tag
+            },
+    {
+        proof {
+            use_type_invariant(self);
+        }
         let (mut guard, handle) = self.buffered.acquire_write();
         if let Some(r) = guard.remove(&tag) {
             handle.release_write(guard);
@@ -132,7 +174,11 @@ impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
         handle.release_write(guard);
 
         match self.channel.try_recv() {
-            Ok(r) if r.tag() == tag => Ok(Some(r)),
+            Ok(r) if r.tag() == tag => {
+                assert(r.spec_tag() == tag);
+                assert(C::K::recv_inv(self.constant(), self.spec_id(), r));
+                Ok(Some(r))
+            },
             Ok(r) => {
                 let (mut guard, handle) = self.buffered.acquire_write();
                 guard.insert(r.tag(), r);
@@ -147,7 +193,7 @@ impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
     }
 }
 
-impl<C: Channel> Channel for BufChannel<C> {
+impl<C> Channel for BufChannel<C> where C: Channel, C::R: TaggedMessage {
     type R = C::R;
 
     type S = C::S;
@@ -185,6 +231,9 @@ impl<C: Channel> Channel for BufChannel<C> {
     }
 
     fn add_latency(&mut self, avg: Duration, stddev: Duration) {
+        proof {
+            admit();
+        }  // TODO: this is weird, the constant should be the same
         self.channel.add_latency(avg, stddev);
     }
 }

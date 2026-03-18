@@ -320,11 +320,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 ensures
                     r ==> s.spec_len() >= qsize,
                 { s.len() >= self.quorum_size() }),
-            |r|
-                match r {
-                    Response::Get(get) => { Ok(get.clone()) },
-                    _ => Err(r),
-                },
         );
 
         let replies = match quorum_res {
@@ -419,11 +414,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     assume(s.spec_len() + agree_with_max.len() < usize::MAX);  // XXX: integer overflow
                     s.len() + agree_with_max.len() >= self.quorum_size()
                 }),
-            |r|
-                match r {
-                    Response::Write(write) => Ok(write.clone()),
-                    _ => Err(r),
-                },
         );
 
         let wb_replies = match replies_result {
@@ -575,17 +565,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             let quorum_res = bpool.broadcast::<EmptyPred, _>(
                 req,
                 Ghost(EmptyPred),
-                BadAccumulator::new(),
+                GetTimestampAccumulator::new(),
             ).wait_for(
                 (|s| -> (r: bool)
                     ensures
                         r ==> s.spec_len() >= qsize,
                     { s.len() >= self.quorum_size() }),
-                |r|
-                    match r {
-                        Response::GetTimestamp(get_ts) => Ok(get_ts.clone()),
-                        _ => Err(r),
-                    },
             );
 
             match quorum_res {
@@ -691,17 +676,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             let quorum_res = bpool.broadcast::<EmptyPred, _>(
                 Request::Write(WriteRequest::new(value, exec_ts, Tracked(commitment.duplicate()))),
                 Ghost(EmptyPred),
-                BadAccumulator::new(),
+                WriteAccumulator::new(),
             ).wait_for(
                 (|s| -> (r: bool)
                     ensures
                         r ==> s.spec_len() >= qsize,
                     { s.len() >= self.quorum_size() }),
-                |r|
-                    match r {
-                        Response::Write(_) => Ok(()),
-                        _ => Err(r),
-                    },
             );
 
             let quorum = match quorum_res {

@@ -14,7 +14,7 @@ use crate::invariants::quorum::ServerUniverse;
 use crate::invariants::StatePredicate;
 use crate::Timestamp;
 
-use crate::proto::{GetResponse, WriteResponse};
+use crate::proto::{GetResponse, GetTimestampResponse, Response, WriteResponse};
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use verdist::rpc::replies::ReplyAccumulator;
 
@@ -481,11 +481,14 @@ impl ReadAccumulator {
 
     fn insert_get(&mut self, id: (u64, u64), resp: GetResponse)
         requires
+            ReadPred::inv(old(self).constant(), *old(self)),
             resp.server_id() == id.1,
+            old(self).constant().server_tokens_id == resp.server_token_id(),
             old(self).constant().server_locs.contains_key(resp.server_id()),
             old(self).constant().server_locs[resp.server_id()] == resp.loc(),
             resp.spec_commitment().id() == old(self).commitment_id(),
         ensures
+            ReadPred::inv(self.constant(), *self),
             self.constant() == old(self).constant(),
             self.spec_n_get_replies() == old(self).spec_n_get_replies() + 1,
             self.spec_n_wb_replies() == old(self).spec_n_wb_replies(),
@@ -493,8 +496,6 @@ impl ReadAccumulator {
     {
         proof {
             use_type_invariant(&*self);
-            // TODO(qed/read/phase_1/chan_pred): look at the channel invariant to solve this
-            assume(resp.server_token_id() == self.server_tokens_id());
         }
 
         resp.lemma_get_response();
@@ -545,7 +546,10 @@ impl ReadAccumulator {
     }
 
     fn insert_write(&mut self, id: (u64, u64), resp: WriteResponse)
+        requires
+            ReadPred::inv(old(self).constant(), *old(self)),
         ensures
+            ReadPred::inv(self.constant(), *self),
             self.constant() == old(self).constant(),
             self.wb_replies@ == old(self).wb_replies@.insert(id, resp),
             self.spec_n_get_replies() == old(self).spec_n_get_replies(),
@@ -663,21 +667,32 @@ impl InvariantPredicate<ReadPred, ReadAccumWbPhase> for ReadPred {
 }
 
 impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumGetPhase {
-    type T = GetResponse;
+    type T = Response;
 
-    fn insert(&mut self, pred: Ghost<ReadPred>, id: (u64, u64), resp: GetResponse)
+    #[verifier::exec_allows_no_decreases_clause]
+    fn insert(&mut self, pred: Ghost<ReadPred>, id: (u64, u64), resp: Response)
         ensures
             self.constant() == old(self).constant(),
     {
         proof {
             use_type_invariant(&*self);
         }
+        assert(self.constant() == pred@);
+        assume(resp is Get);
+        let resp = match resp {
+            Response::Get(g) => g,
+            _ => {
+                assert(false);
+                loop {
+                }
+            },
+        };
         // TODO(qed/read/phase_1/chan_pred): add these to the recv_inv
-        assume(self.constant() == pred@);
         assume(resp.server_id() == id.1);
         assume(resp.spec_commitment().id() == self.constant().commitment_id);
         assume(self.constant().server_locs.contains_key(resp.server_id()));
         assume(self.constant().server_locs[resp.server_id()] == resp.loc());
+        assume(self.constant().server_tokens_id == resp.server_token_id());
         self.0.insert_get(id, resp);
     }
 
@@ -691,12 +706,22 @@ impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumGetPhase {
 }
 
 impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumWbPhase {
-    type T = WriteResponse;
+    type T = Response;
 
-    fn insert(&mut self, pred: Ghost<ReadPred>, id: (u64, u64), resp: WriteResponse)
+    #[verifier::exec_allows_no_decreases_clause]
+    fn insert(&mut self, pred: Ghost<ReadPred>, id: (u64, u64), resp: Response)
         ensures
             self.constant() == old(self).constant(),
     {
+        assume(resp is Write);
+        let resp = match resp {
+            Response::Write(w) => w,
+            _ => {
+                assert(false);
+                loop {
+                }
+            },
+        };
         self.0.insert_write(id, resp);
     }
 
@@ -709,15 +734,29 @@ impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumWbPhase {
     }
 }
 
-pub struct BadAccumulator<T> {
-    replies: BTreeMap<(u64, u64), T>,
+pub struct GetTimestampAccumulator {
+    replies: BTreeMap<(u64, u64), GetTimestampResponse>,
 }
 
-impl<T> ReplyAccumulator<(u64, u64), EmptyPred> for BadAccumulator<T> {
-    type T = T;
+pub struct WriteAccumulator {
+    replies: BTreeMap<(u64, u64), ()>,
+}
+
+impl ReplyAccumulator<(u64, u64), EmptyPred> for GetTimestampAccumulator {
+    type T = Response;
 
     #[allow(unused_variables)]
-    fn insert(&mut self, pred: Ghost<EmptyPred>, id: (u64, u64), resp: T) {
+    #[verifier::exec_allows_no_decreases_clause]
+    fn insert(&mut self, pred: Ghost<EmptyPred>, id: (u64, u64), resp: Response) {
+        assume(resp is GetTimestamp);
+        let resp = match resp {
+            Response::GetTimestamp(g) => g,
+            _ => {
+                assert(false);
+                loop {
+                }
+            },
+        };
         // TODO(qed): remove later on
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         assume(!self.replies@.contains_key(id));
@@ -736,15 +775,64 @@ impl<T> ReplyAccumulator<(u64, u64), EmptyPred> for BadAccumulator<T> {
     }
 }
 
-impl<T> BadAccumulator<T> {
+impl GetTimestampAccumulator {
     pub fn new() -> (r: Self)
         ensures
             r.spec_n_replies() == 0,
     {
-        BadAccumulator { replies: BTreeMap::new() }
+        GetTimestampAccumulator { replies: BTreeMap::new() }
     }
 
-    pub fn into(self) -> (r: BTreeMap<(u64, u64), T>)
+    pub fn into(self) -> (r: BTreeMap<(u64, u64), GetTimestampResponse>)
+        ensures
+            r@.len() == self.spec_n_replies(),
+    {
+        self.replies
+    }
+}
+
+impl ReplyAccumulator<(u64, u64), EmptyPred> for WriteAccumulator {
+    type T = Response;
+
+    #[allow(unused_variables)]
+    #[verifier::exec_allows_no_decreases_clause]
+    fn insert(&mut self, pred: Ghost<EmptyPred>, id: (u64, u64), resp: Response) {
+        assume(resp is Write);
+        let resp = match resp {
+            Response::Write(w) => w,
+            _ => {
+                assert(false);
+                loop {
+                }
+            },
+        };
+        // TODO(qed): remove later on
+        assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+        assume(!self.replies@.contains_key(id));
+        assert(self.replies@.dom().finite());
+        assert(self.replies@.dom().insert(id).len() == self.replies@.dom().len() + 1);
+        self.replies.insert(id, ());
+    }
+
+    closed spec fn spec_n_replies(self) -> nat {
+        self.replies@.len()
+    }
+
+    fn n_replies(&self) -> usize {
+        assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+        self.replies.len()
+    }
+}
+
+impl WriteAccumulator {
+    pub fn new() -> (r: Self)
+        ensures
+            r.spec_n_replies() == 0,
+    {
+        WriteAccumulator { replies: BTreeMap::new() }
+    }
+
+    pub fn into(self) -> (r: BTreeMap<(u64, u64), ()>)
         ensures
             r@.len() == self.spec_n_replies(),
     {
@@ -754,8 +842,14 @@ impl<T> BadAccumulator<T> {
 
 pub struct EmptyPred;
 
-impl<T> InvariantPredicate<EmptyPred, BadAccumulator<T>> for EmptyPred {
-    open spec fn inv(pred: EmptyPred, v: BadAccumulator<T>) -> bool {
+impl InvariantPredicate<EmptyPred, GetTimestampAccumulator> for EmptyPred {
+    open spec fn inv(pred: EmptyPred, v: GetTimestampAccumulator) -> bool {
+        true
+    }
+}
+
+impl InvariantPredicate<EmptyPred, WriteAccumulator> for EmptyPred {
+    open spec fn inv(pred: EmptyPred, v: WriteAccumulator) -> bool {
         true
     }
 }

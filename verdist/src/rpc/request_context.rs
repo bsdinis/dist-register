@@ -1,4 +1,3 @@
-use crate::network::channel::Channel;
 use crate::pool::{ChannelId, ChannelResp, ConnectionPool};
 use crate::rpc::replies::ReplyAccumulator;
 use crate::rpc::Replies;
@@ -54,7 +53,8 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
     pub fn wait_for<F>(self, termination_cond: F) -> (r: Result<
         Replies<ChannelId<Pool>, Pred, A>,
         Replies<ChannelId<Pool>, Pred, A>,
-    >) where F: Fn(&Replies<ChannelId<Pool>, Pred, A>) -> bool
+    >) where
+        F: Fn(&Replies<ChannelId<Pool>, Pred, A>) -> bool,
         requires
             forall|replies| termination_cond.requires((&replies,)),
         ensures
@@ -98,7 +98,9 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
                     pred == self_mut.pred(),
             {
                 match response {
-                    Ok(Some(r)) => { self_mut.replies.insert_reply(idx, r) },
+                    Ok(Some(r)) => {
+                        self_mut.replies.insert_reply(idx, r)
+                    },
                     Ok(None) => {},
                     Err(e) => {
                         self_mut.replies.insert_error(idx, e);

@@ -28,7 +28,7 @@ pub trait ReplyAccumulator<ChanId, Pred>: Sized where Pred: InvariantPredicate<P
     ;
 }
 
-pub struct Replies<ChanId, Pred, R, A> where
+pub struct Replies<ChanId, Pred, A> where
     ChanId: Ord,
     Pred: InvariantPredicate<Pred, A>,
     A: ReplyAccumulator<ChanId, Pred>,
@@ -37,11 +37,10 @@ pub struct Replies<ChanId, Pred, R, A> where
     reply_accum: A,
     n_replies: usize,
     n_received: usize,
-    invalid_replies: BTreeMap<ChanId, R>,
     errors: BTreeMap<ChanId, TryRecvError>,
 }
 
-impl<ChanId, Pred, R, A> Replies<ChanId, Pred, R, A> where
+impl<ChanId, Pred, A> Replies<ChanId, Pred, A> where
     ChanId: Ord,
     Pred: InvariantPredicate<Pred, A>,
     A: ReplyAccumulator<ChanId, Pred>,
@@ -55,20 +54,12 @@ impl<ChanId, Pred, R, A> Replies<ChanId, Pred, R, A> where
             r.spec_len() == 0,
             r.pred() == pred@,
     {
-        Replies {
-            pred,
-            reply_accum: accum,
-            invalid_replies: BTreeMap::new(),
-            errors: BTreeMap::new(),
-            n_replies: 0,
-            n_received: 0,
-        }
+        Replies { pred, reply_accum: accum, errors: BTreeMap::new(), n_replies: 0, n_received: 0 }
     }
 
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
-        &&& self.spec_len() + self.invalid_replies.len() as nat + self.errors.len() as nat
-            == self.n_received as nat
+        &&& self.spec_len() + self.errors.len() as nat == self.n_received as nat
         &&& self.spec_len() == self.n_replies as nat
         &&& vstd::laws_cmp::obeys_cmp_spec::<ChanId>()
         &&& Pred::inv(self.pred(), self.reply_accum)
@@ -117,24 +108,6 @@ impl<ChanId, Pred, R, A> Replies<ChanId, Pred, R, A> where
         self.reply_accum
     }
 
-    pub closed spec fn spec_invalid_replies(self) -> Map<ChanId, R> {
-        self.invalid_replies@
-    }
-
-    pub fn invalid_replies(&self) -> (r: &BTreeMap<ChanId, R>)
-        ensures
-            r@ == self.spec_invalid_replies(),
-    {
-        &self.invalid_replies
-    }
-
-    pub fn into_invalid_replies(self) -> (r: BTreeMap<ChanId, R>)
-        ensures
-            r@ == self.spec_invalid_replies(),
-    {
-        self.invalid_replies
-    }
-
     pub closed spec fn spec_errors(self) -> (r: Map<ChanId, TryRecvError>) {
         self.errors@
     }
@@ -156,7 +129,6 @@ impl<ChanId, Pred, R, A> Replies<ChanId, Pred, R, A> where
     pub fn insert_reply(&mut self, id: ChanId, v: A::T)
         ensures
             self.spec_len() == old(self).spec_len() + 1,
-            self.spec_invalid_replies() == old(self).spec_invalid_replies(),
             self.spec_errors() == old(self).spec_errors(),
             self.pred() == old(self).pred(),
     {
@@ -173,23 +145,9 @@ impl<ChanId, Pred, R, A> Replies<ChanId, Pred, R, A> where
         );
     }
 
-    pub fn insert_invalid_reply(&mut self, id: ChanId, resp: R)
-        ensures
-            self.accumulator() == old(self).accumulator(),
-            self.spec_invalid_replies() == old(self).spec_invalid_replies().insert(id, resp),
-            self.spec_errors() == old(self).spec_errors(),
-            self.pred() == old(self).pred(),
-    {
-        proof {
-            use_type_invariant(&*self);
-        }
-        Self::insert_helper(&mut self.invalid_replies, &mut self.n_received, id, resp);
-    }
-
     pub fn insert_error(&mut self, id: ChanId, err: TryRecvError)
         ensures
             self.accumulator() == old(self).accumulator(),
-            self.spec_invalid_replies() == old(self).spec_invalid_replies(),
             self.spec_errors() == old(self).spec_errors().insert(id, err),
             self.pred() == old(self).pred(),
     {

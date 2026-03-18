@@ -1,10 +1,7 @@
 use crate::network::channel::Channel;
-use crate::pool::ConnectionPool;
+use crate::pool::{ChannelId, ChannelResp, ConnectionPool};
 use crate::rpc::replies::ReplyAccumulator;
 use crate::rpc::Replies;
-
-#[allow(dead_code)]
-type Resp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
 
 use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
@@ -14,24 +11,24 @@ verus! {
 pub struct RequestContext<'a, Pool, Pred, A> where
     Pool: ConnectionPool,
     Pred: InvariantPredicate<Pred, A>,
-    A: ReplyAccumulator<<Pool::C as Channel>::Id, Pred>,
+    A: ReplyAccumulator<ChannelId<Pool>, Pred, T = ChannelResp<Pool>>,
  {
     pub pool: &'a Pool,
     pub request_tag: u64,
     #[allow(dead_code)]
-    pub replies: Replies<<Pool::C as Channel>::Id, Pred, <Pool::C as Channel>::R, A>,
+    pub replies: Replies<ChannelId<Pool>, Pred, A>,
 }
 
 impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
     Pool: ConnectionPool,
     Pred: InvariantPredicate<Pred, A>,
-    A: ReplyAccumulator<<Pool::C as Channel>::Id, Pred>,
+    A: ReplyAccumulator<ChannelId<Pool>, Pred, T = ChannelResp<Pool>>,
  {
     pub fn new(pool: &'a Pool, request_tag: u64, pred: Ghost<Pred>, accum: A) -> (r: Self)
         requires
             Pred::inv(pred@, accum),
             accum.spec_n_replies() == 0,
-            vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
+            vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
         ensures
             r.pred() == pred@,
     {
@@ -54,16 +51,12 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
 
     #[allow(dead_code)]
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn wait_for<F, V>(self, termination_cond: F, extractor_fn: V) -> (r: Result<
-        Replies<<Pool::C as Channel>::Id, Pred, Resp<Pool>, A>,
-        Replies<<Pool::C as Channel>::Id, Pred, Resp<Pool>, A>,
-    >) where
-        F: Fn(&Replies<<Pool::C as Channel>::Id, Pred, <Pool::C as Channel>::R, A>) -> bool,
-        V: Fn(<Pool::C as Channel>::R) -> Result<A::T, <Pool::C as Channel>::R>,
-
+    pub fn wait_for<F>(self, termination_cond: F) -> (r: Result<
+        Replies<ChannelId<Pool>, Pred, A>,
+        Replies<ChannelId<Pool>, Pred, A>,
+    >) where F: Fn(&Replies<ChannelId<Pool>, Pred, A>) -> bool
         requires
             forall|replies| termination_cond.requires((&replies,)),
-            forall|r| extractor_fn.requires((r,)),
         ensures
             r is Ok ==> {
                 &&& call_ensures(termination_cond, (&r->Ok_0,), true)
@@ -78,7 +71,6 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
         loop
             invariant
                 forall|replies| termination_cond.requires((&replies,)),
-                forall|r| extractor_fn.requires((r,)),
                 pred == self_mut.pred(),
                 pred == self.pred(),
         {
@@ -103,16 +95,10 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
             let it = self_mut.pool.poll(self_mut.request_tag);
             for (idx, response) in it
                 invariant
-                    forall|r| extractor_fn.requires((r,)),
                     pred == self_mut.pred(),
             {
                 match response {
-                    Ok(Some(r)) => {
-                        match extractor_fn(r) {
-                            Ok(v) => self_mut.replies.insert_reply(idx, v),
-                            Err(resp) => self_mut.replies.insert_invalid_reply(idx, resp),
-                        }
-                    },
+                    Ok(Some(r)) => { self_mut.replies.insert_reply(idx, r) },
                     Ok(None) => {},
                     Err(e) => {
                         self_mut.replies.insert_error(idx, e);

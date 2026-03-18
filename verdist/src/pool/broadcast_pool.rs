@@ -12,6 +12,9 @@ use crate::rpc::RequestContext;
 use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 
+use super::ChannelId;
+use super::ChannelResp;
+
 verus! {
 
 pub struct BroadcastPool<'a, Pool> {
@@ -22,7 +25,7 @@ pub struct BroadcastPool<'a, Pool> {
 impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     Pool: ConnectionPool,
     Pool::C: Channel<S = Request>,
-    <Pool::C as Channel>::R: TaggedMessage + std::fmt::Debug,
+    ChannelResp<Pool>: TaggedMessage + std::fmt::Debug,
     Request: TaggedMessage + Clone + std::fmt::Debug,
  {
     pub fn new(pool: &'a Pool) -> BroadcastPool<'a, Pool> {
@@ -37,8 +40,8 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         filter_fn: F,
     ) -> (r: RequestContext<'a, Pool, Pred, A>) where
         Pred: InvariantPredicate<Pred, A>,
-        A: ReplyAccumulator<<Pool::C as Channel>::Id, Pred>,
-        F: Fn(<Pool::C as Channel>::Id) -> bool,
+        A: ReplyAccumulator<ChannelId<Pool>, Pred, T = ChannelResp<Pool>>,
+        F: Fn(ChannelId<Pool>) -> bool,
 
         requires
     // TODO: forall |chan| #[trigger] Chann::K::send_inv(chan.constant(), chan.id(), request)
@@ -46,7 +49,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
             Pred::inv(pred@, accum),
             forall|id| filter_fn.requires((id,)),
             accum.spec_n_replies() == 0,
-            vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
+            vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
         ensures
             r.pred() == pred@,
     {
@@ -71,12 +74,12 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     pub fn broadcast<Pred, A>(self, request: Request, pred: Ghost<Pred>, accum: A) -> (r:
         RequestContext<'a, Pool, Pred, A>) where
         Pred: InvariantPredicate<Pred, A>,
-        A: ReplyAccumulator<<Pool::C as Channel>::Id, Pred>,
+        A: ReplyAccumulator<ChannelId<Pool>, Pred, T = ChannelResp<Pool>>,
 
         requires
             Pred::inv(pred@, accum),
             accum.spec_n_replies() == 0,
-            vstd::laws_cmp::obeys_cmp_spec::<<Pool::C as Channel>::Id>(),
+            vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
         ensures
             r.pred() == pred@,
     {

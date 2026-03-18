@@ -6,10 +6,9 @@ use crate::rpc::proto::TaggedMessage;
 
 use vstd::prelude::*;
 
-verus! {
+use super::ChannelResp;
 
-#[allow(dead_code)]
-type Resp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
+verus! {
 
 pub trait ConnectionPool {
     type C: Channel;
@@ -25,7 +24,7 @@ pub trait ConnectionPool {
     fn poll(&self, request_id: u64) -> (r: Vec<
         (
             <Self::C as Channel>::Id,
-            Result<Option<Resp<Self>>, crate::network::error::TryRecvError>,
+            Result<Option<ChannelResp<Self>>, crate::network::error::TryRecvError>,
         ),
     >)
         ensures

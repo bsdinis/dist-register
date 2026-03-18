@@ -10,6 +10,78 @@ use super::ChannelResp;
 
 verus! {
 
+pub open spec fn channel_seq_to_map<C: Channel>(s: Seq<C>) -> Map<C::Id, C>
+    recommends
+        s.map_values(|c: C| c.spec_id()).no_duplicates(),
+{
+    s.map_values(|c: C| c.spec_id()).to_set().mk_map(
+        |id|
+            {
+                let idx = choose|idx| 0 <= idx < s.len() && #[trigger] s[idx].spec_id() == id;
+                s[idx]
+            },
+    )
+}
+
+pub proof fn lemma_channel_seq_to_map<C: Channel>(s: Seq<C>, m: Map<C::Id, C>)
+    requires
+        m == channel_seq_to_map(s),
+        s.map_values(|c: C| c.spec_id()).no_duplicates(),
+    ensures
+        m.dom().finite(),
+        m.dom() == s.map_values(|c: C| c.spec_id()).to_set(),
+        m.values() == s.to_set(),
+        forall|id| #[trigger] m.contains_key(id) ==> m[id].spec_id() == id,
+        forall|idx|
+            0 <= idx < s.len() ==> {
+                let channel = #[trigger] s[idx];
+                &&& m.contains_key(channel.spec_id())
+                &&& m[channel.spec_id()] == channel
+            },
+{
+    let ghost seq_channels = s.to_set();
+    let ghost seq_ids = s.map_values(|c: C| c.spec_id());
+    let ghost map_channels = m.values();
+    s.lemma_to_set_map_commutes(|c: C| c.spec_id());
+    assert(seq_ids.no_duplicates());
+
+    assert forall|c| #[trigger] seq_channels.contains(c) implies map_channels.contains(c) by {
+        let id = c.spec_id();
+
+        assert(exists|idx| 0 <= idx < s.len() && #[trigger] s[idx] == c);
+        assert(exists|idx| 0 <= idx < s.len() && #[trigger] s[idx].spec_id() == c.spec_id());
+        let idx = choose|idx| 0 <= idx < s.len() && #[trigger] s[idx] == c;
+        let idx2 = choose|idx| 0 <= idx < s.len() && #[trigger] s[idx].spec_id() == id;
+        vstd::assert_by_contradiction!(idx == idx2, {
+            assert(s[idx].spec_id() == s[idx2].spec_id());
+            assert(seq_ids[idx] == id);
+            assert(seq_ids[idx2] == id);
+        });
+
+        assert(m.contains_key(id));
+    }
+    assert forall|c| map_channels.contains(c) implies seq_channels.contains(c) by {
+        let id = c.spec_id();
+        assert(m.contains_key(id));
+        assert(exists|idx| 0 <= idx < s.len() && #[trigger] s[idx].spec_id() == id);
+        let idx = choose|idx| 0 <= idx < s.len() && #[trigger] s[idx].spec_id() == id;
+    }
+
+    assert forall|idx| 0 <= idx < s.len() implies {
+        let channel = #[trigger] s[idx];
+        &&& m.contains_key(channel.spec_id())
+        &&& m[channel.spec_id()] == channel
+    } by {
+        let channel = s[idx];
+        let id = channel.spec_id();
+        assert(seq_ids[idx] == id);
+        assert(m.contains_key(id));
+
+        assert(s.to_set().contains(channel));
+        assert(m.values().contains(channel));
+    }
+}
+
 pub trait ConnectionPool {
     type C: Channel;
 
@@ -20,7 +92,13 @@ pub trait ConnectionPool {
 
     spec fn spec_len(self) -> nat;
 
-    #[allow(dead_code)]
+    fn channels(&self) -> (r: &[Self::C])
+        ensures
+            r@.to_set() == self.spec_channels().values(),
+    ;
+
+    spec fn spec_channels(&self) -> Map<<Self::C as Channel>::Id, Self::C>;
+
     fn poll(&self, request_id: u64) -> (r: Vec<
         (
             <Self::C as Channel>::Id,
@@ -30,58 +108,107 @@ pub trait ConnectionPool {
         ensures
             forall|idx|
                 0 <= idx < r@.len() ==> {
-                    let (id, resp) = #[trigger] r@[idx];
-                    &&& self.spec_conns().contains_key(id)
-                    &&& resp is Ok && resp->Ok_0 is Some ==> {
-                        let x = resp->Ok_0->Some_0;
-                        <Self::C as Channel>::K::recv_inv(self.spec_conns()[id].constant(), id, x)
+                    let (id, r) = #[trigger] r@[idx];
+                    &&& self.spec_channels().contains_key(id)
+                    &&& r is Ok && r->Ok_0 is Some ==> {
+                        let resp = r->Ok_0->Some_0;
+                        <Self::C as Channel>::K::recv_inv(
+                            self.spec_channels()[id].constant(),
+                            id,
+                            resp,
+                        )
                     }
                 },
     ;
 
-    fn conns(&self) -> (r: &[Self::C])
-        ensures
-            r@.to_set() == self.spec_conns().values(),
-    ;
-
-    spec fn spec_conns(&self) -> Map<<Self::C as Channel>::Id, Self::C>;
-
     proof fn lemma_len(tracked &self)
         ensures
-            self.spec_len() == self.spec_conns().len(),
+            self.spec_len() == self.spec_channels().len(),
+    ;
+
+    proof fn lemma_channels(tracked &self)
+        ensures
+            self.spec_channels().dom().finite(),
+            forall|id| #[trigger]
+                self.spec_channels().contains_key(id) ==> self.spec_channels()[id].spec_id() == id,
     ;
 }
 
-#[allow(unused)]
 pub struct FlawlessPool<C> where C: Channel {
     pool: Vec<C>,
 }
 
-impl<C: Channel> FlawlessPool<C> {
+impl<C> FlawlessPool<C> where C: Channel {
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
-        forall|i, j|
-            0 <= i < j < self.pool@.len() ==> #[trigger] self.pool@[i].spec_id()
-                != #[trigger] self.pool@[j].spec_id()
+        // all channel ids are different
+        self.pool@.map_values(|c: C| c.spec_id()).no_duplicates()
+    }
+
+    proof fn _lemma_channels(tracked &self)
+        ensures
+            self.pool@.map_values(|c: C| c.spec_id()).no_duplicates(),
+            self._spec_channels() == channel_seq_to_map(self.pool@),
+    {
+        use_type_invariant(self);
+    }
+
+    fn _channels(&self) -> (r: &[C])
+        ensures
+            r@.to_set() == self._spec_channels().values(),
+    {
+        proof {
+            use_type_invariant(self);
+            self._lemma_channels();
+            lemma_channel_seq_to_map(self.pool@, self._spec_channels());
+        }
+        self.pool.as_slice()
+    }
+
+    closed spec fn _spec_channels(&self) -> Map<<C as Channel>::Id, C> {
+        self.pool@.map_values(|c: C| c.spec_id()).to_set().mk_map(
+            |id|
+                {
+                    let idx = choose|idx|
+                        0 <= idx < self.pool@.len() && #[trigger] self.pool@[idx].spec_id() == id;
+                    self.pool@[idx]
+                },
+        )
+    }
+
+    fn _len(&self) -> (r: usize)
+        ensures
+            r == self._spec_len(),
+    {
+        self.pool.len()
+    }
+
+    closed spec fn _spec_len(self) -> nat {
+        self.pool@.len()
+    }
+
+    proof fn _lemma_len(tracked &self)
+        ensures
+            self._spec_len() == self._spec_channels().len(),
+    {
+        use_type_invariant(self);
+        self._lemma_channels();
+        lemma_channel_seq_to_map(self.pool@, self._spec_channels());
+        let ghost pool_ids = self.pool@.map_values(|c: C| c.spec_id());
+        assert(self._spec_len() == pool_ids.len());
+        assert(self._spec_channels().len() == pool_ids.to_set().len());
+        pool_ids.unique_seq_to_set();
     }
 }
 
 impl<C> FlawlessPool<BufChannel<C>> where C: Channel, C::S: TaggedMessage, C::R: TaggedMessage {
     pub fn new(pool: Vec<BufChannel<C>>) -> (r: Self)
         requires
-            forall|i, j|
-                0 <= i < j < pool@.len() ==> #[trigger] pool@[i].spec_id()
-                    != #[trigger] pool@[j].spec_id(),
+            pool@.map_values(|c: BufChannel<C>| c.spec_id()).no_duplicates(),
         ensures
-            r.spec_len() == pool.len(),
-            r.spec_conns().dom() == pool@.to_set().map(|c: BufChannel<C>| c.spec_id()),
-            r.spec_conns().values() == pool@.to_set(),
-            forall|cid| #[trigger]
-                r.spec_conns().contains_key(cid) ==> r.spec_conns()[cid].spec_id() == cid,
+            r.spec_len() == pool@.len(),
+            r.spec_channels() == channel_seq_to_map(pool@),
     {
-        proof {
-            admit();  // TODO
-        }
         FlawlessPool { pool }
     }
 }
@@ -93,41 +220,20 @@ impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where
  {
     type C = BufChannel<C>;
 
-    fn conns(&self) -> &[Self::C] {
-        proof {
-            use_type_invariant(self);
-            admit();  // TODO
-        }
-        assert(self.pool@.to_set() == self.spec_conns().values());
-        self.pool.as_slice()
-    }
-
-    closed spec fn spec_conns(&self) -> Map<<Self::C as Channel>::Id, Self::C> {
-        Map::new(
-            |id|
-                exists|idx|
-                    0 <= idx < self.pool@.len() ==> #[trigger] self.pool@[idx].spec_id() == id,
-            |id|
-                {
-                    let idx = choose|idx|
-                        0 <= idx < self.pool@.len() ==> #[trigger] self.pool@[idx].spec_id() == id;
-                    self.pool@[idx]
-                },
-        )
-    }
-
     fn len(&self) -> usize {
-        self.pool.len()
+        self._len()
     }
 
     closed spec fn spec_len(self) -> nat {
-        self.pool@.len()
+        self._spec_len()
     }
 
-    proof fn lemma_len(tracked &self) {
-        use_type_invariant(self);
-        // TODO(connection): lemma len
-        admit();
+    fn channels(&self) -> &[Self::C] {
+        self._channels()
+    }
+
+    closed spec fn spec_channels(&self) -> Map<<Self::C as Channel>::Id, Self::C> {
+        self._spec_channels()
     }
 
     fn poll(&self, request_tag: u64) -> Vec<
@@ -135,37 +241,64 @@ impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where
     > {
         proof {
             use_type_invariant(self);
+            self._lemma_channels();
+            lemma_channel_seq_to_map(self.pool@, self._spec_channels());
+            assert(forall|idx|
+                0 <= idx < self.pool@.len() ==> {
+                    let channel = #[trigger] self.pool@[idx];
+                    &&& self.spec_channels().contains_key(channel.spec_id())
+                    &&& self.spec_channels()[channel.spec_id()] == channel
+                })
         }
-        let conns = self.conns();
-
         let mut v = Vec::new();
 
-        for idx in 0..conns.len()
+        for idx in 0..self.pool.len()
             invariant
-                forall|idx|
-                    0 <= idx < v@.len() ==> {
-                        let (id, resp): (C::Id, Result<Option<C::R>, _>) = #[trigger] v@[idx];
-                        &&& self.spec_conns().contains_key(id)
+                forall|v_idx|
+                    0 <= v_idx < v@.len() ==> {
+                        let (id, resp): (C::Id, Result<Option<C::R>, _>) = #[trigger] v@[v_idx];
+                        &&& self.spec_channels().contains_key(id)
                         &&& resp is Ok && resp->Ok_0 is Some ==> {
                             let x = resp->Ok_0->Some_0;
                             <Self::C as Channel>::K::recv_inv(
-                                self.spec_conns()[id].constant(),
+                                self.spec_channels()[id].constant(),
                                 id,
                                 x,
                             )
                         }
                     },
+                forall|idx|
+                    0 <= idx < self.pool@.len() ==> {
+                        let channel = #[trigger] self.pool@[idx];
+                        &&& self._spec_channels().contains_key(channel.spec_id())
+                        &&& self._spec_channels()[channel.spec_id()] == channel
+                    },
         {
-            let channel = &conns[idx];
+            let channel = &self.pool[idx];
+            let ghost idx_i = idx as int;
             let res = channel.try_recv_tag(request_tag);
-            proof {
-                assume(self.spec_conns().contains_key(channel.spec_id()));  // TODO
-                admit();  // TODO
-            }
+            let ghost old_v = v@;
             v.push((channel.id(), res));
+            proof {
+                assert(v@ == old_v.push((channel.spec_id(), res)));
+                let last_idx = old_v.len();
+                let ghost tup = v@[last_idx as int];
+                if res is Ok && res->Ok_0 is Some {
+                    let ghost x = res->Ok_0->Some_0;
+                }
+            }
         }
 
         v
+    }
+
+    proof fn lemma_len(tracked &self) {
+        self._lemma_len()
+    }
+
+    proof fn lemma_channels(tracked &self) {
+        self._lemma_channels();
+        lemma_channel_seq_to_map(self.pool@, self._spec_channels());
     }
 }
 

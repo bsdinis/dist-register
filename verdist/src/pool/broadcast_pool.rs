@@ -2,7 +2,10 @@
 
 use crate::network::channel::Channel;
 use crate::network::channel::ChannelInvariant;
+use crate::pool::ChannelId;
+use crate::pool::ChannelResp;
 use crate::pool::ConnectionPool;
+use crate::pool::PoolChannel;
 use crate::rpc::proto::Tagged;
 use crate::rpc::proto::TaggedMessage;
 use crate::rpc::replies::ReplyAccumulator;
@@ -11,9 +14,6 @@ use crate::rpc::RequestContext;
 
 use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
-
-use super::ChannelId;
-use super::ChannelResp;
 
 verus! {
 
@@ -28,8 +28,15 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     ChannelResp<Pool>: TaggedMessage + std::fmt::Debug,
     Request: TaggedMessage + Clone + std::fmt::Debug,
  {
-    pub fn new(pool: &'a Pool) -> BroadcastPool<'a, Pool> {
+    pub fn new(pool: &'a Pool) -> (r: BroadcastPool<'a, Pool>)
+        ensures
+            r.spec_channels() == pool.spec_channels(),
+    {
         BroadcastPool { pool }
+    }
+
+    pub open spec fn spec_channels(self) -> Map<ChannelId<Pool>, PoolChannel<Pool>> {
+        self.pool.spec_channels()
     }
 
     pub fn broadcast_filter<Pred, A, F>(
@@ -53,12 +60,12 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         ensures
             r.pred() == pred@,
     {
-        let conns = self.pool.conns();
-        for idx in 0..conns.len()
+        let channels = self.pool.channels();
+        for idx in 0..channels.len()
             invariant
                 forall|id| filter_fn.requires((id,)),
         {
-            let channel = &conns[idx];
+            let channel = &channels[idx];
             if filter_fn(channel.id()) {
                 assume(<Pool::C as Channel>::K::send_inv(
                     channel.constant(),

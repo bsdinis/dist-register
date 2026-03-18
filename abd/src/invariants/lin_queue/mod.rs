@@ -1,8 +1,6 @@
-#![allow(dead_code)]
-
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::committed_to::WriteAllocation;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::committed_to::WriteCommitment;
 use crate::invariants::logatom::RegisterRead;
 use crate::invariants::logatom::RegisterWrite;
@@ -11,19 +9,16 @@ use crate::timestamp::Timestamp;
 
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::resource::ghost_var::GhostVarAuth;
-#[allow(unused_imports)]
 use vstd::resource::map::GhostMapAuth;
-#[allow(unused_imports)]
 use vstd::resource::map::GhostPersistentSubmap;
-#[allow(unused_imports)]
 use vstd::resource::map::GhostPointsTo;
-#[allow(unused_imports)]
 use vstd::resource::Loc;
+#[cfg(verus_only)]
 use vstd::set_lib::*;
 
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::assert_by_contradiction;
 use vstd::prelude::*;
 
@@ -97,6 +92,7 @@ impl<ML, RL> InsertError<ML, RL> {
     }
 }
 
+#[allow(dead_code)]
 pub struct LinearizationQueue<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,

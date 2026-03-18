@@ -1,7 +1,7 @@
-#![allow(unused, non_shorthand_field_patterns)]
-
 use crate::channel::ChannelInv;
+#[cfg(verus_only)]
 use crate::invariants;
+#[cfg(verus_only)]
 use crate::invariants::committed_to::WriteCommitment;
 use crate::invariants::logatom::ReadPerm;
 use crate::invariants::logatom::RegisterRead;
@@ -13,21 +13,28 @@ use crate::proto::GetTimestampRequest;
 use crate::proto::Request;
 use crate::proto::Response;
 use crate::proto::WriteRequest;
+#[cfg(verus_only)]
 use crate::proto::WriteResponse;
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::server::register::MonotonicRegister;
+#[cfg(verus_only)]
 use crate::server::register::MonotonicRegisterInner;
+#[cfg(verus_only)]
 use crate::timestamp::Timestamp;
 use verdist::network::channel::Channel;
+#[cfg(verus_only)]
 use verdist::network::channel::ChannelInvariant;
 use verdist::network::channel::Listener;
 use verdist::network::modelled::ModelledConnector;
+#[cfg(verus_only)]
 use verdist::network::modelled::ModelledListener;
+#[cfg(verus_only)]
 use verdist::rpc::proto::TaggedMessage;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[cfg(verus_only)]
 use vstd::invariant::InvariantPredicate;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;

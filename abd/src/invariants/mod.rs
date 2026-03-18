@@ -1,7 +1,6 @@
-#![allow(dead_code)]
-
 use vlib::monotonic::map::GhostMonotonicMap;
-#[allow(unused_imports)]
+
+#[cfg(verus_only)]
 use vstd::atomic::PermissionU64;
 use vstd::invariant::AtomicInvariant;
 use vstd::invariant::InvariantPredicate;
@@ -9,8 +8,10 @@ use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::resource::ghost_var::GhostVar;
 use vstd::resource::ghost_var::GhostVarAuth;
+#[cfg(verus_only)]
 use vstd::resource::map::GhostMapAuth;
 use vstd::resource::map::GhostPersistentPointsTo;
+#[cfg(verus_only)]
 use vstd::resource::map::GhostPointsTo;
 use vstd::resource::Loc;
 

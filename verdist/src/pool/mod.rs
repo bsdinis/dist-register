@@ -7,7 +7,7 @@ pub use connection_pool::FlawlessPool;
 
 use crate::network::channel::Channel;
 
-pub(crate) type ChannelReq<Pool> = <<Pool as ConnectionPool>::C as Channel>::S;
-pub(crate) type ChannelResp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
-pub(crate) type ChannelId<Pool> = <<Pool as ConnectionPool>::C as Channel>::Id;
-pub(crate) type ChannelK<Pool> = <<Pool as ConnectionPool>::C as Channel>::K;
+pub type ChannelReq<Pool> = <<Pool as ConnectionPool>::C as Channel>::S;
+pub type ChannelResp<Pool> = <<Pool as ConnectionPool>::C as Channel>::R;
+pub type ChannelId<Pool> = <<Pool as ConnectionPool>::C as Channel>::Id;
+pub type ChannelK<Pool> = <<Pool as ConnectionPool>::C as Channel>::K;

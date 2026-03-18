@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::invariants::committed_to::WriteCommitment;
 use crate::invariants::lin_queue::LinWriteToken;
 use crate::invariants::lin_queue::MaybeReadLinearized;

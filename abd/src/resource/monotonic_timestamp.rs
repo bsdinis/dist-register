@@ -3,10 +3,10 @@ use crate::timestamp::Timestamp;
 use vstd::resource::algebra::ResourceAlgebra;
 use vstd::resource::pcm::Resource;
 use vstd::resource::pcm::PCM;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::resource::Loc;
 
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::resource::*;
 
 use vstd::prelude::*;

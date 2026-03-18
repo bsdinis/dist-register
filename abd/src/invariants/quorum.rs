@@ -1,15 +1,15 @@
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::timestamp::Timestamp;
 
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::map_lib::*;
 use vstd::prelude::*;
 #[cfg(verus_only)]
 use vstd::resource::Loc;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::set::*;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::set_lib::*;
 
 verus! {

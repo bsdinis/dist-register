@@ -20,11 +20,13 @@ verus! {
 #[verifier::external_type_specification]
 #[verifier::external_body]
 #[verifier::reject_recursive_types_in_ground_variants(T)]
+#[allow(dead_code)]
 pub struct ExReceiver<T>(Receiver<T>);
 
 #[verifier::external_type_specification]
 #[verifier::external_body]
 #[verifier::reject_recursive_types_in_ground_variants(T)]
+#[allow(dead_code)]
 pub struct ExSender<T>(Sender<T>);
 
 #[verifier::external_body]
@@ -49,6 +51,7 @@ pub struct ModelledConnector<R, S> {
 #[verifier::reject_recursive_types(R)]
 #[verifier::reject_recursive_types(S)]
 pub struct ClientChannel<K, R, S> {
+    #[allow(dead_code)]
     pred: Ghost<K>,
     tx: Sender<S>,
     rx: Receiver<R>,
@@ -64,6 +67,7 @@ pub struct ClientChannel<K, R, S> {
 #[verifier::reject_recursive_types(R)]
 #[verifier::reject_recursive_types(S)]
 pub struct ServerChannel<K, R, S> {
+    #[allow(dead_code)]
     pred: Ghost<K>,
     tx: Sender<S>,
     rx: Receiver<R>,

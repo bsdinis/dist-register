@@ -6,6 +6,7 @@ use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::rwlock::RwLock;
 
+#[cfg(verus_only)]
 use crate::invariants;
 use crate::invariants::committed_to::WriteCommitment;
 use crate::invariants::logatom::RegisterRead;
@@ -23,11 +24,13 @@ use verdist::rpc::proto::TaggedMessage;
 
 verus! {
 
+#[allow(dead_code)]
 pub struct RegisterIds {
     resource_loc: Loc,
     state_inv_id: int,
 }
 
+#[allow(dead_code)]
 pub struct MonotonicRegisterInner<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -44,7 +47,11 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
-    pub fn new(server_id: u64, state_inv: Tracked<Arc<StateInvariant<ML, RL>>>) -> (r: Self)
+    pub fn new(
+        #[allow(unused_variables)]
+        server_id: u64,
+        state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
+    ) -> (r: Self)
         requires
             state_inv@.namespace() == invariants::state_inv_id(),
         ensures
@@ -256,6 +263,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
     }
 }
 
+#[allow(dead_code)]
 pub struct MonotonicRegisterInv {
     pub ids: RegisterIds,
 }

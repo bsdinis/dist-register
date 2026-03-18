@@ -1,7 +1,7 @@
 use crate::invariants::committed_to::WriteCommitment;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::lin_queue::maybe_lin::MaybeReadLinearized;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::lin_queue::maybe_lin::MaybeWriteLinearized;
 use crate::invariants::logatom::{RegisterRead, RegisterWrite};
 use crate::timestamp::Timestamp;
@@ -9,12 +9,14 @@ use crate::timestamp::Timestamp;
 use vstd::prelude::*;
 
 use vstd::logatom::{MutLinearizer, ReadLinearizer};
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::resource::ghost_var::GhostVarAuth;
+#[cfg(verus_only)]
 use vstd::resource::Loc;
 
 verus! {
 
+#[allow(dead_code)]
 pub struct CompletedWrite<ML: MutLinearizer<RegisterWrite>> {
     completion: ML::Completion,
     op: RegisterWrite,
@@ -23,6 +25,7 @@ pub struct CompletedWrite<ML: MutLinearizer<RegisterWrite>> {
     ghost timestamp: Timestamp,
 }
 
+#[allow(dead_code)]
 pub struct CompletedRead<RL: ReadLinearizer<RegisterRead>> {
     completion: RL::Completion,
     op: RegisterRead,

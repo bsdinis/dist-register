@@ -15,12 +15,14 @@ use crate::invariants::StatePredicate;
 use crate::Timestamp;
 
 use crate::proto::{GetResponse, GetTimestampResponse, Response, WriteResponse};
+#[cfg(verus_only)]
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use verdist::rpc::replies::ReplyAccumulator;
 
 verus! {
 
-pub struct ReadPred {
+#[allow(unused_variables, dead_code)]
+pub ghost struct ReadPred {
     pub server_locs: Map<u64, Loc>,
     pub commitment_id: Loc,
     pub server_tokens_id: Loc,
@@ -79,6 +81,7 @@ impl ReadAccumulator {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         server_tokens: Tracked<GhostPersistentSubmap<u64, Loc>>,
+        #[allow(unused_variables)]
         read_pred: Ghost<ReadPred>,
     ) -> (r: Self)
         requires
@@ -398,6 +401,7 @@ impl ReadAccumulator {
         }
     }
 
+    #[allow(dead_code)]  // TODO: unsure we need this
     fn lemma_unanimous(&self)
         requires
             self.servers@.valid_quorum(self.quorum()),
@@ -670,7 +674,13 @@ impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumGetPhase {
     type T = Response;
 
     #[verifier::exec_allows_no_decreases_clause]
-    fn insert(&mut self, pred: Ghost<ReadPred>, id: (u64, u64), resp: Response)
+    fn insert(
+        &mut self,
+        #[allow(unused_variables)]
+        pred: Ghost<ReadPred>,
+        id: (u64, u64),
+        resp: Response,
+    )
         ensures
             self.constant() == old(self).constant(),
     {
@@ -709,7 +719,13 @@ impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumWbPhase {
     type T = Response;
 
     #[verifier::exec_allows_no_decreases_clause]
-    fn insert(&mut self, pred: Ghost<ReadPred>, id: (u64, u64), resp: Response)
+    fn insert(
+        &mut self,
+        #[allow(unused_variables)]
+        pred: Ghost<ReadPred>,
+        id: (u64, u64),
+        resp: Response,
+    )
         ensures
             self.constant() == old(self).constant(),
     {

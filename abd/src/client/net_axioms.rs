@@ -1,17 +1,17 @@
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::committed_to::WriteCommitment;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::quorum::Quorum;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::quorum::ServerUniverse;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::proto::GetResponse;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::proto::GetTimestampResponse;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::timestamp::Timestamp;
 
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use std::collections::BTreeMap;
 
 use vstd::prelude::*;

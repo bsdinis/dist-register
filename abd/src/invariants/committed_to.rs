@@ -3,11 +3,10 @@
 //! In general, the way this happens is:
 //! - Clients get access to their entire timestamp range
 //! - When the timestamp is known, the client can commit to a value by persisting the kv-pair
-#![allow(dead_code)]
 use vstd::atomic::PermissionU64;
 use vstd::resource::map::GhostMapAuth;
 use vstd::resource::map::GhostPersistentPointsTo;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::resource::map::GhostPersistentSubmap;
 use vstd::resource::map::GhostPointsTo;
 use vstd::resource::Loc;
@@ -26,6 +25,7 @@ pub type CommitmentAuthMap = GhostMapAuth<Timestamp, Option<u64>>;
 
 pub type ClientCtrToken = GhostPointsTo<u64, (u64, int)>;
 
+#[allow(dead_code)]
 pub struct Commitments {
     commitment_auth: GhostMapAuth<Timestamp, Option<u64>>,
     zero_commitment: WriteCommitment,

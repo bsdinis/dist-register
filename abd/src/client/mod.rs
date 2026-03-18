@@ -1,18 +1,18 @@
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::lin_queue::InsertError;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::lin_queue::LinWriteToken;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::lin_queue::MaybeWriteLinearized;
 use crate::invariants::logatom::RegisterRead;
 use crate::invariants::logatom::RegisterWrite;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::quorum::Quorum;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::quorum::ServerUniverse;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::RegisterView;
 use crate::invariants::StateInvariant;
 use crate::proto::GetRequest;
@@ -35,20 +35,20 @@ mod utils;
 use net_invs::*;
 
 use vstd::atomic::PAtomicU64;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::invariant::InvariantPredicate;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::proph::Prophecy;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::resource::ghost_var::GhostVarAuth;
 use vstd::resource::Loc;
 
 use std::hash::Hash;
 use std::sync::Arc;
 
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use net_axioms::*;
 use utils::*;
 
@@ -60,7 +60,7 @@ verus! {
 // - The MutLinearizer should be specified in the method
 // - Type problem: the linearization queue is parametrized by the linearizer type
 // - Polymorphism is hard
-#[allow(unused)]
+#[allow(dead_code)]
 pub trait AbdRegisterClient<C, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -316,10 +316,10 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             read_pred,
         );
         let quorum_res = bpool.broadcast(req, read_pred, accum).wait_for(
-            (|s| -> (r: bool)
+            |s| -> (r: bool)
                 ensures
                     r ==> s.spec_len() >= qsize,
-                { s.len() >= self.quorum_size() }),
+                { s.len() >= self.quorum_size() },
         );
 
         let replies = match quorum_res {
@@ -698,7 +698,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     );
                 },
             };
-            #[allow(unused)]
+            #[allow(unused_variables)]
             let replies = quorum.into_accumulator().into();
 
             let exec_comp;

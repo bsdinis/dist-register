@@ -1,12 +1,12 @@
 use crate::invariants::committed_to::WriteAllocation;
 use crate::invariants::committed_to::WriteCommitment;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::lin_queue::CompletedRead;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::lin_queue::CompletedWrite;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::lin_queue::MaybeReadLinearized;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use crate::invariants::lin_queue::MaybeWriteLinearized;
 use crate::invariants::logatom::RegisterRead;
 use crate::invariants::logatom::RegisterWrite;
@@ -14,14 +14,16 @@ use crate::timestamp::Timestamp;
 
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
+#[cfg(verus_only)]
 use vstd::resource::Loc;
 
 use vstd::logatom::MutLinearizer;
-#[allow(unused_imports)]
+#[cfg(verus_only)]
 use vstd::resource::ghost_var::GhostVarAuth;
 
 verus! {
 
+#[allow(dead_code)]
 pub enum WriteStatus {
     Allocated { allocation: WriteAllocation },
     Committed { commitment: WriteCommitment },
@@ -124,6 +126,7 @@ impl WriteStatus {
     }
 }
 
+#[allow(dead_code)]
 pub struct PendingWrite<ML: MutLinearizer<RegisterWrite>> {
     lin: ML,
     op: RegisterWrite,
@@ -131,6 +134,7 @@ pub struct PendingWrite<ML: MutLinearizer<RegisterWrite>> {
     ghost timestamp: Timestamp,
 }
 
+#[allow(dead_code)]
 pub struct PendingRead<RL: ReadLinearizer<RegisterRead>> {
     lin: RL,
     op: RegisterRead,

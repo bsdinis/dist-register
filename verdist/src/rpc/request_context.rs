@@ -1,4 +1,10 @@
-use crate::pool::{ChannelId, ChannelResp, ConnectionPool};
+#[cfg(verus_only)]
+use crate::network::channel::Channel;
+#[cfg(verus_only)]
+use crate::network::channel::ChannelInvariant;
+use crate::pool::ChannelId;
+use crate::pool::ChannelResp;
+use crate::pool::ConnectionPool;
 use crate::rpc::replies::ReplyAccumulator;
 use crate::rpc::Replies;
 
@@ -66,12 +72,14 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
             },
     {
         let ghost pred = self.pred();
+        let ghost channels = self.pool.spec_channels();
         let mut self_mut = self;
         loop
             invariant
                 forall|replies| termination_cond.requires((&replies,)),
                 pred == self_mut.pred(),
                 pred == self.pred(),
+                self_mut.pool.spec_channels() == channels,
         {
             if termination_cond(&self_mut.replies) {
                 self_mut.replies.lemma_pred();
@@ -91,18 +99,56 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
                 assert(Pred::inv(self.pred(), replies.accumulator()));
                 return Err(replies);
             }
-            let it = self_mut.pool.poll(self_mut.request_tag);
-            for (idx, response) in it
+            let resps = self_mut.pool.poll(self_mut.request_tag);
+            if resps.is_empty() {
+                continue ;
+            }
+            let mut idx = 0usize;
+            for (id, r) in it: resps
                 invariant
                     pred == self_mut.pred(),
+                    self_mut.pool.spec_channels() == channels,
+                    idx == it.pos,
+                    forall|idx|
+                        0 <= idx < resps@.len() ==> {
+                            let (id, r) = #[trigger] resps@[idx];
+                            &&& self_mut.pool.spec_channels().contains_key(id)
+                            &&& {
+                                let chan = self_mut.pool.spec_channels()[id];
+                                r is Ok && r->Ok_0 is Some ==> {
+                                    let resp = r->Ok_0->Some_0;
+                                    <<Pool as ConnectionPool>::C as Channel>::K::recv_inv(
+                                        chan.constant(),
+                                        id,
+                                        resp,
+                                    )
+                                }
+                            }
+                        },
             {
-                match response {
-                    Ok(Some(r)) => { self_mut.replies.insert_reply(idx, r) },
+                proof {
+                    self_mut.pool.lemma_channels();
+                }
+                let ghost chan = self_mut.pool.spec_channels()[id];
+
+                match r {
+                    Ok(Some(resp)) => {
+                        assert(chan.spec_id() == id);
+                        assert(<<Pool as ConnectionPool>::C as Channel>::K::recv_inv(
+                            chan.constant(),
+                            id,
+                            resp,
+                        ));
+                        self_mut.replies.insert_reply(id, resp)
+                    },
                     Ok(None) => {},
                     Err(e) => {
-                        self_mut.replies.insert_error(idx, e);
+                        self_mut.replies.insert_error(id, e);
                     },
                 }
+
+                assume(idx < usize::MAX);  // XXX: overflow
+                idx = idx + 1;
             }
         }
     }

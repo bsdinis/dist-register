@@ -10,16 +10,20 @@ use vstd::prelude::*;
 
 verus! {
 
-pub trait ReplyAccumulator<ChanId, Pred>: Sized where Pred: InvariantPredicate<Pred, Self> {
-    /// Type that is accumulated
-    type T;
-
-    fn insert(&mut self, pred: Ghost<Pred>, id: ChanId, reply: Self::T)
+pub trait ReplyAccumulator<C, Pred>: Sized where C: Channel, Pred: InvariantPredicate<Pred, Self> {
+    fn insert(&mut self, pred: Ghost<Pred>, id: C::Id, reply: C::R)
         requires
             Pred::inv(pred@, *old(self)),
+            old(self).channels().contains_key(id),
+            ({
+                let chan = old(self).channels()[id];
+                &&& chan.spec_id() == id
+                &&& C::K::recv_inv(chan.constant(), id, reply)
+            }),
         ensures
             Pred::inv(pred@, *self),
             self.spec_n_replies() == old(self).spec_n_replies() + 1,
+            self.channels() == old(self).channels(),
         no_unwind
     ;
 
@@ -29,26 +33,28 @@ pub trait ReplyAccumulator<ChanId, Pred>: Sized where Pred: InvariantPredicate<P
         ensures
             r == self.spec_n_replies(),
     ;
+
+    spec fn channels(self) -> Map<C::Id, C>;
 }
 
 pub struct Replies<C, Pred, A> where
     C: Channel,
     Pred: InvariantPredicate<Pred, A>,
-    A: ReplyAccumulator<C::Id, Pred, T=C::R>,
+    A: ReplyAccumulator<C, Pred>,
  {
     pred: Ghost<Pred>,
-    #[allow(dead_code)] // TODO: check if this needs to stay here
-    channels: Ghost<Map<C::Id, C>>,
-    reply_accum: A,
+    // #[allow(dead_code)] // TODO: check if this needs to stay here
+    // channels: Ghost<Map<C::Id, C>>,
+    accum: A,
     errors: BTreeMap<C::Id, TryRecvError>,
 }
 
 impl<C, Pred, A> Replies<C, Pred, A> where
     C: Channel,
     Pred: InvariantPredicate<Pred, A>,
-    A: ReplyAccumulator<C::Id, Pred, T=C::R>,
+    A: ReplyAccumulator<C, Pred>,
  {
-    pub fn new(pred: Ghost<Pred>, channels: Ghost<Map<C::Id, C>>, accum: A) -> (r: Self)
+    pub fn new(pred: Ghost<Pred>, accum: A) -> (r: Self)
         requires
             Pred::inv(pred@, accum),
             accum.spec_n_replies() == 0,
@@ -56,20 +62,15 @@ impl<C, Pred, A> Replies<C, Pred, A> where
         ensures
             r.spec_len() == 0,
             r.pred() == pred@,
-            r.channels() == channels@,
+            r.channels() == accum.channels(),
     {
-        Replies {
-            pred,
-            channels,
-            reply_accum: accum,
-            errors: BTreeMap::new(),
-        }
+        Replies { pred, accum, errors: BTreeMap::new() }
     }
 
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
         &&& vstd::laws_cmp::obeys_cmp_spec::<C::Id>()
-        &&& Pred::inv(self.pred(), self.reply_accum)
+        &&& Pred::inv(self.pred(), self.accum)
     }
 
     pub fn lemma_pred(&self)
@@ -86,18 +87,18 @@ impl<C, Pred, A> Replies<C, Pred, A> where
     }
 
     pub closed spec fn channels(self) -> Map<C::Id, C> {
-        self.channels@
+        self.accum.channels()
     }
 
     pub fn len(&self) -> (r: usize)
         ensures
             r as nat == self.spec_len(),
     {
-        self.reply_accum.n_replies()
+        self.accum.n_replies()
     }
 
     pub closed spec fn spec_len(self) -> (r: nat) {
-        self.reply_accum.spec_n_replies()
+        self.accum.spec_n_replies()
     }
 
     pub fn n_received(&self) -> usize {
@@ -106,7 +107,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
     }
 
     pub closed spec fn accumulator(self) -> A {
-        self.reply_accum
+        self.accum
     }
 
     pub fn into_accumulator(self) -> (r: A)
@@ -114,7 +115,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
             r.spec_n_replies() == self.spec_len(),
             r == self.accumulator(),
     {
-        self.reply_accum
+        self.accum
     }
 
     pub closed spec fn spec_errors(self) -> (r: Map<C::Id, TryRecvError>) {
@@ -153,7 +154,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
         proof {
             use_type_invariant(&*self);
         }
-        self.reply_accum.insert(self.pred, id, reply);
+        self.accum.insert(self.pred, id, reply);
     }
 
     pub fn insert_error(&mut self, id: C::Id, err: TryRecvError)

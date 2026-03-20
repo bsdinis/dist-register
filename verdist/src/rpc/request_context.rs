@@ -2,8 +2,8 @@
 use crate::network::channel::Channel;
 #[cfg(verus_only)]
 use crate::network::channel::ChannelInvariant;
+#[cfg(verus_only)]
 use crate::pool::ChannelId;
-use crate::pool::ChannelResp;
 use crate::pool::ConnectionPool;
 use crate::pool::PoolChannel;
 use crate::rpc::replies::ReplyAccumulator;
@@ -17,7 +17,7 @@ verus! {
 pub struct RequestContext<'a, Pool, Pred, A> where
     Pool: ConnectionPool,
     Pred: InvariantPredicate<Pred, A>,
-    A: ReplyAccumulator<ChannelId<Pool>, Pred, T = ChannelResp<Pool>>,
+    A: ReplyAccumulator<PoolChannel<Pool>, Pred>,
  {
     pool: &'a Pool,
     request_tag: u64,
@@ -27,22 +27,19 @@ pub struct RequestContext<'a, Pool, Pred, A> where
 impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
     Pool: ConnectionPool,
     Pred: InvariantPredicate<Pred, A>,
-    A: ReplyAccumulator<ChannelId<Pool>, Pred, T = ChannelResp<Pool>>,
+    A: ReplyAccumulator<PoolChannel<Pool>, Pred>,
  {
     pub fn new(pool: &'a Pool, request_tag: u64, pred: Ghost<Pred>, accum: A) -> (r: Self)
         requires
             Pred::inv(pred@, accum),
             accum.spec_n_replies() == 0,
+            accum.channels() == pool.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
         ensures
             r.pred() == pred@,
             r.channels() == pool.spec_channels(),
     {
-        RequestContext {
-            pool,
-            request_tag,
-            replies: Replies::new(pred, Ghost(pool.spec_channels()), accum),
-        }
+        RequestContext { pool, request_tag, replies: Replies::new(pred, accum) }
     }
 
     #[verifier::type_invariant]

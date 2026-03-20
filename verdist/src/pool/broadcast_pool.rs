@@ -47,7 +47,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         filter_fn: F,
     ) -> (r: RequestContext<'a, Pool, Pred, A>) where
         Pred: InvariantPredicate<Pred, A>,
-        A: ReplyAccumulator<ChannelId<Pool>, Pred, T = ChannelResp<Pool>>,
+        A: ReplyAccumulator<PoolChannel<Pool>, Pred>,
         F: Fn(ChannelId<Pool>) -> bool,
 
         requires
@@ -56,6 +56,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
             Pred::inv(pred@, accum),
             forall|id| filter_fn.requires((id,)),
             accum.spec_n_replies() == 0,
+            accum.channels() == self.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
         ensures
             r.pred() == pred@,
@@ -81,11 +82,12 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     pub fn broadcast<Pred, A>(self, request: Request, pred: Ghost<Pred>, accum: A) -> (r:
         RequestContext<'a, Pool, Pred, A>) where
         Pred: InvariantPredicate<Pred, A>,
-        A: ReplyAccumulator<ChannelId<Pool>, Pred, T = ChannelResp<Pool>>,
+        A: ReplyAccumulator<PoolChannel<Pool>, Pred>,
 
         requires
             Pred::inv(pred@, accum),
             accum.spec_n_replies() == 0,
+            accum.channels() == self.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
         ensures
             r.pred() == pred@,

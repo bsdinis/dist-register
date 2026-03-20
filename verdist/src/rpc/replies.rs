@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
 
+use crate::network::channel::Channel;
+#[cfg(verus_only)]
+use crate::network::channel::ChannelInvariant;
 use crate::network::error::TryRecvError;
 
 use vstd::invariant::InvariantPredicate;
@@ -28,40 +31,44 @@ pub trait ReplyAccumulator<ChanId, Pred>: Sized where Pred: InvariantPredicate<P
     ;
 }
 
-pub struct Replies<ChanId, Pred, A> where
-    ChanId: Ord,
+pub struct Replies<C, Pred, A> where
+    C: Channel,
     Pred: InvariantPredicate<Pred, A>,
-    A: ReplyAccumulator<ChanId, Pred>,
+    A: ReplyAccumulator<C::Id, Pred, T=C::R>,
  {
     pred: Ghost<Pred>,
+    #[allow(dead_code)] // TODO: check if this needs to stay here
+    channels: Ghost<Map<C::Id, C>>,
     reply_accum: A,
-    n_replies: usize,
-    n_received: usize,
-    errors: BTreeMap<ChanId, TryRecvError>,
+    errors: BTreeMap<C::Id, TryRecvError>,
 }
 
-impl<ChanId, Pred, A> Replies<ChanId, Pred, A> where
-    ChanId: Ord,
+impl<C, Pred, A> Replies<C, Pred, A> where
+    C: Channel,
     Pred: InvariantPredicate<Pred, A>,
-    A: ReplyAccumulator<ChanId, Pred>,
+    A: ReplyAccumulator<C::Id, Pred, T=C::R>,
  {
-    pub fn new(pred: Ghost<Pred>, accum: A) -> (r: Self)
+    pub fn new(pred: Ghost<Pred>, channels: Ghost<Map<C::Id, C>>, accum: A) -> (r: Self)
         requires
             Pred::inv(pred@, accum),
             accum.spec_n_replies() == 0,
-            vstd::laws_cmp::obeys_cmp_spec::<ChanId>(),
+            vstd::laws_cmp::obeys_cmp_spec::<C::Id>(),
         ensures
             r.spec_len() == 0,
             r.pred() == pred@,
+            r.channels() == channels@,
     {
-        Replies { pred, reply_accum: accum, errors: BTreeMap::new(), n_replies: 0, n_received: 0 }
+        Replies {
+            pred,
+            channels,
+            reply_accum: accum,
+            errors: BTreeMap::new(),
+        }
     }
 
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
-        &&& self.spec_len() + self.errors.len() as nat == self.n_received as nat
-        &&& self.spec_len() == self.n_replies as nat
-        &&& vstd::laws_cmp::obeys_cmp_spec::<ChanId>()
+        &&& vstd::laws_cmp::obeys_cmp_spec::<C::Id>()
         &&& Pred::inv(self.pred(), self.reply_accum)
     }
 
@@ -78,14 +85,15 @@ impl<ChanId, Pred, A> Replies<ChanId, Pred, A> where
         self.pred@
     }
 
+    pub closed spec fn channels(self) -> Map<C::Id, C> {
+        self.channels@
+    }
+
     pub fn len(&self) -> (r: usize)
         ensures
             r as nat == self.spec_len(),
     {
-        proof {
-            use_type_invariant(self);
-        }
-        self.n_replies
+        self.reply_accum.n_replies()
     }
 
     pub closed spec fn spec_len(self) -> (r: nat) {
@@ -93,7 +101,8 @@ impl<ChanId, Pred, A> Replies<ChanId, Pred, A> where
     }
 
     pub fn n_received(&self) -> usize {
-        self.n_received
+        assume(self.spec_len() + self.errors.len() <= usize::MAX);  // XXX: arithmetic overflow
+        self.len() + self.errors.len()
     }
 
     pub closed spec fn accumulator(self) -> A {
@@ -108,100 +117,57 @@ impl<ChanId, Pred, A> Replies<ChanId, Pred, A> where
         self.reply_accum
     }
 
-    pub closed spec fn spec_errors(self) -> (r: Map<ChanId, TryRecvError>) {
+    pub closed spec fn spec_errors(self) -> (r: Map<C::Id, TryRecvError>) {
         self.errors@
     }
 
-    pub fn errors(&self) -> (r: &BTreeMap<ChanId, TryRecvError>)
+    pub fn errors(&self) -> (r: &BTreeMap<C::Id, TryRecvError>)
         ensures
             r@ == self.spec_errors(),
     {
         &self.errors
     }
 
-    pub fn into_errors(self) -> (r: BTreeMap<ChanId, TryRecvError>)
+    pub fn into_errors(self) -> (r: BTreeMap<C::Id, TryRecvError>)
         ensures
             r@ == self.spec_errors(),
     {
         self.errors
     }
 
-    pub fn insert_reply(&mut self, id: ChanId, v: A::T)
+    pub fn insert_reply(&mut self, id: C::Id, reply: C::R)
+        requires
+            old(self).channels().contains_key(id),
+            ({
+                let chan = old(self).channels()[id];
+                &&& chan.spec_id() == id
+                &&& C::K::recv_inv(chan.constant(), id, reply)
+            }),
         ensures
             self.spec_len() == old(self).spec_len() + 1,
             self.spec_errors() == old(self).spec_errors(),
             self.pred() == old(self).pred(),
+            self.channels() == old(self).channels(),
+        no_unwind
     {
         proof {
             use_type_invariant(&*self);
         }
-        Self::insert_reply_helper(
-            self.pred,
-            &mut self.reply_accum,
-            &mut self.n_replies,
-            &mut self.n_received,
-            id,
-            v,
-        );
+        self.reply_accum.insert(self.pred, id, reply);
     }
 
-    pub fn insert_error(&mut self, id: ChanId, err: TryRecvError)
+    pub fn insert_error(&mut self, id: C::Id, err: TryRecvError)
         ensures
             self.accumulator() == old(self).accumulator(),
             self.spec_errors() == old(self).spec_errors().insert(id, err),
             self.pred() == old(self).pred(),
+            self.channels() == old(self).channels(),
+        no_unwind
     {
         proof {
             use_type_invariant(&*self);
         }
-        Self::insert_helper(&mut self.errors, &mut self.n_received, id, err);
-    }
-
-    fn insert_reply_helper(
-        pred: Ghost<Pred>,
-        accum: &mut A,
-        n_replies: &mut usize,
-        n_received: &mut usize,
-        id: ChanId,
-        v: A::T,
-    )
-        requires
-            Pred::inv(pred@, *old(accum)),
-            old(accum).spec_n_replies() == *old(n_replies),
-        ensures
-            Pred::inv(pred@, *accum),
-            accum.spec_n_replies() == *n_replies,
-            old(n_received) - old(accum).spec_n_replies() == n_received - accum.spec_n_replies(),
-            accum.spec_n_replies() == old(accum).spec_n_replies() + 1,
-            *n_replies == *old(n_replies) + 1,
-            *n_received == *old(n_received) + 1,
-        no_unwind
-    {
-        assume(n_received < usize::MAX);  // XXX: integer overflow
-        assume(n_replies < usize::MAX);  // XXX: integer overflow
-
-        accum.insert(pred, id, v);
-        *n_replies += 1;
-        *n_received += 1;
-    }
-
-    // This helps bypass the no_unwind requirement on Self, which has a type invariant
-    fn insert_helper<K: Ord, V>(map: &mut BTreeMap<K, V>, n_received: &mut usize, k: K, v: V)
-        requires
-            vstd::laws_cmp::obeys_cmp_spec::<K>(),
-        ensures
-            old(n_received) - old(map)@.len() == n_received - map@.len(),
-            map@ == old(map)@.insert(k, v),
-            *n_received == *old(n_received) + 1,
-        no_unwind
-    {
-        broadcast use vstd::std_specs::btree::group_btree_axioms;
-
-        assume(n_received < usize::MAX);  // XXX: integer overflow
-        assume(!map@.contains_key(k));  // TODO: where does this come from?!
-
-        map.insert(k, v);
-        *n_received += 1;
+        self.errors.insert(id, err);
     }
 }
 

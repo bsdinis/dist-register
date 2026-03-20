@@ -2,6 +2,10 @@
 
 use crate::network::channel::Channel;
 use crate::network::channel::ChannelInvariant;
+#[cfg(verus_only)]
+use crate::pool::connection_pool::channel_seq_to_map;
+#[cfg(verus_only)]
+use crate::pool::connection_pool::lemma_channel_seq_to_map;
 use crate::pool::ChannelId;
 use crate::pool::ChannelResp;
 use crate::pool::ConnectionPool;
@@ -51,29 +55,50 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
         F: Fn(ChannelId<Pool>) -> bool,
 
         requires
-    // TODO: forall |chan| #[trigger] Chann::K::send_inv(chan.constant(), chan.id(), request)
-
             Pred::inv(pred@, accum),
-            forall|id| filter_fn.requires((id,)),
             accum.spec_n_replies() == 0,
             accum.channels() == self.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
+            forall|id| #[trigger]
+                self.spec_channels().contains_key(id) ==> {
+                    let chan = self.spec_channels()[id];
+                    &&& filter_fn.requires((chan.spec_id(),))
+                    &&& <PoolChannel<Pool> as Channel>::K::send_inv(
+                        chan.constant(),
+                        chan.spec_id(),
+                        request,
+                    )
+                },
         ensures
             r.pred() == pred@,
     {
         let channels = self.pool.channels();
-        for idx in 0..channels.len()
+        let ghost g_channels = self.spec_channels();
+        proof {
+            lemma_channel_seq_to_map(channels@, self.spec_channels());
+        }
+        for chan in channels.iter()
             invariant
-                forall|id| filter_fn.requires((id,)),
+                self.spec_channels() == g_channels,
+                self.spec_channels() == channel_seq_to_map(channels@),
+                channels@.map_values(|c: PoolChannel<Pool>| c.spec_id()).no_duplicates(),
+                forall|id| #[trigger]
+                    self.spec_channels().contains_key(id) ==> {
+                        let c = self.spec_channels()[id];
+                        &&& filter_fn.requires((c.spec_id(),))
+                        &&& <PoolChannel<Pool> as Channel>::K::send_inv(
+                            c.constant(),
+                            c.spec_id(),
+                            request,
+                        )
+                    },
         {
-            let channel = &channels[idx];
-            if filter_fn(channel.id()) {
-                assume(<Pool::C as Channel>::K::send_inv(
-                    channel.constant(),
-                    channel.spec_id(),
-                    request,
-                ));
-                let _res = channel.send(&request);
+            proof {
+                lemma_channel_seq_to_map(channels@, self.spec_channels());
+                assert(self.spec_channels().contains_key(chan.spec_id()));
+            }
+            if filter_fn(chan.id()) {
+                let _res = chan.send(&request);
             }
         }
         RequestContext::new(self.pool, request.tag(), pred, accum)
@@ -89,6 +114,15 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
             accum.spec_n_replies() == 0,
             accum.channels() == self.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
+            forall|id| #[trigger]
+                self.spec_channels().contains_key(id) ==> {
+                    let chan = self.spec_channels()[id];
+                    <PoolChannel<Pool> as Channel>::K::send_inv(
+                        chan.constant(),
+                        chan.spec_id(),
+                        request,
+                    )
+                },
         ensures
             r.pred() == pred@,
     {

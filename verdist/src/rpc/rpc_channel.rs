@@ -164,8 +164,10 @@ pub struct RequestTicket<Req> {
 }
 
 impl<C: Channel> RpcChannel<C> {
-    pub fn async_invoke(&self, request: &C::S) -> Result<RequestTicket<C::S>, SendError<C::S>> {
-        assume(C::K::send_inv(self.channel.constant(), self.channel.spec_id(), *request));
+    pub fn async_invoke(&self, request: &C::S) -> Result<RequestTicket<C::S>, SendError<C::S>>
+        requires
+            C::K::send_inv(self.channel().constant(), self.channel().spec_id(), *request),
+    {
         self.channel.send(request)?;
         let (state, handle) = self.state.acquire_write();
         let (new_state, request_ticket) = state.add_pending(request.clone());
@@ -181,6 +183,10 @@ impl<C: Channel> RpcChannel<C> {
     // non blocking
     pub fn poll_id(&self) -> Option<C::R> {
         None
+    }
+
+    pub closed spec fn channel(self) -> C {
+        self.channel
     }
 }
 

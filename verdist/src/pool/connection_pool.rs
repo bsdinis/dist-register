@@ -94,7 +94,8 @@ pub trait ConnectionPool {
 
     fn channels(&self) -> (r: &[Self::C])
         ensures
-            r@.to_set() == self.spec_channels().values(),
+            self.spec_channels() == channel_seq_to_map(r@),
+            r@.map_values(|c: Self::C| c.spec_id()).no_duplicates(),
     ;
 
     spec fn spec_channels(&self) -> Map<<Self::C as Channel>::Id, Self::C>;
@@ -155,7 +156,8 @@ impl<C> FlawlessPool<C> where C: Channel {
 
     fn _channels(&self) -> (r: &[C])
         ensures
-            r@.to_set() == self._spec_channels().values(),
+            self._spec_channels() == channel_seq_to_map(r@),
+            r@.map_values(|c: C| c.spec_id()).no_duplicates(),
     {
         proof {
             use_type_invariant(self);

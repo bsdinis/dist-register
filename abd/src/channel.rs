@@ -15,36 +15,34 @@ pub struct ChannelInv {
     // loc: Loc,
 }
 
+// Invariant on server
 impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv {
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Request) -> bool {
+        // r.server_id() == id.1
         true  // TODO: r should have the gname that is in Request
 
     }
 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Response) -> bool {
-        true  // TODO: s should have the gname that is in Response
+        s is Get ==> {
+            &&& s.server_id() == id.0
+        }
+        // TODO: s should have the gname that is in Response
 
     }
 }
 
+// Invariant on client
 impl ChannelInvariant<ChannelInv, (u64, u64), Response, Request> for ChannelInv {
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Response) -> bool {
-        true  // TODO: r should have the gname that is in Request
+        // r.server_id() == id.1
+        true
+        // TODO: r should have the gname that is in Response
 
     }
 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Request) -> bool {
-        true  // TODO: s should have the gname that is in Response
-
-    }
-}
-
-impl<C> vstd::rwlock::RwLockPredicate<HashMap<u64, C>> for ChannelInv where
-    C: Channel<Id = (u64, u64), R = Request, S = Response, K = ChannelInv>,
- {
-    open spec fn inv(self, v: HashMap<u64, C>) -> bool {
-        forall|client_id: u64| #[trigger]
-            v@.contains_key(client_id) ==> { self == v@[client_id].constant() }
+        true
     }
 }
 

@@ -40,6 +40,39 @@ pub trait ChannelInvariant<K, Id, R, S> {
     spec fn send_inv(k: K, id: Id, s: S) -> bool;
 }
 
+// NOTE: On channel equality
+//
+// Something is weird about Verus's model for equality.
+// Verus generally assumes that shared references imply immutability.
+// Meaning if you have
+// ```
+// fn f(x: &usize) { ... }
+//
+// fn g() {
+//      let x = 5;
+//      let ghost x_cpy = x;
+//      f(&x);
+//      assert(x == x_cpy)
+// }
+// ```
+//
+// Always verifies.
+//
+// However, consider something like
+// ```
+// fn f(x: &RwLock<usize, _>) { *x.lock() *= 5  }
+//
+// fn g() {
+//      let x = RwLock::new(5);
+//      let ghost x_cpy = x;
+//      f(&x);
+//      assert(x == x_cpy)
+// }
+// ```
+//
+// This should verify?
+// Meaning two RwLocks would be the same if their predicates are the same??
+
 /// A reliable and typed channel
 ///
 /// The spec is in the type -- by virtue of having a type `R` the receiver learns something

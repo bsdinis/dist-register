@@ -26,8 +26,9 @@ verus! {
 
 #[allow(dead_code)]
 pub struct RegisterIds {
-    resource_loc: Loc,
-    state_inv_id: int,
+    pub resource_loc: Loc,
+    pub state_inv_id: int,
+    pub id: u64,
 }
 
 #[allow(dead_code)]
@@ -58,6 +59,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.value is None,
             r.timestamp == Timestamp::spec_default(),
             r.resource@@ is HalfRightToAdvance,
+            r.id() == server_id,
             r.inv(),
     {
         let tracked zero_commitment;
@@ -103,10 +105,11 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         }
     }
 
-    pub closed spec fn ids(self) -> RegisterIds {
+    pub open spec fn ids(self) -> RegisterIds {
         RegisterIds {
-            resource_loc: self.resource@.loc(),
-            state_inv_id: self.state_inv@.namespace(),
+            resource_loc: self.resource_loc(),
+            state_inv_id: self.state_inv_id(),
+            id: self.id(),
         }
     }
 
@@ -116,6 +119,10 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
 
     pub closed spec fn state_inv_id(self) -> int {
         self.state_inv@.namespace()
+    }
+
+    pub closed spec fn id(self) -> u64 {
+        self.server_token@.key()
     }
 
     pub open spec fn inv(&self) -> bool {
@@ -137,6 +144,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.spec_timestamp() == self.timestamp,
             r.loc() == self.resource_loc(),
             r.spec_tag() == req.spec_tag(),
+            r.server_id() == self.id(),
     {
         let ghost server_id = self.server_token@.key();
         assume(req.servers().contains_key(server_id));
@@ -295,6 +303,8 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     pub fn new(server_id: u64, state_inv: Tracked<Arc<StateInvariant<ML, RL>>>) -> (r: Self)
         requires
             state_inv@.namespace() == invariants::state_inv_id(),
+        ensures
+            r.id() == server_id,
     {
         let inner_reg = MonotonicRegisterInner::new(server_id, state_inv);
 
@@ -309,10 +319,15 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
         self.inner.pred().ids.resource_loc
     }
 
+    pub closed spec fn id(self) -> u64 {
+        self.inner.pred().ids.id
+    }
+
     pub fn read(&self, req: GetRequest) -> (r: GetResponse)
         ensures
             r.loc() == self.resource_loc(),
             r.spec_tag() == req.spec_tag(),
+            r.server_id() == self.id(),
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();

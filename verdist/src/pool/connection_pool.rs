@@ -146,14 +146,6 @@ impl<C> FlawlessPool<C> where C: Channel {
         self.pool@.map_values(|c: C| c.spec_id()).no_duplicates()
     }
 
-    proof fn _lemma_channels(tracked &self)
-        ensures
-            self.pool@.map_values(|c: C| c.spec_id()).no_duplicates(),
-            self._spec_channels() == channel_seq_to_map(self.pool@),
-    {
-        use_type_invariant(self);
-    }
-
     fn _channels(&self) -> (r: &[C])
         ensures
             self._spec_channels() == channel_seq_to_map(r@),
@@ -167,15 +159,8 @@ impl<C> FlawlessPool<C> where C: Channel {
         self.pool.as_slice()
     }
 
-    closed spec fn _spec_channels(&self) -> Map<<C as Channel>::Id, C> {
-        self.pool@.map_values(|c: C| c.spec_id()).to_set().mk_map(
-            |id|
-                {
-                    let idx = choose|idx|
-                        0 <= idx < self.pool@.len() && #[trigger] self.pool@[idx].spec_id() == id;
-                    self.pool@[idx]
-                },
-        )
+    closed spec fn _spec_channels(self) -> Map<<C as Channel>::Id, C> {
+        channel_seq_to_map(self.pool@)
     }
 
     fn _len(&self) -> (r: usize)
@@ -201,6 +186,15 @@ impl<C> FlawlessPool<C> where C: Channel {
         assert(self._spec_channels().len() == pool_ids.to_set().len());
         pool_ids.unique_seq_to_set();
     }
+
+    proof fn _lemma_channels(tracked &self)
+        ensures
+            self.pool@.map_values(|c: C| c.spec_id()).no_duplicates(),
+            self._spec_channels() == channel_seq_to_map(self.pool@),
+    {
+        use_type_invariant(self);
+    }
+
 }
 
 impl<C> FlawlessPool<BufChannel<C>> where C: Channel, C::S: TaggedMessage, C::R: TaggedMessage {

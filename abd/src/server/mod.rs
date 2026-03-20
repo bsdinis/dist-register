@@ -31,7 +31,7 @@ use verdist::network::modelled::ModelledListener;
 #[cfg(verus_only)]
 use verdist::rpc::proto::TaggedMessage;
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 #[cfg(verus_only)]
@@ -43,7 +43,7 @@ use vstd::resource::Loc;
 use vstd::rwlock::RwLock;
 use vstd::rwlock::RwLockPredicate;
 
-mod register;
+pub mod register;
 
 verus! {
 
@@ -60,15 +60,38 @@ impl RwLockPredicate<Tracked<MonotonicTimestampResource>> for LowerBoundPredicat
     }
 }
 
+pub struct ServerInv {
+    pub channel_inv: ChannelInv,
+    pub server_id: u64,
+}
+
+impl<C> vstd::rwlock::RwLockPredicate<Vec<C>> for ServerInv where
+    C: Channel<Id = (u64, u64), R = Request, S = Response, K = ChannelInv>,
+ {
+    open spec fn inv(self, v: Vec<C>) -> bool {
+        forall|idx: int|
+            0 <= idx < v@.len() ==> {
+                let chan = #[trigger] v@[idx];
+                &&& self.channel_inv == chan.constant()
+                &&& self.server_id == chan.spec_id().0
+            }
+    }
+}
+
 #[verifier::reject_recursive_types(C)]
 pub struct RegisterServer<L, C, ML, RL> where
+    L: Listener<C>,
+    C: Channel<R = Request, S = Response, Id = (u64, u64), K = ChannelInv>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
-    C: Channel<R = Request, S = Response, Id = (u64, u64), K = ChannelInv>,
  {
+    /// ID of the server
     id: u64,
+    /// Listener channel
     listener: L,
-    connected: RwLock<HashMap<u64, C>, ChannelInv>,
+    /// Connected clients
+    connected: RwLock<Vec<C>, ServerInv>,
+    /// Register state
     register: MonotonicRegister<ML, RL>,
 }
 
@@ -82,43 +105,59 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         requires
             state_inv@.namespace() == invariants::state_inv_id(),
     {
-        let empty = HashMap::new();
-        let ghost pred = ChannelInv {  };
-        assert(pred.inv(empty));
+        let empty = Vec::new();
+        let ghost channel_inv = ChannelInv {  };
+        let ghost server_inv = ServerInv { channel_inv, server_id: id };
+        assert(server_inv.inv(empty));
         RegisterServer {
             id,
             register: MonotonicRegister::new(id, state_inv),
-            connected: RwLock::new(empty, Ghost(pred)),
+            connected: RwLock::new(empty, Ghost(server_inv)),
             listener,
         }
     }
 
+    #[verifier::type_invariant]
+    closed spec fn inv(self) -> bool {
+        &&& self.register.id() == self.id
+        &&& self.connected.pred().server_id == self.id
+    }
+
     fn accept(&self, channel: C) {
+        proof {
+            use_type_invariant(self);
+        }
         let (mut guard, handle) = self.connected.acquire_write();
-        guard.insert(channel.id().1, channel);
+        assume(channel.spec_id().0 == self.id);  // TODO(connector)
+        guard.push(channel);
+        assert(ServerInv::inv(self.connected.pred(), guard));
         handle.release_write(guard);
     }
 
     fn handle_get(&self, req: GetRequest) -> (r: Response)
         ensures
-            r.spec_tag() == req.spec_tag(),
             r is Get,
+            r.spec_tag() == req.spec_tag(),
+            r.server_id() == self.id,
     {
+        proof {
+            use_type_invariant(self);
+        }
         Response::Get(self.register.read(req))
     }
 
     fn handle_get_timestamp(&self, req: GetTimestampRequest) -> (r: Response)
         ensures
-            r.spec_tag() == req.spec_tag(),
             r is GetTimestamp,
+            r.spec_tag() == req.spec_tag(),
     {
         Response::GetTimestamp(self.register.read_timestamp(req))
     }
 
     fn handle_write(&self, req: WriteRequest) -> (r: Response)
         ensures
-            r.spec_tag() == req.spec_tag(),
             r is Write,
+            r.spec_tag() == req.spec_tag(),
     {
         Response::Write(self.register.write(req))
     }
@@ -126,6 +165,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     fn handle(&self, request: Request, _client_id: u64) -> (r: Response)
         ensures
             r.spec_tag() == request.spec_tag(),
+            r is Get ==> r.server_id() == self.id,
     {
         match request {
             Request::Get(req) => self.handle_get(req),
@@ -135,6 +175,11 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     }
 
     fn poll(&self) -> bool {
+        proof {
+            use_type_invariant(self);
+            broadcast use vstd::seq_lib::group_filter_ensures;
+
+        }
         // verus does not support unbounded loops + streams probably don't/can't have specs
         // so we do this up to 10 times every time
         let mut i = 10;
@@ -154,29 +199,57 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
             i -= 1;
         }
 
-        let mut drop = Vec::new();
+        let mut drop = HashSet::new();
         let (mut connected, handle) = self.connected.acquire_write();
 
-        let it = connected.iter();
-        for (id, channel) in it {
+        let ghost connected_pred = self.connected.pred();
+        let iterator = connected.iter();
+        #[allow(unused_variables)]
+        let mut idx = 0usize;
+        for channel in it: iterator
+            invariant
+                self.connected.pred() == connected_pred,
+                connected_pred.server_id == self.id,
+                idx == it.pos,
+                connected@ == it.elements,
+                forall|idx|
+                    0 <= idx < connected@.len() ==> {
+                        let chan = #[trigger] connected@[idx];
+                        &&& connected_pred.channel_inv == chan.constant()
+                        &&& connected_pred.server_id == chan.spec_id().0
+                    },
+        {
             match channel.try_recv() {
                 Ok(req) => {
-                    let response = self.handle(req, *id);
+                    let response = self.handle(req, channel.id().1);
+                    assert(C::K::send_inv(channel.constant(), channel.spec_id(), response));
                     if channel.send(&response).is_err() {
-                        drop.push(*id);
+                        drop.insert(channel.id());
                     }
                 },
                 Err(verdist::network::error::TryRecvError::Empty) => {},
                 Err(verdist::network::error::TryRecvError::Disconnected) => {
-                    drop.push(*id);
+                    drop.insert(channel.id());
                 },
             }
+            assume(idx < usize::MAX);  // XXX: overflow
+            idx += 1;
         }
 
-        for id in drop {
-            connected.remove(&id);
+        let ghost old_c = connected@;
+        let filter_fn = |c: &C| !drop.contains(&c.id());
+        connected.retain(filter_fn);
+        proof {
+            let ghost server_inv = self.connected.pred();
+            assert forall|idx| 0 <= idx < connected@.len() implies {
+                let chan = #[trigger] connected@[idx];
+                &&& server_inv.channel_inv == chan.constant()
+                &&& server_inv.server_id == chan.spec_id().0
+            } by {
+                let chan = #[trigger] connected@[idx];
+                old_c.lemma_filter_contains_rev(|c| filter_fn.ensures((&c,), true), chan);
+            }
         }
-
         handle.release_write(connected);
 
         true

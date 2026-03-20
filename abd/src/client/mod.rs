@@ -1,3 +1,4 @@
+use crate::channel::ChannelInv;
 #[cfg(verus_only)]
 use crate::invariants;
 #[cfg(verus_only)]
@@ -161,7 +162,7 @@ pub struct AbdPool<Pool, ML, RL> where
 
 impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Response, S = Request, Id = (u64, u64)>,
+    C: Channel<R = Response, S = Request, Id = (u64, u64), K = ChannelInv>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
@@ -246,7 +247,7 @@ pub struct AbdRegisterLocs {
 
 impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Response, S = Request, Id = (u64, u64)>,
+    C: Channel<R = Response, S = Request, Id = (u64, u64), K = ChannelInv>,
     C::Id: Eq + Hash,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -317,6 +318,18 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             Tracked(server_tokens_lb),
             read_pred,
         );
+        /*
+        assert forall |id| #[trigger]
+            bpool.spec_channels().contains_key(id) implies {
+                let chan = bpool.spec_channels()[id];
+                <PoolChannel<Pool> as Channel>::K::send_inv(
+                    chan.constant(),
+                    chan.spec_id(),
+                    request,
+                )
+            } by {
+        }
+        */
         let quorum_res = bpool.broadcast(req, read_pred, accum).wait_for(
             |s| -> (r: bool)
                 ensures
@@ -758,7 +771,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
 pub proof fn lemma_inv<Pool, C, ML, RL>(c: AbdPool<Pool, ML, RL>) where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = Response, S = Request, Id = (u64, u64)>,
+    C: Channel<R = Response, S = Request, Id = (u64, u64), K = ChannelInv>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 

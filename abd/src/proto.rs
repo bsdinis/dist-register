@@ -306,6 +306,16 @@ impl TaggedMessage for Response {
     }
 }
 
+impl Response {
+    pub open spec fn server_id(self) -> u64 {
+        match self {
+            Response::Get(req) => req.server_id(),
+            Response::GetTimestamp(req) => req.server_id(),
+            Response::Write(req) => req.server_id(),
+        }
+    }
+}
+
 #[allow(unused)]
 pub struct GetResponse {
     request_id: u64,
@@ -560,6 +570,10 @@ impl GetTimestampResponse {
     {
         self.timestamp.clone()
     }
+
+    pub closed spec fn server_id(self) -> u64 {
+        0
+    }
 }
 
 impl TaggedMessage for GetTimestampResponse {
@@ -611,6 +625,10 @@ impl WriteResponse {
             r.spec_timestamp() == lb@@.timestamp(),
     {
         WriteResponse { request_id, lb }
+    }
+
+    pub closed spec fn server_id(self) -> u64 {
+        0
     }
 }
 

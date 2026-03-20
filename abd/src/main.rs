@@ -386,7 +386,7 @@ fn get_invariant_state<Pool, C, ML, RL>(
 
     requires
         forall|cid: (u64, u64)| #[trigger]
-            pool.spec_conns().contains_key(cid) ==> cid.0 == client_id,
+            pool.spec_channels().contains_key(cid) ==> cid.0 == client_id,
         client_perm@.value() == 0,
     ensures
         r.0@.key() == client_id,
@@ -395,17 +395,17 @@ fn get_invariant_state<Pool, C, ML, RL>(
         r.0@.id() == r.1@.constant().commitments_ids.client_ctr_id,
         r.1@.namespace() == invariants::state_inv_id(),
         forall|cid: (u64, u64)| #[trigger]
-            pool.spec_conns().contains_key(cid) ==> {
+            pool.spec_channels().contains_key(cid) ==> {
                 &&& cid.0 == client_id
                 &&& r.1@.constant().server_locs.contains_key(cid.1)
             },
         forall|server_id| #[trigger]
             r.1@.constant().server_locs.contains_key(server_id) ==> {
-                pool.spec_conns().contains_key((client_id, server_id))
+                pool.spec_channels().contains_key((client_id, server_id))
             },
         pool.spec_len() == r.1@.constant().server_locs.len(),  // TODO: superfluous
 {
-    let ghost server_ids = pool.spec_conns().dom().map(|id: (u64, u64)| id.1);
+    let ghost server_ids = pool.spec_channels().dom().map(|id: (u64, u64)| id.1);
     assume(server_ids.len() == pool.spec_len());  // TODO
     let tracked state_inv;
     let tracked view;

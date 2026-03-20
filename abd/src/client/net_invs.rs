@@ -1,4 +1,20 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+
+#[cfg(verus_only)]
+use crate::invariants::quorum::Quorum;
+use crate::invariants::quorum::ServerUniverse;
+#[cfg(verus_only)]
+use crate::invariants::StatePredicate;
+use crate::proto::{GetResponse, GetTimestampResponse, Response, WriteResponse};
+#[cfg(verus_only)]
+use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
+use crate::Timestamp;
+
+use verdist::network::channel::Channel;
+#[cfg(verus_only)]
+use verdist::network::channel::ChannelInvariant;
+use verdist::rpc::replies::ReplyAccumulator;
 
 use vstd::invariant::InvariantPredicate;
 #[cfg(verus_only)]
@@ -7,44 +23,37 @@ use vstd::prelude::*;
 use vstd::resource::map::GhostPersistentSubmap;
 use vstd::resource::Loc;
 
-#[cfg(verus_only)]
-use crate::invariants::quorum::Quorum;
-use crate::invariants::quorum::ServerUniverse;
-#[cfg(verus_only)]
-use crate::invariants::StatePredicate;
-use crate::Timestamp;
-
-use crate::proto::{GetResponse, GetTimestampResponse, Response, WriteResponse};
-#[cfg(verus_only)]
-use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
-use verdist::rpc::replies::ReplyAccumulator;
-
 verus! {
 
 #[allow(unused_variables, dead_code)]
-pub ghost struct ReadPred {
+pub ghost struct ReadPred<C: Channel> {
     pub server_locs: Map<u64, Loc>,
     pub commitment_id: Loc,
     pub server_tokens_id: Loc,
     pub min_timestamp: Timestamp,
+    pub channels: Map<C::Id, C>,
 }
 
-impl ReadPred {
-    pub open spec fn from_state(
+impl<C: Channel> ReadPred<C> {
+    pub open spec fn new(
         state: StatePredicate,
+        channels: Map<C::Id, C>,
         old_watermark: MonotonicTimestampResource,
-    ) -> ReadPred {
+    ) -> ReadPred<C> {
         ReadPred {
             server_locs: state.server_locs,
             commitment_id: state.commitments_ids.commitment_id,
             server_tokens_id: state.server_tokens_id,
             min_timestamp: old_watermark@.timestamp(),
+            channels,
         }
     }
+    // TODO: type invariant here relating the channels.dom() to the server_locs.dom()
+
 }
 
 #[allow(dead_code)]
-pub struct ReadAccumulator {
+pub struct ReadAccumulator<C: Channel> {
     // EXEC state
     /// The max response from the first round
     /// This is the value that will ultimately be returned
@@ -69,20 +78,22 @@ pub struct ReadAccumulator {
     min_timestamp: Ghost<Timestamp>,
     /// The id of the commitment map
     commitment_id: Ghost<Loc>,
+    /// channels of the pool this accumulator is working with
+    channels: Ghost<Map<C::Id, C>>,
 }
 
-impl InvariantPredicate<ReadPred, ReadAccumulator> for ReadPred {
-    open spec fn inv(pred: ReadPred, v: ReadAccumulator) -> bool {
+impl<C> InvariantPredicate<ReadPred<C>, ReadAccumulator<C>> for ReadPred<C> where C: Channel {
+    open spec fn inv(pred: ReadPred<C>, v: ReadAccumulator<C>) -> bool {
         pred == v.constant()
     }
 }
 
-impl ReadAccumulator {
+impl<C: Channel> ReadAccumulator<C> {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         server_tokens: Tracked<GhostPersistentSubmap<u64, Loc>>,
         #[allow(unused_variables)]
-        read_pred: Ghost<ReadPred>,
+        read_pred: Ghost<ReadPred<C>>,
     ) -> (r: Self)
         requires
             read_pred@.server_locs == servers@.locs(),
@@ -110,6 +121,7 @@ impl ReadAccumulator {
             server_tokens,
             min_timestamp: Ghost(read_pred@.min_timestamp),
             commitment_id: Ghost(read_pred@.commitment_id),
+            channels: Ghost(read_pred@.channels),
         }
     }
 
@@ -139,12 +151,13 @@ impl ReadAccumulator {
         &&& self.wb_replies@.len() == self.spec_n_wb_replies()
     }
 
-    pub open spec fn constant(self) -> ReadPred {
+    pub open spec fn constant(self) -> ReadPred<C> {
         ReadPred {
             server_locs: self.server_locs(),
             commitment_id: self.commitment_id(),
             server_tokens_id: self.server_tokens_id(),
             min_timestamp: self.spec_min_timestamp(),
+            channels: self.channels(),
         }
     }
 
@@ -162,6 +175,10 @@ impl ReadAccumulator {
 
     pub closed spec fn server_tokens_id(self) -> Loc {
         self.server_tokens@.id()
+    }
+
+    pub closed spec fn channels(self) -> Map<C::Id, C> {
+        self.channels@
     }
 
     pub closed spec fn quorum(self) -> Quorum {
@@ -587,15 +604,31 @@ impl ReadAccumulator {
     }
 }
 
-pub struct ReadAccumGetPhase(ReadAccumulator);
+pub struct ReadAccumGetPhase<C: Channel> {
+    inner: ReadAccumulator<C>,
+}
 
-pub struct ReadAccumWbPhase(ReadAccumulator);
+pub struct ReadAccumWbPhase<C: Channel> {
+    inner: ReadAccumulator<C>,
+}
 
-impl ReadAccumGetPhase {
+impl<C: Channel> InvariantPredicate<ReadPred<C>, ReadAccumGetPhase<C>> for ReadPred<C> {
+    open spec fn inv(pred: ReadPred<C>, v: ReadAccumGetPhase<C>) -> bool {
+        pred == v.constant()
+    }
+}
+
+impl<C: Channel> InvariantPredicate<ReadPred<C>, ReadAccumWbPhase<C>> for ReadPred<C> {
+    open spec fn inv(pred: ReadPred<C>, v: ReadAccumWbPhase<C>) -> bool {
+        pred == v.constant()
+    }
+}
+
+impl<C: Channel> ReadAccumGetPhase<C> {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         server_tokens: Tracked<GhostPersistentSubmap<u64, Loc>>,
-        read_pred: Ghost<ReadPred>,
+        read_pred: Ghost<ReadPred<C>>,
     ) -> (r: Self)
         requires
             read_pred@.server_locs == servers@.locs(),
@@ -609,75 +642,44 @@ impl ReadAccumGetPhase {
                 },
         ensures
             r.constant() == read_pred@,
-            r.spec_n_replies() == 0,
+            r.len() == 0,
     {
-        ReadAccumGetPhase(ReadAccumulator::new(servers, server_tokens, read_pred))
+        ReadAccumGetPhase { inner: ReadAccumulator::new(servers, server_tokens, read_pred) }
     }
 
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
-        &&& self.0.spec_n_wb_replies() == 0
+        &&& self.inner.spec_n_wb_replies() == 0
     }
 
-    pub closed spec fn constant(self) -> ReadPred {
-        self.0.constant()
+    pub closed spec fn len(self) -> nat {
+        self.inner.spec_n_get_replies()
     }
 
-    pub fn destruct(self) -> (r: ReadAccumulator)
+    pub closed spec fn constant(self) -> ReadPred<C> {
+        self.inner.constant()
+    }
+
+    pub fn destruct(self) -> (r: ReadAccumulator<C>)
         ensures
             r.constant() == self.constant(),
             r.spec_n_wb_replies() == 0,
-            r.spec_n_get_replies() == self.spec_n_replies(),
+            r.spec_n_get_replies() == self.len(),
     {
         proof { use_type_invariant(&self) }
 
-        self.0
+        self.inner
     }
 }
 
-impl InvariantPredicate<ReadPred, ReadAccumGetPhase> for ReadPred {
-    open spec fn inv(pred: ReadPred, v: ReadAccumGetPhase) -> bool {
-        pred == v.constant()
-    }
-}
-
-impl ReadAccumWbPhase {
-    pub fn new(accum: ReadAccumulator) -> (r: Self)
-        requires
-            accum.spec_n_wb_replies() == 0,
-        ensures
-            r.spec_n_replies() == 0,
-            r.constant() == accum.constant(),
-    {
-        ReadAccumWbPhase(accum)
-    }
-
-    pub closed spec fn constant(self) -> ReadPred {
-        self.0.constant()
-    }
-
-    pub fn destruct(self) -> (r: ReadAccumulator)
-        ensures
-            r.constant() == self.constant(),
-    {
-        self.0
-    }
-}
-
-impl InvariantPredicate<ReadPred, ReadAccumWbPhase> for ReadPred {
-    open spec fn inv(pred: ReadPred, v: ReadAccumWbPhase) -> bool {
-        pred == v.constant()
-    }
-}
-
-impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumGetPhase {
-    type T = Response;
-
+impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
+    C: Channel<Id = (u64, u64), R = Response>,
+ {
     #[verifier::exec_allows_no_decreases_clause]
     fn insert(
         &mut self,
         #[allow(unused_variables)]
-        pred: Ghost<ReadPred>,
+        pred: Ghost<ReadPred<C>>,
         id: (u64, u64),
         resp: Response,
     )
@@ -688,6 +690,10 @@ impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumGetPhase {
             use_type_invariant(&*self);
         }
         assert(self.constant() == pred@);
+        assert(self.channels().contains_key(id));
+        let ghost chan = self.channels()[id];
+        assert(chan.spec_id() == id);
+        assert(C::K::recv_inv(chan.constant(), id, resp));
         assume(resp is Get);
         let resp = match resp {
             Response::Get(g) => g,
@@ -703,32 +709,68 @@ impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumGetPhase {
         assume(self.constant().server_locs.contains_key(resp.server_id()));
         assume(self.constant().server_locs[resp.server_id()] == resp.loc());
         assume(self.constant().server_tokens_id == resp.server_token_id());
-        self.0.insert_get(id, resp);
+        self.inner.insert_get(id, resp);
     }
 
-    closed spec fn spec_n_replies(self) -> nat {
-        self.0.spec_n_get_replies()
+    open spec fn spec_n_replies(self) -> nat {
+        self.len()
     }
 
     fn n_replies(&self) -> usize {
-        self.0.n_get_replies()
+        self.inner.n_get_replies()
+    }
+
+    open spec fn channels(self) -> Map<C::Id, C> {
+        self.constant().channels
     }
 }
 
-impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumWbPhase {
-    type T = Response;
+impl<C: Channel> ReadAccumWbPhase<C> {
+    pub fn new(accum: ReadAccumulator<C>) -> (r: Self)
+        requires
+            accum.spec_n_wb_replies() == 0,
+        ensures
+            r.len() == 0,
+            r.constant() == accum.constant(),
+    {
+        ReadAccumWbPhase { inner: accum }
+    }
 
+    pub closed spec fn constant(self) -> ReadPred<C> {
+        self.inner.constant()
+    }
+
+    pub closed spec fn len(self) -> nat {
+        self.inner.spec_n_wb_replies()
+    }
+
+    pub fn destruct(self) -> (r: ReadAccumulator<C>)
+        ensures
+            r.constant() == self.constant(),
+    {
+        self.inner
+    }
+}
+
+impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumWbPhase<C> where
+    C: Channel<Id = (u64, u64), R = Response>,
+ {
     #[verifier::exec_allows_no_decreases_clause]
     fn insert(
         &mut self,
         #[allow(unused_variables)]
-        pred: Ghost<ReadPred>,
+        pred: Ghost<ReadPred<C>>,
         id: (u64, u64),
         resp: Response,
     )
         ensures
             self.constant() == old(self).constant(),
     {
+        assert(self.constant() == pred@);
+        assert(self.channels().contains_key(id));
+        let ghost chan = self.channels()[id];
+        assert(chan.spec_id() == id);
+        assert(C::K::recv_inv(chan.constant(), id, resp));
         assume(resp is Write);
         let resp = match resp {
             Response::Write(w) => w,
@@ -738,32 +780,66 @@ impl ReplyAccumulator<(u64, u64), ReadPred> for ReadAccumWbPhase {
                 }
             },
         };
-        self.0.insert_write(id, resp);
+        self.inner.insert_write(id, resp);
     }
 
-    closed spec fn spec_n_replies(self) -> nat {
-        self.0.spec_n_wb_replies()
+    open spec fn spec_n_replies(self) -> nat {
+        self.len()
     }
 
     fn n_replies(&self) -> usize {
-        self.0.n_wb_replies()
+        self.inner.n_wb_replies()
+    }
+
+    open spec fn channels(self) -> Map<C::Id, C> {
+        self.constant().channels
     }
 }
 
-pub struct GetTimestampAccumulator {
+pub struct GetTimestampAccumulator<C: Channel> {
     replies: BTreeMap<(u64, u64), GetTimestampResponse>,
+    channels: Ghost<Map<C::Id, C>>,
 }
 
-pub struct WriteAccumulator {
+pub struct WriteAccumulator<C: Channel> {
     replies: BTreeMap<(u64, u64), ()>,
+    channels: Ghost<Map<C::Id, C>>,
 }
 
-impl ReplyAccumulator<(u64, u64), EmptyPred> for GetTimestampAccumulator {
-    type T = Response;
+impl<C: Channel> GetTimestampAccumulator<C> {
+    pub fn new(channels: Ghost<Map<C::Id, C>>) -> (r: Self)
+        ensures
+            r.len() == 0,
+            r.spec_channels() == channels@,
+    {
+        GetTimestampAccumulator { replies: BTreeMap::new(), channels }
+    }
 
+    pub fn into(self) -> (r: BTreeMap<(u64, u64), GetTimestampResponse>)
+        ensures
+            r@.len() == self.len(),
+    {
+        self.replies
+    }
+
+    pub closed spec fn len(self) -> nat {
+        self.replies@.len()
+    }
+
+    pub closed spec fn spec_channels(self) -> Map<C::Id, C> {
+        self.channels@
+    }
+}
+
+impl<C> ReplyAccumulator<C, EmptyPred> for GetTimestampAccumulator<C> where
+    C: Channel<Id = (u64, u64), R = Response>,
+ {
     #[allow(unused_variables)]
     #[verifier::exec_allows_no_decreases_clause]
-    fn insert(&mut self, pred: Ghost<EmptyPred>, id: (u64, u64), resp: Response) {
+    fn insert(&mut self, pred: Ghost<EmptyPred>, id: (u64, u64), resp: Response)
+        ensures
+            self.channels() == old(self).channels(),
+    {
         assume(resp is GetTimestamp);
         let resp = match resp {
             Response::GetTimestamp(g) => g,
@@ -781,38 +857,54 @@ impl ReplyAccumulator<(u64, u64), EmptyPred> for GetTimestampAccumulator {
         self.replies.insert(id, resp);
     }
 
-    closed spec fn spec_n_replies(self) -> nat {
-        self.replies@.len()
+    open spec fn spec_n_replies(self) -> nat {
+        self.len()
     }
 
     fn n_replies(&self) -> usize {
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         self.replies.len()
     }
+
+    open spec fn channels(self) -> Map<C::Id, C> {
+        self.spec_channels()
+    }
 }
 
-impl GetTimestampAccumulator {
-    pub fn new() -> (r: Self)
+impl<C: Channel> WriteAccumulator<C> {
+    pub fn new(channels: Ghost<Map<C::Id, C>>) -> (r: Self)
         ensures
-            r.spec_n_replies() == 0,
+            r.len() == 0,
+            r.spec_channels() == channels@,
     {
-        GetTimestampAccumulator { replies: BTreeMap::new() }
+        WriteAccumulator { replies: BTreeMap::new(), channels }
     }
 
-    pub fn into(self) -> (r: BTreeMap<(u64, u64), GetTimestampResponse>)
+    pub fn into(self) -> (r: BTreeMap<(u64, u64), ()>)
         ensures
-            r@.len() == self.spec_n_replies(),
+            r@.len() == self.len(),
     {
         self.replies
     }
+
+    pub closed spec fn len(self) -> nat {
+        self.replies@.len()
+    }
+
+    pub closed spec fn spec_channels(self) -> Map<C::Id, C> {
+        self.channels@
+    }
 }
 
-impl ReplyAccumulator<(u64, u64), EmptyPred> for WriteAccumulator {
-    type T = Response;
-
+impl<C> ReplyAccumulator<C, EmptyPred> for WriteAccumulator<C> where
+    C: Channel<Id = (u64, u64), R = Response>,
+ {
     #[allow(unused_variables)]
     #[verifier::exec_allows_no_decreases_clause]
-    fn insert(&mut self, pred: Ghost<EmptyPred>, id: (u64, u64), resp: Response) {
+    fn insert(&mut self, pred: Ghost<EmptyPred>, id: (u64, u64), resp: Response)
+        ensures
+            self.channels() == old(self).channels(),
+    {
         assume(resp is Write);
         let resp = match resp {
             Response::Write(w) => w,
@@ -830,42 +922,30 @@ impl ReplyAccumulator<(u64, u64), EmptyPred> for WriteAccumulator {
         self.replies.insert(id, ());
     }
 
-    closed spec fn spec_n_replies(self) -> nat {
-        self.replies@.len()
+    open spec fn spec_n_replies(self) -> nat {
+        self.len()
     }
 
     fn n_replies(&self) -> usize {
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         self.replies.len()
     }
-}
 
-impl WriteAccumulator {
-    pub fn new() -> (r: Self)
-        ensures
-            r.spec_n_replies() == 0,
-    {
-        WriteAccumulator { replies: BTreeMap::new() }
-    }
-
-    pub fn into(self) -> (r: BTreeMap<(u64, u64), ()>)
-        ensures
-            r@.len() == self.spec_n_replies(),
-    {
-        self.replies
+    open spec fn channels(self) -> Map<C::Id, C> {
+        self.spec_channels()
     }
 }
 
 pub struct EmptyPred;
 
-impl InvariantPredicate<EmptyPred, GetTimestampAccumulator> for EmptyPred {
-    open spec fn inv(pred: EmptyPred, v: GetTimestampAccumulator) -> bool {
+impl<C: Channel> InvariantPredicate<EmptyPred, GetTimestampAccumulator<C>> for EmptyPred {
+    open spec fn inv(pred: EmptyPred, v: GetTimestampAccumulator<C>) -> bool {
         true
     }
 }
 
-impl InvariantPredicate<EmptyPred, WriteAccumulator> for EmptyPred {
-    open spec fn inv(pred: EmptyPred, v: WriteAccumulator) -> bool {
+impl<C: Channel> InvariantPredicate<EmptyPred, WriteAccumulator<C>> for EmptyPred {
+    open spec fn inv(pred: EmptyPred, v: WriteAccumulator<C>) -> bool {
         true
     }
 }

@@ -175,7 +175,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         requires
             pool.spec_len() > 0,
             forall|cid: (u64, u64)| #[trigger]
-                pool.spec_conns().contains_key(cid) ==> {
+                pool.spec_channels().contains_key(cid) ==> {
                     &&& cid.0 == id
                     &&& state_inv@.constant().server_locs.contains_key(cid.1)
                 },
@@ -307,7 +307,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
-        let read_pred = Ghost(ReadPred::from_state(state_constant, token.value().min_ts));
+        let read_pred = Ghost(
+            ReadPred::new(state_constant, bpool.spec_channels(), token.value().min_ts),
+        );
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
         #[allow(unused_parens)]
         let accum = ReadAccumGetPhase::new(
@@ -565,7 +567,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             let quorum_res = bpool.broadcast::<EmptyPred, _>(
                 req,
                 Ghost(EmptyPred),
-                GetTimestampAccumulator::new(),
+                GetTimestampAccumulator::new(Ghost(bpool.spec_channels())),
             ).wait_for(
                 (|s| -> (r: bool)
                     ensures
@@ -676,7 +678,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             let quorum_res = bpool.broadcast::<EmptyPred, _>(
                 Request::Write(WriteRequest::new(value, exec_ts, Tracked(commitment.duplicate()))),
                 Ghost(EmptyPred),
-                WriteAccumulator::new(),
+                WriteAccumulator::new(Ghost(bpool.spec_channels())),
             ).wait_for(
                 (|s| -> (r: bool)
                     ensures

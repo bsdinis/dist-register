@@ -1,11 +1,8 @@
 use crate::proto::Request;
 use crate::proto::Response;
-use std::collections::HashMap;
-use verdist::network::channel::Channel;
 use verdist::network::channel::ChannelInvariant;
 
 use vstd::prelude::*;
-#[cfg(verus_only)]
 use vstd::resource::Loc;
 
 verus! {
@@ -18,13 +15,12 @@ pub struct ChannelInv {
 // Invariant on server
 impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv {
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Request) -> bool {
-        // r.server_id() == id.1
-        true  // TODO: r should have the gname that is in Request
-
+        true
     }
 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Response) -> bool {
         s is Get ==> {
+            let sent = s->Get_0;
             &&& s.server_id() == id.0
         }
         // TODO: s should have the gname that is in Response
@@ -35,8 +31,10 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv 
 // Invariant on client
 impl ChannelInvariant<ChannelInv, (u64, u64), Response, Request> for ChannelInv {
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Response) -> bool {
-        // r.server_id() == id.1
-        true
+        r is Get ==> {
+            let recv = r->Get_0;
+            recv.server_id() == id.1
+        }
         // TODO: r should have the gname that is in Response
 
     }

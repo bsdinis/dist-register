@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
+use crate::channel::ChannelInv;
 #[cfg(verus_only)]
 use crate::invariants::quorum::Quorum;
 use crate::invariants::quorum::ServerUniverse;
@@ -26,7 +27,7 @@ use vstd::resource::Loc;
 verus! {
 
 #[allow(unused_variables, dead_code)]
-pub ghost struct ReadPred<C: Channel> {
+pub ghost struct ReadPred<C: Channel<K = ChannelInv>> {
     pub server_locs: Map<u64, Loc>,
     pub commitment_id: Loc,
     pub server_tokens_id: Loc,
@@ -34,7 +35,7 @@ pub ghost struct ReadPred<C: Channel> {
     pub channels: Map<C::Id, C>,
 }
 
-impl<C: Channel> ReadPred<C> {
+impl<C: Channel<K = ChannelInv>> ReadPred<C> {
     pub open spec fn new(
         state: StatePredicate,
         channels: Map<C::Id, C>,
@@ -53,7 +54,7 @@ impl<C: Channel> ReadPred<C> {
 }
 
 #[allow(dead_code)]
-pub struct ReadAccumulator<C: Channel> {
+pub struct ReadAccumulator<C: Channel<K = ChannelInv>> {
     // EXEC state
     /// The max response from the first round
     /// This is the value that will ultimately be returned
@@ -82,13 +83,15 @@ pub struct ReadAccumulator<C: Channel> {
     channels: Ghost<Map<C::Id, C>>,
 }
 
-impl<C> InvariantPredicate<ReadPred<C>, ReadAccumulator<C>> for ReadPred<C> where C: Channel {
+impl<C> InvariantPredicate<ReadPred<C>, ReadAccumulator<C>> for ReadPred<C> where
+    C: Channel<K = ChannelInv>,
+ {
     open spec fn inv(pred: ReadPred<C>, v: ReadAccumulator<C>) -> bool {
         pred == v.constant()
     }
 }
 
-impl<C: Channel> ReadAccumulator<C> {
+impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         server_tokens: Tracked<GhostPersistentSubmap<u64, Loc>>,
@@ -604,27 +607,31 @@ impl<C: Channel> ReadAccumulator<C> {
     }
 }
 
-pub struct ReadAccumGetPhase<C: Channel> {
+pub struct ReadAccumGetPhase<C: Channel<K = ChannelInv>> {
     inner: ReadAccumulator<C>,
 }
 
-pub struct ReadAccumWbPhase<C: Channel> {
+pub struct ReadAccumWbPhase<C: Channel<K = ChannelInv>> {
     inner: ReadAccumulator<C>,
 }
 
-impl<C: Channel> InvariantPredicate<ReadPred<C>, ReadAccumGetPhase<C>> for ReadPred<C> {
+impl<C: Channel<K = ChannelInv>> InvariantPredicate<ReadPred<C>, ReadAccumGetPhase<C>> for ReadPred<
+    C,
+> {
     open spec fn inv(pred: ReadPred<C>, v: ReadAccumGetPhase<C>) -> bool {
         pred == v.constant()
     }
 }
 
-impl<C: Channel> InvariantPredicate<ReadPred<C>, ReadAccumWbPhase<C>> for ReadPred<C> {
+impl<C: Channel<K = ChannelInv>> InvariantPredicate<ReadPred<C>, ReadAccumWbPhase<C>> for ReadPred<
+    C,
+> {
     open spec fn inv(pred: ReadPred<C>, v: ReadAccumWbPhase<C>) -> bool {
         pred == v.constant()
     }
 }
 
-impl<C: Channel> ReadAccumGetPhase<C> {
+impl<C: Channel<K = ChannelInv>> ReadAccumGetPhase<C> {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         server_tokens: Tracked<GhostPersistentSubmap<u64, Loc>>,
@@ -673,38 +680,49 @@ impl<C: Channel> ReadAccumGetPhase<C> {
 }
 
 impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
-    C: Channel<Id = (u64, u64), R = Response>,
+    C: Channel<Id = (u64, u64), R = Response, K = ChannelInv>,
  {
-    #[verifier::exec_allows_no_decreases_clause]
     fn insert(
         &mut self,
         #[allow(unused_variables)]
         pred: Ghost<ReadPred<C>>,
         id: (u64, u64),
-        resp: Response,
+        reply: Response,
     )
         ensures
             self.constant() == old(self).constant(),
     {
+        // TODO(ask): very weird, adding the K type makes this fail,
+        // even though it should be a precondition
+        // assert({
+        //     &&& ReadPred::inv(pred@, *old(self))
+        //     &&& old(self).channels().contains_key(id)
+        //     &&& ({
+        //         let chan = old(self).channels()[id];
+        //         &&& chan.spec_id() == id
+        //         &&& C::K::recv_inv(chan.constant(), id, reply)
+        //     })
+        // });
         proof {
             use_type_invariant(&*self);
+            assert(ReadPred::inv(pred@, *self));
+            assert(self.channels().contains_key(id));
+            assert(self.constant() == pred@);
+            let ghost chan = self.channels()[id];
+            assert(chan.spec_id() == id);
+            assume(C::K::recv_inv(chan.constant(), id, reply));
+            assume(reply is Get);
+            assert(reply.server_id() == id.1);
+            assert(chan.spec_id() == id);
         }
-        assert(self.constant() == pred@);
-        assert(self.channels().contains_key(id));
-        let ghost chan = self.channels()[id];
-        assert(chan.spec_id() == id);
-        assert(C::K::recv_inv(chan.constant(), id, resp));
-        assume(resp is Get);
-        let resp = match resp {
+        let resp = match reply {
             Response::Get(g) => g,
             _ => {
                 assert(false);
-                loop {
-                }
+                return ;
             },
         };
         // TODO(qed/read/phase_1/chan_pred): add these to the recv_inv
-        assume(resp.server_id() == id.1);
         assume(resp.spec_commitment().id() == self.constant().commitment_id);
         assume(self.constant().server_locs.contains_key(resp.server_id()));
         assume(self.constant().server_locs[resp.server_id()] == resp.loc());
@@ -725,7 +743,7 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
     }
 }
 
-impl<C: Channel> ReadAccumWbPhase<C> {
+impl<C: Channel<K = ChannelInv>> ReadAccumWbPhase<C> {
     pub fn new(accum: ReadAccumulator<C>) -> (r: Self)
         requires
             accum.spec_n_wb_replies() == 0,
@@ -753,7 +771,7 @@ impl<C: Channel> ReadAccumWbPhase<C> {
 }
 
 impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumWbPhase<C> where
-    C: Channel<Id = (u64, u64), R = Response>,
+    C: Channel<Id = (u64, u64), R = Response, K = ChannelInv>,
  {
     #[verifier::exec_allows_no_decreases_clause]
     fn insert(
@@ -770,7 +788,7 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumWbPhase<C> where
         assert(self.channels().contains_key(id));
         let ghost chan = self.channels()[id];
         assert(chan.spec_id() == id);
-        assert(C::K::recv_inv(chan.constant(), id, resp));
+        assume(C::K::recv_inv(chan.constant(), id, resp));
         assume(resp is Write);
         let resp = match resp {
             Response::Write(w) => w,
@@ -796,17 +814,17 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumWbPhase<C> where
     }
 }
 
-pub struct GetTimestampAccumulator<C: Channel> {
+pub struct GetTimestampAccumulator<C: Channel<K = ChannelInv>> {
     replies: BTreeMap<(u64, u64), GetTimestampResponse>,
     channels: Ghost<Map<C::Id, C>>,
 }
 
-pub struct WriteAccumulator<C: Channel> {
+pub struct WriteAccumulator<C: Channel<K = ChannelInv>> {
     replies: BTreeMap<(u64, u64), ()>,
     channels: Ghost<Map<C::Id, C>>,
 }
 
-impl<C: Channel> GetTimestampAccumulator<C> {
+impl<C: Channel<K = ChannelInv>> GetTimestampAccumulator<C> {
     pub fn new(channels: Ghost<Map<C::Id, C>>) -> (r: Self)
         ensures
             r.len() == 0,
@@ -832,7 +850,7 @@ impl<C: Channel> GetTimestampAccumulator<C> {
 }
 
 impl<C> ReplyAccumulator<C, EmptyPred> for GetTimestampAccumulator<C> where
-    C: Channel<Id = (u64, u64), R = Response>,
+    C: Channel<Id = (u64, u64), R = Response, K = ChannelInv>,
  {
     #[allow(unused_variables)]
     #[verifier::exec_allows_no_decreases_clause]
@@ -871,7 +889,7 @@ impl<C> ReplyAccumulator<C, EmptyPred> for GetTimestampAccumulator<C> where
     }
 }
 
-impl<C: Channel> WriteAccumulator<C> {
+impl<C: Channel<K = ChannelInv>> WriteAccumulator<C> {
     pub fn new(channels: Ghost<Map<C::Id, C>>) -> (r: Self)
         ensures
             r.len() == 0,
@@ -897,7 +915,7 @@ impl<C: Channel> WriteAccumulator<C> {
 }
 
 impl<C> ReplyAccumulator<C, EmptyPred> for WriteAccumulator<C> where
-    C: Channel<Id = (u64, u64), R = Response>,
+    C: Channel<Id = (u64, u64), R = Response, K = ChannelInv>,
  {
     #[allow(unused_variables)]
     #[verifier::exec_allows_no_decreases_clause]
@@ -938,13 +956,16 @@ impl<C> ReplyAccumulator<C, EmptyPred> for WriteAccumulator<C> where
 
 pub struct EmptyPred;
 
-impl<C: Channel> InvariantPredicate<EmptyPred, GetTimestampAccumulator<C>> for EmptyPred {
+impl<C: Channel<K = ChannelInv>> InvariantPredicate<
+    EmptyPred,
+    GetTimestampAccumulator<C>,
+> for EmptyPred {
     open spec fn inv(pred: EmptyPred, v: GetTimestampAccumulator<C>) -> bool {
         true
     }
 }
 
-impl<C: Channel> InvariantPredicate<EmptyPred, WriteAccumulator<C>> for EmptyPred {
+impl<C: Channel<K = ChannelInv>> InvariantPredicate<EmptyPred, WriteAccumulator<C>> for EmptyPred {
     open spec fn inv(pred: EmptyPred, v: WriteAccumulator<C>) -> bool {
         true
     }

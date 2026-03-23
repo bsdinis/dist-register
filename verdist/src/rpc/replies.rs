@@ -43,8 +43,6 @@ pub struct Replies<C, Pred, A> where
     A: ReplyAccumulator<C, Pred>,
  {
     pred: Ghost<Pred>,
-    // #[allow(dead_code)] // TODO: check if this needs to stay here
-    // channels: Ghost<Map<C::Id, C>>,
     accum: A,
     errors: BTreeMap<C::Id, TryRecvError>,
 }

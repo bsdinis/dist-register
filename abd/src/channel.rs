@@ -3,7 +3,6 @@ use crate::proto::Response;
 use verdist::network::channel::ChannelInvariant;
 
 use vstd::prelude::*;
-use vstd::resource::Loc;
 
 verus! {
 

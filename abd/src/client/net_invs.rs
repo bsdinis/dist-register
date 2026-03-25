@@ -10,7 +10,7 @@ use crate::invariants::StatePredicate;
 use crate::proto::{GetResponse, GetTimestampResponse, Response, WriteResponse};
 #[cfg(verus_only)]
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
-use crate::Timestamp;
+use crate::timestamp::Timestamp;
 
 use verdist::network::channel::Channel;
 #[cfg(verus_only)]
@@ -814,11 +814,13 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumWbPhase<C> where
     }
 }
 
+#[allow(dead_code)]
 pub struct GetTimestampAccumulator<C: Channel<K = ChannelInv>> {
     replies: BTreeMap<(u64, u64), GetTimestampResponse>,
     channels: Ghost<Map<C::Id, C>>,
 }
 
+#[allow(dead_code)]
 pub struct WriteAccumulator<C: Channel<K = ChannelInv>> {
     replies: BTreeMap<(u64, u64), ()>,
     channels: Ghost<Map<C::Id, C>>,

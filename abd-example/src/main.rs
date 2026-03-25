@@ -15,27 +15,19 @@ use verdist::network::error::ConnectError;
 use verdist::pool::ConnectionPool;
 use verdist::pool::FlawlessPool;
 
-pub mod channel;
-pub mod client;
-pub mod invariants;
-pub mod proto;
-pub mod resource;
-pub mod server;
-pub mod timestamp;
-
-use channel::ChannelInv;
-use client::AbdPool;
+use abd::channel::ChannelInv;
+use abd::client::AbdPool;
 #[cfg(verus_only)]
-use client::AbdRegisterClient;
-use invariants::committed_to::ClientCtrToken;
-use invariants::logatom::ReadPerm;
-use invariants::logatom::RegisterRead;
-use invariants::logatom::RegisterWrite;
-use invariants::logatom::WritePerm;
-use invariants::RegisterView;
-use invariants::StateInvariant;
-use server::run_modelled_server;
-use timestamp::Timestamp;
+use abd::client::AbdRegisterClient;
+use abd::invariants::committed_to::ClientCtrToken;
+use abd::invariants::logatom::ReadPerm;
+use abd::invariants::logatom::RegisterRead;
+use abd::invariants::logatom::RegisterWrite;
+use abd::invariants::logatom::WritePerm;
+use abd::invariants::RegisterView;
+use abd::invariants::StateInvariant;
+use abd::server::run_modelled_server;
+use abd::timestamp::Timestamp;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
@@ -66,24 +58,24 @@ where
     }
 }
 
-impl<ML, RL> From<crate::client::error::ReadError<RL, RL::Completion>>
+impl<ML, RL> From<abd::client::error::ReadError<RL, RL::Completion>>
     for Error<ML, ML::Completion, RL, RL::Completion>
 where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 {
-    fn from(value: crate::client::error::ReadError<RL, RL::Completion>) -> Self {
+    fn from(value: abd::client::error::ReadError<RL, RL::Completion>) -> Self {
         Error::AbdRead(value)
     }
 }
 
-impl<ML, RL> From<crate::client::error::WriteError<ML, ML::Completion>>
+impl<ML, RL> From<abd::client::error::WriteError<ML, ML::Completion>>
     for Error<ML, ML::Completion, RL, RL::Completion>
 where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 {
-    fn from(value: crate::client::error::WriteError<ML, ML::Completion>) -> Self {
+    fn from(value: abd::client::error::WriteError<ML, ML::Completion>) -> Self {
         Error::AbdWrite(value)
     }
 }
@@ -134,8 +126,8 @@ verus! {
 
 enum Error<ML, MC, RL, RC> {
     Connection(ConnectError),
-    AbdRead(crate::client::error::ReadError<RL, RC>),
-    AbdWrite(crate::client::error::WriteError<ML, MC>),
+    AbdRead(abd::client::error::ReadError<RL, RC>),
+    AbdWrite(abd::client::error::WriteError<ML, MC>),
 }
 
 #[verifier::external_trait_specification]
@@ -193,7 +185,7 @@ fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
     ConnectError,
 > where
     Conn: Connector<C>,
-    C: Channel<Id = (u64, u64), K = ChannelInv, R = proto::Response, S = proto::Request>,
+    C: Channel<Id = (u64, u64), K = ChannelInv, R = abd::proto::Response, S = abd::proto::Request>,
  {
     let mut channel = connector.connect(
         client_id,
@@ -213,7 +205,7 @@ fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r:
     ConnectError,
 >) where
     Conn: Connector<C>,
-    C: Channel<Id = (u64, u64), K = ChannelInv, R = proto::Response, S = proto::Request>,
+    C: Channel<Id = (u64, u64), K = ChannelInv, R = abd::proto::Response, S = abd::proto::Request>,
 
     ensures
         r is Ok ==> {
@@ -241,7 +233,7 @@ fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r:
 fn run_client<C, Conn>(args: Args, connectors: &[Conn]) -> Result<Trace, Error>
 where
     Conn: Connector<C> + Send + Sync,
-    C: Channel<R = proto::Response, S = proto::Request>,
+    C: Channel<R = abd::proto::Response, S = abd::proto::Request>,
     C: Sync + Send,
 {
     use std::sync::Arc;
@@ -380,7 +372,7 @@ fn get_invariant_state<Pool, C, ML, RL>(
     Tracked<RegisterView>,
 )) where
     Pool: ConnectionPool<C = C>,
-    C: Channel<R = proto::Response, S = proto::Request, Id = (u64, u64)>,
+    C: Channel<R = abd::proto::Response, S = abd::proto::Request, Id = (u64, u64)>,
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 
@@ -393,7 +385,7 @@ fn get_invariant_state<Pool, C, ML, RL>(
         r.0@.value().0 == 0,
         r.0@.value().1 == client_perm@.id(),
         r.0@.id() == r.1@.constant().commitments_ids.client_ctr_id,
-        r.1@.namespace() == invariants::state_inv_id(),
+        r.1@.namespace() == abd::invariants::state_inv_id(),
         forall|cid: (u64, u64)| #[trigger]
             pool.spec_channels().contains_key(cid) ==> {
                 &&& cid.0 == client_id
@@ -410,7 +402,7 @@ fn get_invariant_state<Pool, C, ML, RL>(
     let tracked state_inv;
     let tracked view;
     proof {
-        let tracked (s, v) = invariants::get_system_state::<ML, RL>(server_ids);
+        let tracked (s, v) = abd::invariants::get_system_state::<ML, RL>(server_ids);
         state_inv = s;
         view = v;
     }
@@ -426,7 +418,7 @@ fn get_invariant_state<Pool, C, ML, RL>(
         }
 
         // XXX: not load bearing but good for debugging
-        assert(<invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(state_inv.constant(), state));
+        assert(<abd::invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(state_inv.constant(), state));
     });
 
     (Tracked(client_ctr_token), Tracked(state_inv), Tracked(view))
@@ -438,9 +430,9 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
 > where
     Conn: Connector<C> + Send + Sync,
     C: Channel<
-        K = crate::channel::ChannelInv,
-        R = proto::Response,
-        S = proto::Request,
+        K = abd::channel::ChannelInv,
+        R = abd::proto::Response,
+        S = abd::proto::Request,
         Id = (u64, u64),
     >,
     C: Sync + Send,
@@ -467,7 +459,7 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         client_ctr_token,
         state_inv,
     );
-    assert(client.inv()) by { crate::client::lemma_inv(client) };
+    assert(client.inv()) by { abd::client::lemma_inv(client) };
     let tracked view = view.get();
     report_quorum_size(client.quorum_size());
 

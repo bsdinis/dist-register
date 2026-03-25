@@ -1,14 +1,24 @@
+#[cfg(verus_only)]
+use crate::invariants::StatePredicate;
 use crate::proto::Request;
 use crate::proto::Response;
 use verdist::network::channel::ChannelInvariant;
 
 use vstd::prelude::*;
+use vstd::resource::Loc;
 
 verus! {
 
+#[allow(dead_code)]
 pub struct ChannelInv {
-    // TODO: this is a particular loc, to some ghost map from request_id to some X
-    // loc: Loc,
+    // TODO: add a loc, to some ghost map from request_id to some X
+    pub commitment_id: Loc,
+}
+
+impl ChannelInv {
+    pub open spec fn from_state_pred(s_inv: StatePredicate) -> Self {
+        ChannelInv { commitment_id: s_inv.commitments_ids.commitment_id }
+    }
 }
 
 // Invariant on server
@@ -20,7 +30,8 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Response) -> bool {
         s is Get ==> {
             let sent = s->Get_0;
-            &&& s.server_id() == id.0
+            &&& sent.server_id() == id.0
+            &&& sent.spec_commitment().id() == k.commitment_id
         }
         // TODO: s should have the gname that is in Response
 
@@ -32,7 +43,8 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Response, Request> for ChannelInv 
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Response) -> bool {
         r is Get ==> {
             let recv = r->Get_0;
-            recv.server_id() == id.1
+            &&& recv.server_id() == id.1
+            &&& recv.spec_commitment().id() == k.commitment_id
         }
         // TODO: r should have the gname that is in Response
 

@@ -106,7 +106,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
             state_inv@.namespace() == invariants::state_inv_id(),
     {
         let empty = Vec::new();
-        let ghost channel_inv = ChannelInv {  };
+        let ghost channel_inv = ChannelInv::from_state_pred(state_inv@.constant());
         let ghost server_inv = ServerInv { channel_inv, server_id: id };
         assert(server_inv.inv(empty));
         RegisterServer {
@@ -120,10 +120,18 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
         &&& self.register.id() == self.id
+        &&& self.register.commitment_id() == self.commitment_id()
         &&& self.connected.pred().server_id == self.id
     }
 
-    fn accept(&self, channel: C) {
+    closed spec fn commitment_id(self) -> Loc {
+        self.connected.pred().channel_inv.commitment_id
+    }
+
+    fn accept(&self, channel: C)
+        requires
+            channel.constant() == self.connected.pred().channel_inv,
+    {
         proof {
             use_type_invariant(self);
         }
@@ -138,7 +146,11 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         ensures
             r is Get,
             r.spec_tag() == req.spec_tag(),
-            r.server_id() == self.id,
+            ({
+                let resp = r->Get_0;
+                &&& resp.server_id() == self.id
+                &&& resp.spec_commitment().id() == self.commitment_id()
+            }),
     {
         proof {
             use_type_invariant(self);
@@ -165,7 +177,11 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     fn handle(&self, request: Request, _client_id: u64) -> (r: Response)
         ensures
             r.spec_tag() == request.spec_tag(),
-            r is Get ==> r.server_id() == self.id,
+            r is Get ==> ({
+                let resp = r->Get_0;
+                &&& resp.server_id() == self.id
+                &&& resp.spec_commitment().id() == self.commitment_id()
+            }),
     {
         match request {
             Request::Get(req) => self.handle_get(req),
@@ -186,8 +202,11 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         while i > 0
             decreases i,
         {
-            match self.listener.try_accept(|_listener| Ghost(ChannelInv {  })) {
-                Ok(channel) => self.accept(channel),
+            match self.listener.try_accept(Ghost(|l| self.connected.pred().channel_inv)) {
+                Ok(channel) => {
+                    assert(channel.constant() == self.connected.pred().channel_inv);
+                    self.accept(channel)
+                },
                 Err(verdist::network::error::TryListenError::Empty) => {
                     break ;
                 },
@@ -222,6 +241,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
             match channel.try_recv() {
                 Ok(req) => {
                     let response = self.handle(req, channel.id().1);
+                    let ghost g_r = response->Get_0;
                     assert(C::K::send_inv(channel.constant(), channel.spec_id(), response));
                     if channel.send(&response).is_err() {
                         drop.insert(channel.id());

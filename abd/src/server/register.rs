@@ -27,6 +27,7 @@ verus! {
 #[allow(dead_code)]
 pub struct RegisterIds {
     pub resource_loc: Loc,
+    pub commitment_id: Loc,
     pub state_inv_id: int,
     pub id: u64,
 }
@@ -60,6 +61,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.timestamp == Timestamp::spec_default(),
             r.resource@@ is HalfRightToAdvance,
             r.id() == server_id,
+            r.commitment_id() == state_inv@.constant().commitments_ids.commitment_id,
             r.inv(),
     {
         let tracked zero_commitment;
@@ -109,6 +111,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         RegisterIds {
             resource_loc: self.resource_loc(),
             state_inv_id: self.state_inv_id(),
+            commitment_id: self.commitment_id(),
             id: self.id(),
         }
     }
@@ -119,6 +122,10 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
 
     pub closed spec fn state_inv_id(self) -> int {
         self.state_inv@.namespace()
+    }
+
+    pub closed spec fn commitment_id(self) -> Loc {
+        self.commitment@.id()
     }
 
     pub closed spec fn id(self) -> u64 {
@@ -142,6 +149,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         ensures
             r.spec_value() == self.value,
             r.spec_timestamp() == self.timestamp,
+            r.spec_commitment().id() == self.commitment_id(),
             r.loc() == self.resource_loc(),
             r.spec_tag() == req.spec_tag(),
             r.server_id() == self.id(),
@@ -214,6 +222,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             req.spec_timestamp() <= self.timestamp ==> self == r,
     {
         let (value, timestamp, commitment) = req.destruct();
+        assume(commitment.id() == self.commitment_id());  // TODO(client_send_inv);
         if timestamp > self.timestamp {
             let tracked mut r = self.resource.get();
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -305,6 +314,7 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
             state_inv@.namespace() == invariants::state_inv_id(),
         ensures
             r.id() == server_id,
+            r.commitment_id() == state_inv@.constant().commitments_ids.commitment_id,
     {
         let inner_reg = MonotonicRegisterInner::new(server_id, state_inv);
 
@@ -319,6 +329,10 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
         self.inner.pred().ids.resource_loc
     }
 
+    pub closed spec fn commitment_id(self) -> Loc {
+        self.inner.pred().ids.commitment_id
+    }
+
     pub closed spec fn id(self) -> u64 {
         self.inner.pred().ids.id
     }
@@ -328,6 +342,7 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
             r.loc() == self.resource_loc(),
             r.spec_tag() == req.spec_tag(),
             r.server_id() == self.id(),
+            r.spec_commitment().id() == self.commitment_id(),
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();

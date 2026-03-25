@@ -108,6 +108,11 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
                 servers@.valid_quorum(q) ==> {
                     read_pred@.min_timestamp <= servers@.quorum_timestamp(q)
                 },
+            forall|c_id| #[trigger]
+                read_pred@.channels.contains_key(c_id) ==> {
+                    let c = read_pred@.channels[c_id];
+                    &&& c.constant().commitment_id == read_pred@.commitment_id
+                },
         ensures
             r.constant() == read_pred@,
             r.spec_n_get_replies() == 0,
@@ -152,6 +157,11 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
         }
         &&& self.wb_replies@.dom().finite()
         &&& self.wb_replies@.len() == self.spec_n_wb_replies()
+        &&& forall|c_id| #[trigger]
+            self.channels@.contains_key(c_id) ==> {
+                let c = self.channels@[c_id];
+                &&& c.constant().commitment_id == self.commitment_id@
+            }
     }
 
     pub open spec fn constant(self) -> ReadPred<C> {
@@ -647,6 +657,11 @@ impl<C: Channel<K = ChannelInv>> ReadAccumGetPhase<C> {
                 servers@.valid_quorum(q) ==> {
                     read_pred@.min_timestamp <= servers@.quorum_timestamp(q)
                 },
+            forall|c_id| #[trigger]
+                read_pred@.channels.contains_key(c_id) ==> {
+                    let c = read_pred@.channels[c_id];
+                    &&& c.constant().commitment_id == read_pred@.commitment_id
+                },
         ensures
             r.constant() == read_pred@,
             r.len() == 0,
@@ -703,17 +718,18 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
         //         &&& C::K::recv_inv(chan.constant(), id, reply)
         //     })
         // });
+        let ghost chan;
         proof {
             use_type_invariant(&*self);
+            use_type_invariant(&self.inner);
             assert(ReadPred::inv(pred@, *self));
             assert(self.channels().contains_key(id));
             assert(self.constant() == pred@);
-            let ghost chan = self.channels()[id];
+            chan = self.channels()[id];
+            assert(chan.constant().commitment_id == self.inner.commitment_id@);
             assert(chan.spec_id() == id);
             assume(C::K::recv_inv(chan.constant(), id, reply));
             assume(reply is Get);
-            assert(reply.server_id() == id.1);
-            assert(chan.spec_id() == id);
         }
         let resp = match reply {
             Response::Get(g) => g,
@@ -722,11 +738,15 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
                 return ;
             },
         };
+
+        proof {
+            assert(resp.server_id() == id.1);
+            assert(resp.spec_commitment().id() == self.inner.commitment_id());
+        }
         // TODO(qed/read/phase_1/chan_pred): add these to the recv_inv
-        assume(resp.spec_commitment().id() == self.constant().commitment_id);
+        assume(self.constant().server_tokens_id == resp.server_token_id());
         assume(self.constant().server_locs.contains_key(resp.server_id()));
         assume(self.constant().server_locs[resp.server_id()] == resp.loc());
-        assume(self.constant().server_tokens_id == resp.server_token_id());
         self.inner.insert_get(id, resp);
     }
 

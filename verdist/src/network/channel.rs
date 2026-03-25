@@ -129,8 +129,9 @@ pub trait Channel {
 }
 
 pub trait Listener<C> where C: Channel {
-    fn try_accept<F>(&self, gen_pred: F) -> Result<C, TryListenError> where
-        F: FnOnce(&Self) -> Ghost<C::K>,
+    fn try_accept(&self, gen_pred: Ghost<spec_fn(&Self) -> C::K>) -> (r: Result<C, TryListenError>)
+        ensures
+            r is Ok ==> r->Ok_0.constant() == gen_pred(self)
     ;
 }
 

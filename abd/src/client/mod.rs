@@ -177,8 +177,11 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
             pool.spec_len() > 0,
             forall|cid: (u64, u64)| #[trigger]
                 pool.spec_channels().contains_key(cid) ==> {
+                    let c = pool.spec_channels()[cid];
                     &&& cid.0 == id
                     &&& state_inv@.constant().server_locs.contains_key(cid.1)
+                    &&& state_inv@.constant().commitments_ids.commitment_id
+                        == c.constant().commitment_id
                 },
             state_inv@.namespace() == invariants::state_inv_id(),
             state_inv@.constant().commitments_ids.client_ctr_id == client_ctr_token@.id(),
@@ -215,6 +218,12 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         &&& self.client_ctr_token@.key() == self.id()
         &&& self.client_ctr_token@.value().1 == self.client_ctr.id()
         &&& self.pool.spec_len() == self.state_inv@.constant().server_locs.len()
+        &&& forall|c_id| #[trigger]
+            self.pool.spec_channels().contains_key(c_id) ==> {
+                let c = self.pool.spec_channels()[c_id];
+                &&& self.state_inv@.constant().commitments_ids.commitment_id
+                    == c.constant().commitment_id
+            }
     }
 
     pub fn quorum_size(&self) -> (r: usize)

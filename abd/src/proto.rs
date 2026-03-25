@@ -409,6 +409,7 @@ impl GetResponse {
             r.spec_value() == value,
             r.spec_commitment() == commitment@,
             r.server_id() == server_token@.key(),
+            r.server_token_id() == server_token@.id(),
             r.loc() == server_token@.value(),
     {
         GetResponse { request_id, value, timestamp, lb, commitment, server_token }

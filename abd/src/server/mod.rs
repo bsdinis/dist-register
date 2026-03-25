@@ -121,11 +121,16 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     closed spec fn inv(self) -> bool {
         &&& self.register.id() == self.id
         &&& self.register.commitment_id() == self.commitment_id()
+        &&& self.register.server_token_id() == self.server_token_id()
         &&& self.connected.pred().server_id == self.id
     }
 
     closed spec fn commitment_id(self) -> Loc {
         self.connected.pred().channel_inv.commitment_id
+    }
+
+    closed spec fn server_token_id(self) -> Loc {
+        self.connected.pred().channel_inv.server_tokens_id
     }
 
     fn accept(&self, channel: C)
@@ -150,6 +155,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                 let resp = r->Get_0;
                 &&& resp.server_id() == self.id
                 &&& resp.spec_commitment().id() == self.commitment_id()
+                &&& resp.server_token_id() == self.server_token_id()
             }),
     {
         proof {
@@ -181,6 +187,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                 let resp = r->Get_0;
                 &&& resp.server_id() == self.id
                 &&& resp.spec_commitment().id() == self.commitment_id()
+                &&& resp.server_token_id() == self.server_token_id()
             }),
     {
         match request {

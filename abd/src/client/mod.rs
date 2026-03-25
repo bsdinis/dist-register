@@ -182,6 +182,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
                     &&& state_inv@.constant().server_locs.contains_key(cid.1)
                     &&& state_inv@.constant().commitments_ids.commitment_id
                         == c.constant().commitment_id
+                    &&& state_inv@.constant().server_tokens_id == c.constant().server_tokens_id
                 },
             state_inv@.namespace() == invariants::state_inv_id(),
             state_inv@.constant().commitments_ids.client_ctr_id == client_ctr_token@.id(),
@@ -223,6 +224,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
                 let c = self.pool.spec_channels()[c_id];
                 &&& self.state_inv@.constant().commitments_ids.commitment_id
                     == c.constant().commitment_id
+                &&& self.state_inv@.constant().server_tokens_id == c.constant().server_tokens_id
             }
     }
 
@@ -327,18 +329,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             Tracked(server_tokens_lb),
             read_pred,
         );
-        /*
-        assert forall |id| #[trigger]
-            bpool.spec_channels().contains_key(id) implies {
-                let chan = bpool.spec_channels()[id];
-                <PoolChannel<Pool> as Channel>::K::send_inv(
-                    chan.constant(),
-                    chan.spec_id(),
-                    request,
-                )
-            } by {
-        }
-        */
         let quorum_res = bpool.broadcast(req, read_pred, accum).wait_for(
             |s| -> (r: bool)
                 ensures

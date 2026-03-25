@@ -28,6 +28,7 @@ verus! {
 pub struct RegisterIds {
     pub resource_loc: Loc,
     pub commitment_id: Loc,
+    pub server_token_id: Loc,
     pub state_inv_id: int,
     pub id: u64,
 }
@@ -62,6 +63,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.resource@@ is HalfRightToAdvance,
             r.id() == server_id,
             r.commitment_id() == state_inv@.constant().commitments_ids.commitment_id,
+            r.server_token_id() == state_inv@.constant().server_tokens_id,
             r.inv(),
     {
         let tracked zero_commitment;
@@ -112,6 +114,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             resource_loc: self.resource_loc(),
             state_inv_id: self.state_inv_id(),
             commitment_id: self.commitment_id(),
+            server_token_id: self.server_token_id(),
             id: self.id(),
         }
     }
@@ -128,6 +131,10 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         self.commitment@.id()
     }
 
+    pub closed spec fn server_token_id(self) -> Loc {
+        self.server_token@.id()
+    }
+
     pub closed spec fn id(self) -> u64 {
         self.server_token@.key()
     }
@@ -139,6 +146,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.server_token@.value() == self.resource@.loc()
         &&& self.server_token@.id() == self.state_inv@.constant().server_tokens_id
+        &&& self.commitment_id() == self.state_inv@.constant().commitments_ids.commitment_id
     }
 
     #[allow(unused_variables)]
@@ -150,14 +158,17 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.spec_value() == self.value,
             r.spec_timestamp() == self.timestamp,
             r.spec_commitment().id() == self.commitment_id(),
+            r.server_token_id() == self.server_token_id(),
             r.loc() == self.resource_loc(),
             r.spec_tag() == req.spec_tag(),
             r.server_id() == self.id(),
     {
         let ghost server_id = self.server_token@.key();
+        // TODO(client_send_inv): add this
         assume(req.servers().contains_key(server_id));
 
         let lb = req.server_lower_bound(Ghost(server_id));
+        // TODO(client_send_inv): add this
         assume(req.servers()[server_id]@.loc() == self.server_token@.value());
 
         let tracked r = self.resource.borrow();
@@ -315,6 +326,7 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
         ensures
             r.id() == server_id,
             r.commitment_id() == state_inv@.constant().commitments_ids.commitment_id,
+            r.server_token_id() == state_inv@.constant().server_tokens_id,
     {
         let inner_reg = MonotonicRegisterInner::new(server_id, state_inv);
 
@@ -333,6 +345,10 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
         self.inner.pred().ids.commitment_id
     }
 
+    pub closed spec fn server_token_id(self) -> Loc {
+        self.inner.pred().ids.server_token_id
+    }
+
     pub closed spec fn id(self) -> u64 {
         self.inner.pred().ids.id
     }
@@ -343,6 +359,7 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
             r.spec_tag() == req.spec_tag(),
             r.server_id() == self.id(),
             r.spec_commitment().id() == self.commitment_id(),
+            r.server_token_id() == self.server_token_id(),
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();

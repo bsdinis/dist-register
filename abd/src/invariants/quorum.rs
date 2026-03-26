@@ -522,6 +522,14 @@ impl ServerUniverse {
             }
     }
 
+    pub open spec fn spec_eq(self, other: Self) -> bool {
+        &&& self.inv()
+        &&& other.inv()
+        &&& self.is_lb()
+        &&& other.is_lb()
+        &&& self.eq(other)
+    }
+
     pub proof fn lemma_eq_trans(a: Self, b: Self, c: Self)
         requires
             a.inv(),
@@ -553,6 +561,15 @@ impl ServerUniverse {
         } by {
             assert(b.contains_key(id));
         }
+    }
+
+    pub proof fn lemma_eq_refl(a: Self)
+        requires
+            a.inv(),
+        ensures
+            a.eq(a),
+    {
+        a.lemma_locs();
     }
 
     pub open spec fn eq_timestamp(self, other: ServerUniverse) -> bool
@@ -595,6 +612,31 @@ impl ServerUniverse {
             &&& c[id]@@.timestamp() == a[id]@@.timestamp()
         } by {
             assert(b.contains_key(id));
+        }
+    }
+
+    pub proof fn lemma_eq_timestamp_lb_is_eq(a: Self, b: Self)
+        requires
+            a.inv(),
+            b.inv(),
+            a.is_lb(),
+            b.is_lb(),
+            a.eq_timestamp(b),
+        ensures
+            a.eq(b),
+    {
+        a.lemma_locs();
+        b.lemma_locs();
+        assert forall|id| #[trigger] a.contains_key(id) implies {
+            &&& a[id]@@.timestamp() == b[id]@@.timestamp()
+            &&& a[id]@@ is HalfRightToAdvance == b[id]@@ is HalfRightToAdvance
+            &&& a[id]@@ is FullRightToAdvance == b[id]@@ is FullRightToAdvance
+            &&& a[id]@@ is LowerBound == b[id]@@ is LowerBound
+        } by {
+            assert(b.contains_key(id));
+            assert(a[id]@@.timestamp() == b[id]@@.timestamp());
+            assert(a[id]@@ is LowerBound);
+            assert(b[id]@@ is LowerBound);
         }
     }
 

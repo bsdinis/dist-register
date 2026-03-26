@@ -34,8 +34,8 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv 
     }
 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Response) -> bool {
-        s is Get ==> {
-            let sent = s->Get_0;
+        s.req_type() is Get ==> {
+            let sent = s.get();
             &&& sent.server_id() == id.0
             &&& sent.spec_commitment().id() == k.commitment_id
             &&& sent.server_token_id() == k.server_tokens_id
@@ -50,8 +50,8 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv 
 // Invariant on client
 impl ChannelInvariant<ChannelInv, (u64, u64), Response, Request> for ChannelInv {
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Response) -> bool {
-        r is Get ==> {
-            let recv = r->Get_0;
+        r.req_type() is Get ==> {
+            let recv = r.get();
             &&& recv.server_id() == id.1
             &&& recv.spec_commitment().id() == k.commitment_id
             &&& recv.server_token_id() == k.server_tokens_id

@@ -735,15 +735,9 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
             assert(chan.constant().commitment_id == self.inner.commitment_id@);
             assert(chan.spec_id() == id);
             assume(C::K::recv_inv(chan.constant(), id, reply));
-            assume(reply is Get);
+            assume(reply.req_type() is Get);
         }
-        let resp = match reply {
-            Response::Get(g) => g,
-            _ => {
-                assert(false);
-                return ;
-            },
-        };
+        let resp = reply.destruct_get();
 
         proof {
             assert(resp.server_id() == id.1);
@@ -816,15 +810,8 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumWbPhase<C> where
         let ghost chan = self.channels()[id];
         assert(chan.spec_id() == id);
         assume(C::K::recv_inv(chan.constant(), id, resp));
-        assume(resp is Write);
-        let resp = match resp {
-            Response::Write(w) => w,
-            _ => {
-                assert(false);
-                loop {
-                }
-            },
-        };
+        assume(resp.req_type() is Write);
+        let resp = resp.destruct_write();
         self.inner.insert_write(id, resp);
     }
 
@@ -887,15 +874,8 @@ impl<C> ReplyAccumulator<C, EmptyPred> for GetTimestampAccumulator<C> where
         ensures
             self.channels() == old(self).channels(),
     {
-        assume(resp is GetTimestamp);
-        let resp = match resp {
-            Response::GetTimestamp(g) => g,
-            _ => {
-                assert(false);
-                loop {
-                }
-            },
-        };
+        assume(resp.req_type() is GetTimestamp);
+        let resp = resp.destruct_get_timestamp();
         // TODO(qed): remove later on
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         assume(!self.replies@.contains_key(id));
@@ -952,15 +932,8 @@ impl<C> ReplyAccumulator<C, EmptyPred> for WriteAccumulator<C> where
         ensures
             self.channels() == old(self).channels(),
     {
-        assume(resp is Write);
-        let resp = match resp {
-            Response::Write(w) => w,
-            _ => {
-                assert(false);
-                loop {
-                }
-            },
-        };
+        assume(resp.req_type() is Write);
+        let resp = resp.destruct_write();
         // TODO(qed): remove later on
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         assume(!self.replies@.contains_key(id));

@@ -162,7 +162,6 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.spec_commitment().id() == self.commitment_id(),
             r.server_token_id() == self.server_token_id(),
             r.loc() == self.resource_loc(),
-            r.spec_tag() == req.spec_tag(),
             r.server_id() == self.id(),
     {
         let ghost server_id = self.server_token@.key();
@@ -193,7 +192,6 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         }
 
         GetResponse::new(
-            req.tag(),
             self.value.clone(),
             self.timestamp.clone(),
             Tracked(new_lb),
@@ -210,7 +208,6 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         ensures
             r.spec_timestamp() == self.timestamp,
             r.loc() == self.resource_loc(),
-            r.spec_tag() == req.spec_tag(),
     {
         let tracked r = self.resource.borrow();
         let tracked lb = r.extract_lower_bound();
@@ -219,7 +216,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             lb.lemma_lower_bound(r);
         }
 
-        GetTimestampResponse::new(req.tag(), self.timestamp.clone(), Tracked(lb))
+        GetTimestampResponse::new(self.timestamp.clone(), Tracked(lb))
     }
 
     pub fn write(self, req: WriteRequest) -> (r: Self)
@@ -360,7 +357,6 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     pub fn read(&self, req: GetRequest) -> (r: GetResponse)
         ensures
             r.loc() == self.resource_loc(),
-            r.spec_tag() == req.spec_tag(),
             r.server_id() == self.id(),
             r.spec_commitment().id() == self.commitment_id(),
             r.server_token_id() == self.server_token_id(),
@@ -376,7 +372,6 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     pub fn read_timestamp(&self, req: GetTimestampRequest) -> (r: GetTimestampResponse)
         ensures
             r.loc() == self.resource_loc(),
-            r.spec_tag() == req.spec_tag(),
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();
@@ -390,11 +385,9 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     pub fn write(&self, req: WriteRequest) -> (r: WriteResponse)
         ensures
             r.loc() == self.resource_loc(),
-            r.spec_tag() == req.spec_tag(),
     {
         let (guard, handle) = self.inner.acquire_write();
 
-        let tag = req.tag();
         let new_value = guard.write(req);
         let tracked r = new_value.resource.borrow();
         let tracked lower_bound = r.extract_lower_bound();
@@ -405,7 +398,7 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
 
         handle.release_write(new_value);
 
-        WriteResponse::new(tag, Tracked(lower_bound))
+        WriteResponse::new(Tracked(lower_bound))
     }
 }
 

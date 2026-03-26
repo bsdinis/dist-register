@@ -19,6 +19,7 @@ use crate::invariants::StateInvariant;
 use crate::proto::GetRequest;
 use crate::proto::GetTimestampRequest;
 use crate::proto::Request;
+use crate::proto::RequestInner;
 use crate::proto::Response;
 use crate::proto::WriteRequest;
 use crate::timestamp::Timestamp;
@@ -317,7 +318,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             assert(state.inv());
         });
 
-        let req = Request::Get(GetRequest::new(Tracked(server_lbs.extract_lbs())));
+        let req = Request::new_get(self.id, Tracked(server_lbs.extract_lbs()));
 
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
@@ -418,7 +419,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
         let replies_result = bpool.broadcast_filter(
-            Request::Write(WriteRequest::new(value, max_ts, Tracked(commitment.duplicate()))),
+            Request::new_write(self.id, value, max_ts, Tracked(commitment.duplicate())),
             read_pred,
             ReadAccumWbPhase::new(replies),
             |id: (u64, u64)| !agree_with_max.contains(&id.1),
@@ -571,7 +572,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 server_lbs = state.servers.extract_lbs();
             }
         });
-        let req = Request::GetTimestamp(GetTimestampRequest::new(Tracked(server_lbs)));
+        let req = Request::new_get_timestamp(self.id, Tracked(server_lbs));
         let quorum = {
             let ghost qsize = self.spec_quorum_size();
             let bpool = BroadcastPool::new(&self.pool);
@@ -690,7 +691,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
             let quorum_res = bpool.broadcast::<EmptyPred, _>(
-                Request::Write(WriteRequest::new(value, exec_ts, Tracked(commitment.duplicate()))),
+                Request::new_write(self.id, value, exec_ts, Tracked(commitment.duplicate())),
                 Ghost(EmptyPred),
                 WriteAccumulator::new(Ghost(bpool.spec_channels())),
             ).wait_for(

@@ -11,7 +11,9 @@ use crate::invariants::StateInvariant;
 use crate::proto::GetRequest;
 use crate::proto::GetTimestampRequest;
 use crate::proto::Request;
+use crate::proto::RequestInner;
 use crate::proto::Response;
+use crate::proto::ResponseInner;
 use crate::proto::WriteRequest;
 #[cfg(verus_only)]
 use crate::proto::WriteResponse;
@@ -28,7 +30,6 @@ use verdist::network::channel::Listener;
 use verdist::network::modelled::ModelledConnector;
 #[cfg(verus_only)]
 use verdist::network::modelled::ModelledListener;
-#[cfg(verus_only)]
 use verdist::rpc::proto::TaggedMessage;
 
 use std::collections::HashSet;
@@ -154,10 +155,9 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         handle.release_write(guard);
     }
 
-    fn handle_get(&self, req: GetRequest) -> (r: Response)
+    fn handle_get(&self, req: GetRequest) -> (r: ResponseInner)
         ensures
             r is Get,
-            r.spec_tag() == req.spec_tag(),
             ({
                 let resp = r->Get_0;
                 &&& resp.server_id() == self.id
@@ -170,30 +170,34 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         proof {
             use_type_invariant(self);
         }
-        Response::Get(self.register.read(req))
+        ResponseInner::Get(self.register.read(req))
     }
 
-    fn handle_get_timestamp(&self, req: GetTimestampRequest) -> (r: Response)
+    fn handle_get_timestamp(&self, req: GetTimestampRequest) -> (r: ResponseInner)
         ensures
             r is GetTimestamp,
-            r.spec_tag() == req.spec_tag(),
     {
-        Response::GetTimestamp(self.register.read_timestamp(req))
+        ResponseInner::GetTimestamp(self.register.read_timestamp(req))
     }
 
-    fn handle_write(&self, req: WriteRequest) -> (r: Response)
+    fn handle_write(&self, req: WriteRequest) -> (r: ResponseInner)
         ensures
             r is Write,
-            r.spec_tag() == req.spec_tag(),
     {
-        Response::Write(self.register.write(req))
+        ResponseInner::Write(self.register.write(req))
     }
 
-    fn handle(&self, request: Request, _client_id: u64) -> (r: Response)
+    fn handle(&self, request: Request, client_id: u64) -> (r: Response)
+        requires
+            request.request_key() == (client_id, request.spec_tag()),
         ensures
             r.spec_tag() == request.spec_tag(),
-            r is Get ==> ({
-                let resp = r->Get_0;
+            r.request_id() == request.request_id(),
+            r.request_key() == request.request_key(),
+            r.request().spec_eq(request.request()),
+            request.req_type() == r.req_type(),
+            r.req_type() is Get ==> ({
+                let resp = r.get();
                 &&& resp.server_id() == self.id
                 &&& resp.spec_commitment().id() == self.commitment_id()
                 &&& resp.server_token_id() == self.server_token_id()
@@ -201,11 +205,18 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                 &&& self.server_locs()[resp.server_id()] == resp.loc()
             }),
     {
-        match request {
-            Request::Get(req) => self.handle_get(req),
-            Request::GetTimestamp(req) => self.handle_get_timestamp(req),
-            Request::Write(req) => self.handle_write(req),
+        let (request_id, request_inner, request_proof) = request.destruct();
+        let resp_inner = match request_inner {
+            RequestInner::Get(req) => self.handle_get(req),
+            RequestInner::GetTimestamp(req) => self.handle_get_timestamp(req),
+            RequestInner::Write(req) => self.handle_write(req),
+        };
+
+        let r = Response::new(request_id, resp_inner, request_proof);
+        proof {
+            RequestInner::spec_eq_refl(r.request());
         }
+        r
     }
 
     fn poll(&self) -> bool {
@@ -258,8 +269,8 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         {
             match channel.try_recv() {
                 Ok(req) => {
+                    assume(req.request_key() == (channel.spec_id().1, req.spec_tag()));  // TODO(net_inv/client_send)
                     let response = self.handle(req, channel.id().1);
-                    let ghost g_r = response->Get_0;
                     assert(C::K::send_inv(channel.constant(), channel.spec_id(), response));
                     if channel.send(&response).is_err() {
                         drop.insert(channel.id());
@@ -311,9 +322,9 @@ fn create_server<L, C, ML, RL>(server_id: u64, listener: L) -> RegisterServer<L,
 }
 
 } // verus!
-  // Why is this unverified:
-  // - minor: no support for tracing
-  // - major: verus does not support threads
+// Why is this unverified:
+// - minor: no support for tracing
+// - major: verus does not support threads
 pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Response, Request>
 // requires
     // server_ids@.contains(server_id),

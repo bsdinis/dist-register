@@ -183,6 +183,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
                     &&& state_inv@.constant().commitments_ids.commitment_id
                         == c.constant().commitment_id
                     &&& state_inv@.constant().server_tokens_id == c.constant().server_tokens_id
+                    &&& state_inv@.constant().server_locs == c.constant().server_locs
                 },
             state_inv@.namespace() == invariants::state_inv_id(),
             state_inv@.constant().commitments_ids.client_ctr_id == client_ctr_token@.id(),
@@ -225,6 +226,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
                 &&& self.state_inv@.constant().commitments_ids.commitment_id
                     == c.constant().commitment_id
                 &&& self.state_inv@.constant().server_tokens_id == c.constant().server_tokens_id
+                &&& self.state_inv@.constant().server_locs == c.constant().server_locs
             }
     }
 

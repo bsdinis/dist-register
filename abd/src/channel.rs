@@ -14,6 +14,7 @@ pub struct ChannelInv {
     // TODO: add a loc, to some ghost map from request_id to some X
     pub commitment_id: Loc,
     pub server_tokens_id: Loc,
+    pub server_locs: Map<u64, Loc>,
 }
 
 impl ChannelInv {
@@ -21,6 +22,7 @@ impl ChannelInv {
         ChannelInv {
             commitment_id: s_inv.commitments_ids.commitment_id,
             server_tokens_id: s_inv.server_tokens_id,
+            server_locs: s_inv.server_locs,
         }
     }
 }
@@ -37,6 +39,8 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv 
             &&& sent.server_id() == id.0
             &&& sent.spec_commitment().id() == k.commitment_id
             &&& sent.server_token_id() == k.server_tokens_id
+            &&& k.server_locs.contains_key(sent.server_id())
+            &&& k.server_locs[sent.server_id()] == sent.loc()
         }
         // TODO: s should have the gname that is in Response
 
@@ -51,6 +55,8 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Response, Request> for ChannelInv 
             &&& recv.server_id() == id.1
             &&& recv.spec_commitment().id() == k.commitment_id
             &&& recv.server_token_id() == k.server_tokens_id
+            &&& k.server_locs.contains_key(recv.server_id())
+            &&& k.server_locs[recv.server_id()] == recv.loc()
         }
         // TODO: r should have the gname that is in Response
 

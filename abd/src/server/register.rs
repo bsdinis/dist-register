@@ -57,6 +57,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
     ) -> (r: Self)
         requires
             state_inv@.namespace() == invariants::state_inv_id(),
+            state_inv@.constant().server_locs.contains_key(server_id),
         ensures
             r.value is None,
             r.timestamp == Timestamp::spec_default(),
@@ -64,6 +65,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.id() == server_id,
             r.commitment_id() == state_inv@.constant().commitments_ids.commitment_id,
             r.server_token_id() == state_inv@.constant().server_tokens_id,
+            r.resource_loc() == state_inv@.constant().server_locs[server_id],
             r.inv(),
     {
         let tracked zero_commitment;
@@ -323,10 +325,12 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     pub fn new(server_id: u64, state_inv: Tracked<Arc<StateInvariant<ML, RL>>>) -> (r: Self)
         requires
             state_inv@.namespace() == invariants::state_inv_id(),
+            state_inv@.constant().server_locs.contains_key(server_id),
         ensures
             r.id() == server_id,
             r.commitment_id() == state_inv@.constant().commitments_ids.commitment_id,
             r.server_token_id() == state_inv@.constant().server_tokens_id,
+            r.resource_loc() == state_inv@.constant().server_locs[server_id],
     {
         let inner_reg = MonotonicRegisterInner::new(server_id, state_inv);
 

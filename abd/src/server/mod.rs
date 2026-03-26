@@ -104,6 +104,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     pub fn new(listener: L, id: u64, state_inv: Tracked<Arc<StateInvariant<ML, RL>>>) -> (r: Self)
         requires
             state_inv@.namespace() == invariants::state_inv_id(),
+            state_inv@.constant().server_locs.contains_key(id),
     {
         let empty = Vec::new();
         let ghost channel_inv = ChannelInv::from_state_pred(state_inv@.constant());
@@ -123,6 +124,8 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         &&& self.register.commitment_id() == self.commitment_id()
         &&& self.register.server_token_id() == self.server_token_id()
         &&& self.connected.pred().server_id == self.id
+        &&& self.server_locs().contains_key(self.id)
+        &&& self.server_locs()[self.id] == self.register.resource_loc()
     }
 
     closed spec fn commitment_id(self) -> Loc {
@@ -131,6 +134,10 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
 
     closed spec fn server_token_id(self) -> Loc {
         self.connected.pred().channel_inv.server_tokens_id
+    }
+
+    closed spec fn server_locs(self) -> Map<u64, Loc> {
+        self.connected.pred().channel_inv.server_locs
     }
 
     fn accept(&self, channel: C)
@@ -156,6 +163,8 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                 &&& resp.server_id() == self.id
                 &&& resp.spec_commitment().id() == self.commitment_id()
                 &&& resp.server_token_id() == self.server_token_id()
+                &&& self.server_locs().contains_key(resp.server_id())
+                &&& self.server_locs()[resp.server_id()] == resp.loc()
             }),
     {
         proof {
@@ -188,6 +197,8 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                 &&& resp.server_id() == self.id
                 &&& resp.spec_commitment().id() == self.commitment_id()
                 &&& resp.server_token_id() == self.server_token_id()
+                &&& self.server_locs().contains_key(resp.server_id())
+                &&& self.server_locs()[resp.server_id()] == resp.loc()
             }),
     {
         match request {
@@ -300,9 +311,9 @@ fn create_server<L, C, ML, RL>(server_id: u64, listener: L) -> RegisterServer<L,
 }
 
 } // verus!
-// Why is this unverified:
-// - minor: no support for tracing
-// - major: verus does not support threads
+  // Why is this unverified:
+  // - minor: no support for tracing
+  // - major: verus does not support threads
 pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Response, Request>
 // requires
     // server_ids@.contains(server_id),

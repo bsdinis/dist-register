@@ -113,6 +113,7 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
                     let c = read_pred@.channels[c_id];
                     &&& c.constant().commitment_id == read_pred@.commitment_id
                     &&& c.constant().server_tokens_id == read_pred@.server_tokens_id
+                    &&& c.constant().server_locs == read_pred@.server_locs
                 },
         ensures
             r.constant() == read_pred@,
@@ -163,6 +164,7 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
                 let c = self.channels@[c_id];
                 &&& c.constant().commitment_id == self.commitment_id@
                 &&& c.constant().server_tokens_id == self.server_tokens_id()
+                &&& c.constant().server_locs == self.server_locs()
             }
     }
 
@@ -664,6 +666,7 @@ impl<C: Channel<K = ChannelInv>> ReadAccumGetPhase<C> {
                     let c = read_pred@.channels[c_id];
                     &&& c.constant().commitment_id == read_pred@.commitment_id
                     &&& c.constant().server_tokens_id == read_pred@.server_tokens_id
+                    &&& c.constant().server_locs == read_pred@.server_locs
                 },
         ensures
             r.constant() == read_pred@,
@@ -747,10 +750,10 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
             assert(resp.spec_commitment().id() == self.inner.commitment_id());
             assert(resp.server_token_id() == chan.constant().server_tokens_id);
             assert(resp.server_token_id() == self.constant().server_tokens_id);
+            assert(self.constant().server_locs == chan.constant().server_locs);
+            assert(self.constant().server_locs.contains_key(resp.server_id()));
+            assert(self.constant().server_locs[resp.server_id()] == resp.loc());
         }
-        // TODO(qed/read/phase_1/chan_pred): add these to the recv_inv
-        assume(self.constant().server_locs.contains_key(resp.server_id()));
-        assume(self.constant().server_locs[resp.server_id()] == resp.loc());
         self.inner.insert_get(id, resp);
     }
 

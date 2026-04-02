@@ -269,7 +269,6 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         {
             match channel.try_recv() {
                 Ok(req) => {
-                    assume(req.request_key() == (channel.spec_id().1, req.spec_tag()));  // TODO(net_inv/client_send)
                     let response = self.handle(req, channel.id().1);
                     assert(C::K::send_inv(channel.constant(), channel.spec_id(), response));
                     if channel.send(&response).is_err() {

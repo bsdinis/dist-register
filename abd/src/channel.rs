@@ -2,7 +2,10 @@
 use crate::invariants::StatePredicate;
 use crate::proto::Request;
 use crate::proto::Response;
+
 use verdist::network::channel::ChannelInvariant;
+#[cfg(verus_only)]
+use verdist::rpc::proto::TaggedMessage;
 
 use vstd::prelude::*;
 use vstd::resource::Loc;
@@ -30,7 +33,7 @@ impl ChannelInv {
 // Invariant on server
 impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv {
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Request) -> bool {
-        true
+        r.request_key() == (id.1, r.spec_tag())
     }
 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Response) -> bool {
@@ -63,7 +66,7 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Response, Request> for ChannelInv 
     }
 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Request) -> bool {
-        true
+        s.request_key() == (id.0, s.spec_tag())
     }
 }
 

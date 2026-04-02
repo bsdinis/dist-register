@@ -27,6 +27,8 @@ use crate::timestamp::Timestamp;
 use verdist::network::channel::Channel;
 use verdist::pool::BroadcastPool;
 use verdist::pool::ConnectionPool;
+#[cfg(verus_only)]
+use verdist::rpc::proto::TaggedMessage;
 use verdist::rpc::replies::ReplyAccumulator;
 
 pub mod error;
@@ -179,6 +181,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
             forall|cid: (u64, u64)| #[trigger]
                 pool.spec_channels().contains_key(cid) ==> {
                     let c = pool.spec_channels()[cid];
+                    &&& cid == c.spec_id()
                     &&& cid.0 == id
                     &&& state_inv@.constant().server_locs.contains_key(cid.1)
                     &&& state_inv@.constant().commitments_ids.commitment_id
@@ -224,6 +227,8 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         &&& forall|c_id| #[trigger]
             self.pool.spec_channels().contains_key(c_id) ==> {
                 let c = self.pool.spec_channels()[c_id];
+                &&& c_id == c.spec_id()
+                &&& c_id.0 == self.id
                 &&& self.state_inv@.constant().commitments_ids.commitment_id
                     == c.constant().commitment_id
                 &&& self.state_inv@.constant().server_tokens_id == c.constant().server_tokens_id
@@ -319,6 +324,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         });
 
         let req = Request::new_get(self.id, Tracked(server_lbs.extract_lbs()));
+        assert(req.request_key() == (self.id, req.spec_tag()));
 
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);

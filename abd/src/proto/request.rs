@@ -102,6 +102,7 @@ impl Request {
             servers@.is_lb(),
         ensures
             r.req_type() is Get,
+            r.request_key() == (client_id, r.spec_tag()),
             r.client_id() == client_id,
             ({
                 let req = r.get();
@@ -120,6 +121,7 @@ impl Request {
             servers@.is_lb(),
         ensures
             r.req_type() is GetTimestamp,
+            r.request_key() == (client_id, r.spec_tag()),
             r.client_id() == client_id,
             ({
                 let req = r.get_timestamp();
@@ -143,6 +145,7 @@ impl Request {
             commitment@.value() == value,
         ensures
             r.req_type() is Write,
+            r.request_key() == (client_id, r.spec_tag()),
             r.client_id() == client_id,
             ({
                 let req = r.write();

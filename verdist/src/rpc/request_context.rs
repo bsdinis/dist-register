@@ -32,7 +32,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
     pub fn new(pool: &'a Pool, request_tag: u64, pred: Ghost<Pred>, accum: A) -> (r: Self)
         requires
             Pred::inv(pred@, accum),
-            accum.spec_n_replies() == 0,
+            accum.spec_handled_replies().is_empty(),
             accum.channels() == pool.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
         ensures

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::network::channel::Channel;
 #[cfg(verus_only)]
@@ -22,16 +22,18 @@ pub trait ReplyAccumulator<C, Pred>: Sized where C: Channel, Pred: InvariantPred
             }),
         ensures
             Pred::inv(pred@, *self),
-            self.spec_n_replies() == old(self).spec_n_replies() + 1,
+            self.spec_handled_replies() == old(self).spec_handled_replies().insert(id),
             self.channels() == old(self).channels(),
         no_unwind
     ;
 
-    spec fn spec_n_replies(self) -> nat;
+    spec fn spec_handled_replies(self) -> Set<C::Id>;
 
-    fn n_replies(&self) -> (r: usize)
+    // This could be some generic thing that implements view to Set
+    // But we'll just make it a BTreeSet
+    fn handled_replies(&self) -> (r: BTreeSet<C::Id>)
         ensures
-            r == self.spec_n_replies(),
+            r@ == self.spec_handled_replies(),
     ;
 
     spec fn channels(self) -> Map<C::Id, C>;
@@ -55,7 +57,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
     pub fn new(pred: Ghost<Pred>, accum: A) -> (r: Self)
         requires
             Pred::inv(pred@, accum),
-            accum.spec_n_replies() == 0,
+            accum.spec_handled_replies().is_empty(),
             vstd::laws_cmp::obeys_cmp_spec::<C::Id>(),
         ensures
             r.spec_len() == 0,
@@ -92,11 +94,18 @@ impl<C, Pred, A> Replies<C, Pred, A> where
         ensures
             r as nat == self.spec_len(),
     {
-        self.accum.n_replies()
+        proof {
+            use_type_invariant(self);
+        }
+        self.accum.handled_replies().len()
     }
 
-    pub closed spec fn spec_len(self) -> (r: nat) {
-        self.accum.spec_n_replies()
+    pub open spec fn spec_len(self) -> (r: nat) {
+        self.spec_handled_replies().len()
+    }
+
+    pub closed spec fn spec_handled_replies(self) -> Set<C::Id> {
+        self.accum.spec_handled_replies()
     }
 
     pub fn n_received(&self) -> usize {
@@ -110,7 +119,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
 
     pub fn into_accumulator(self) -> (r: A)
         ensures
-            r.spec_n_replies() == self.spec_len(),
+            r.spec_handled_replies() == self.spec_handled_replies(),
             r == self.accumulator(),
     {
         self.accum
@@ -143,7 +152,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
                 &&& C::K::recv_inv(chan.constant(), id, reply)
             }),
         ensures
-            self.spec_len() == old(self).spec_len() + 1,
+            self.spec_handled_replies() == old(self).spec_handled_replies().insert(id),
             self.spec_errors() == old(self).spec_errors(),
             self.pred() == old(self).pred(),
             self.channels() == old(self).channels(),

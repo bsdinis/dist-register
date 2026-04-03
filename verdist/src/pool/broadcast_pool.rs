@@ -56,7 +56,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
 
         requires
             Pred::inv(pred@, accum),
-            accum.spec_n_replies() == 0,
+            accum.spec_handled_replies().is_empty(),
             accum.channels() == self.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
             forall|id| #[trigger]
@@ -111,7 +111,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
 
         requires
             Pred::inv(pred@, accum),
-            accum.spec_n_replies() == 0,
+            accum.spec_handled_replies().is_empty(),
             accum.channels() == self.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
             forall|id| #[trigger]

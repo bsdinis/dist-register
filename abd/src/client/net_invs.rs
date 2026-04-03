@@ -5,9 +5,13 @@ use crate::channel::ChannelInv;
 #[cfg(verus_only)]
 use crate::invariants::quorum::Quorum;
 use crate::invariants::quorum::ServerUniverse;
+use crate::invariants::requests::RequestProof;
 #[cfg(verus_only)]
 use crate::invariants::StatePredicate;
-use crate::proto::{GetResponse, GetTimestampResponse, Response, WriteResponse};
+use crate::proto::GetResponse;
+use crate::proto::GetTimestampResponse;
+use crate::proto::Response;
+use crate::proto::WriteResponse;
 #[cfg(verus_only)]
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::timestamp::Timestamp;
@@ -30,6 +34,7 @@ verus! {
 pub ghost struct ReadPred<C: Channel<K = ChannelInv>> {
     pub server_locs: Map<u64, Loc>,
     pub commitment_id: Loc,
+    pub request_map_id: Loc,
     pub server_tokens_id: Loc,
     pub min_timestamp: Timestamp,
     pub channels: Map<C::Id, C>,
@@ -44,6 +49,7 @@ impl<C: Channel<K = ChannelInv>> ReadPred<C> {
         ReadPred {
             server_locs: state.server_locs,
             commitment_id: state.commitments_ids.commitment_id,
+            request_map_id: state.request_map_ids.request_auth_id,
             server_tokens_id: state.server_tokens_id,
             min_timestamp: old_watermark@.timestamp(),
             channels,
@@ -54,7 +60,7 @@ impl<C: Channel<K = ChannelInv>> ReadPred<C> {
 }
 
 #[allow(dead_code)]
-pub struct ReadAccumulator<C: Channel<K = ChannelInv>> {
+pub struct ReadAccumulator<C: Channel<K = ChannelInv, Id = (u64, u64)>> {
     // EXEC state
     /// The max response from the first round
     /// This is the value that will ultimately be returned
@@ -81,20 +87,23 @@ pub struct ReadAccumulator<C: Channel<K = ChannelInv>> {
     commitment_id: Ghost<Loc>,
     /// channels of the pool this accumulator is working with
     channels: Ghost<Map<C::Id, C>>,
+    /// get request proof
+    get_request: Tracked<RequestProof>,
 }
 
 impl<C> InvariantPredicate<ReadPred<C>, ReadAccumulator<C>> for ReadPred<C> where
-    C: Channel<K = ChannelInv>,
+    C: Channel<K = ChannelInv, Id = (u64, u64)>,
  {
     open spec fn inv(pred: ReadPred<C>, v: ReadAccumulator<C>) -> bool {
         pred == v.constant()
     }
 }
 
-impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
+impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         server_tokens: Tracked<GhostPersistentSubmap<u64, Loc>>,
+        get_request: Tracked<RequestProof>,
         #[allow(unused_variables)]
         read_pred: Ghost<ReadPred<C>>,
     ) -> (r: Self)
@@ -104,6 +113,9 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
             server_tokens@@ <= servers@.locs(),
             servers@.inv(),
             servers@.is_lb(),
+            get_request@.id() == read_pred@.request_map_id,
+            get_request@.value().req_type() is Get,
+            get_request@.value()->Get_0.servers().eq_timestamp(servers@),
             forall|q: Quorum| #[trigger]
                 servers@.valid_quorum(q) ==> {
                     read_pred@.min_timestamp <= servers@.quorum_timestamp(q)
@@ -111,6 +123,8 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
             forall|c_id| #[trigger]
                 read_pred@.channels.contains_key(c_id) ==> {
                     let c = read_pred@.channels[c_id];
+                    &&& c_id.0 == get_request@.key().0
+                    &&& c.constant().request_map_id == read_pred@.request_map_id
                     &&& c.constant().commitment_id == read_pred@.commitment_id
                     &&& c.constant().server_tokens_id == read_pred@.server_tokens_id
                     &&& c.constant().server_locs == read_pred@.server_locs
@@ -132,6 +146,7 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
             min_timestamp: Ghost(read_pred@.min_timestamp),
             commitment_id: Ghost(read_pred@.commitment_id),
             channels: Ghost(read_pred@.channels),
+            get_request,
         }
     }
 
@@ -144,6 +159,8 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
         &&& self.servers@.inv()
         &&& self.servers@.is_lb()
         &&& self.server_tokens@@ <= self.servers@.locs()
+        &&& self.get_request@.value().req_type() is Get
+        &&& self.get_request@.value()->Get_0.servers().leq(self.servers@)
         &&& forall|q: Quorum| #[trigger]
             self.servers@.valid_quorum(q) ==> {
                 self.min_timestamp@ <= self.servers@.quorum_timestamp(q)
@@ -162,7 +179,9 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
         &&& forall|c_id| #[trigger]
             self.channels@.contains_key(c_id) ==> {
                 let c = self.channels@[c_id];
-                &&& c.constant().commitment_id == self.commitment_id@
+                &&& c_id.0 == self.get_request@.key().0
+                &&& c.constant().request_map_id == self.request_map_id()
+                &&& c.constant().commitment_id == self.commitment_id()
                 &&& c.constant().server_tokens_id == self.server_tokens_id()
                 &&& c.constant().server_locs == self.server_locs()
             }
@@ -172,6 +191,7 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
         ReadPred {
             server_locs: self.server_locs(),
             commitment_id: self.commitment_id(),
+            request_map_id: self.request_map_id(),
             server_tokens_id: self.server_tokens_id(),
             min_timestamp: self.spec_min_timestamp(),
             channels: self.channels(),
@@ -184,6 +204,10 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
 
     pub closed spec fn server_locs(self) -> Map<u64, Loc> {
         self.servers@.locs()
+    }
+
+    pub closed spec fn request_map_id(self) -> Loc {
+        self.get_request@.id()
     }
 
     pub closed spec fn commitment_id(self) -> Loc {
@@ -358,6 +382,7 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
 
     proof fn update_servers(
         tracked servers: &mut ServerUniverse,
+        req_servers: ServerUniverse,
         min_timestamp: Timestamp,
         agree_with_max: Set<u64>,
         max_resp: &Option<GetResponse>,
@@ -370,6 +395,8 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
             old(servers).contains_key(server_id),
             old(servers)[server_id]@.loc() == lb.loc(),
             old(servers)[server_id]@@.timestamp() <= lb@.timestamp(),
+            req_servers.inv(),
+            req_servers.leq(*old(servers)),
             agree_with_max <= old(servers).dom(),
             forall|q: Quorum| #[trigger]
                 old(servers).valid_quorum(q) ==> { min_timestamp <= old(servers).quorum_timestamp(q)
@@ -385,6 +412,8 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
             servers.is_lb(),
             servers.dom() == old(servers).dom(),
             servers.locs() == old(servers).locs(),
+            req_servers.leq(*servers),
+            old(servers).leq(*servers),
             forall|id| #[trigger]
                 servers.contains_key(id) ==> {
                     &&& id != server_id ==> servers[id]@@.timestamp() == old(
@@ -393,7 +422,6 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
                     &&& id == server_id ==> servers[id]@@.timestamp() == lb@.timestamp()
                 },
             servers[server_id]@@.timestamp() == lb@.timestamp(),
-            old(servers).leq(*servers),
             forall|q: Quorum| #[trigger]
                 servers.valid_quorum(q) ==> { min_timestamp <= servers.quorum_timestamp(q) },
             max_resp is Some ==> forall|id| #[trigger]
@@ -433,6 +461,9 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
                 }
             }
         }
+        assert(req_servers.leq(old_servers));
+        assert(old_servers.leq(*servers));
+        ServerUniverse::lemma_leq_trans(req_servers, old_servers, *servers);
     }
 
     #[allow(dead_code)]  // TODO: unsure we need this
@@ -550,8 +581,10 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
             // This requires the uniqueness of the request tag
             assume(!self.agree_with_max@.contains(id.1));
 
+            assume(self.get_request@.value()->Get_0.servers().inv());  // TODO(verus): spec type invariants
             Self::update_servers(
                 self.servers.borrow_mut(),
+                self.get_request@.value()->Get_0.servers(),
                 self.min_timestamp@,
                 self.agree_with_max@,
                 &self.max_resp,
@@ -621,34 +654,37 @@ impl<C: Channel<K = ChannelInv>> ReadAccumulator<C> {
     }
 }
 
-pub struct ReadAccumGetPhase<C: Channel<K = ChannelInv>> {
+pub struct ReadAccumGetPhase<C: Channel<K = ChannelInv, Id = (u64, u64)>> {
     inner: ReadAccumulator<C>,
 }
 
-pub struct ReadAccumWbPhase<C: Channel<K = ChannelInv>> {
+pub struct ReadAccumWbPhase<C: Channel<K = ChannelInv, Id = (u64, u64)>> {
     inner: ReadAccumulator<C>,
 }
 
-impl<C: Channel<K = ChannelInv>> InvariantPredicate<ReadPred<C>, ReadAccumGetPhase<C>> for ReadPred<
-    C,
-> {
+impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> InvariantPredicate<
+    ReadPred<C>,
+    ReadAccumGetPhase<C>,
+> for ReadPred<C> {
     open spec fn inv(pred: ReadPred<C>, v: ReadAccumGetPhase<C>) -> bool {
         pred == v.constant()
     }
 }
 
-impl<C: Channel<K = ChannelInv>> InvariantPredicate<ReadPred<C>, ReadAccumWbPhase<C>> for ReadPred<
-    C,
-> {
+impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> InvariantPredicate<
+    ReadPred<C>,
+    ReadAccumWbPhase<C>,
+> for ReadPred<C> {
     open spec fn inv(pred: ReadPred<C>, v: ReadAccumWbPhase<C>) -> bool {
         pred == v.constant()
     }
 }
 
-impl<C: Channel<K = ChannelInv>> ReadAccumGetPhase<C> {
+impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumGetPhase<C> {
     pub fn new(
         servers: Tracked<ServerUniverse>,
         server_tokens: Tracked<GhostPersistentSubmap<u64, Loc>>,
+        get_request: Tracked<RequestProof>,
         read_pred: Ghost<ReadPred<C>>,
     ) -> (r: Self)
         requires
@@ -657,6 +693,9 @@ impl<C: Channel<K = ChannelInv>> ReadAccumGetPhase<C> {
             server_tokens@@ <= servers@.locs(),
             servers@.inv(),
             servers@.is_lb(),
+            get_request@.id() == read_pred@.request_map_id,
+            get_request@.value().req_type() is Get,
+            get_request@.value()->Get_0.servers().eq_timestamp(servers@),
             forall|q: Quorum| #[trigger]
                 servers@.valid_quorum(q) ==> {
                     read_pred@.min_timestamp <= servers@.quorum_timestamp(q)
@@ -664,6 +703,8 @@ impl<C: Channel<K = ChannelInv>> ReadAccumGetPhase<C> {
             forall|c_id| #[trigger]
                 read_pred@.channels.contains_key(c_id) ==> {
                     let c = read_pred@.channels[c_id];
+                    &&& c_id.0 == get_request@.key().0
+                    &&& c.constant().request_map_id == read_pred@.request_map_id
                     &&& c.constant().commitment_id == read_pred@.commitment_id
                     &&& c.constant().server_tokens_id == read_pred@.server_tokens_id
                     &&& c.constant().server_locs == read_pred@.server_locs
@@ -672,7 +713,9 @@ impl<C: Channel<K = ChannelInv>> ReadAccumGetPhase<C> {
             r.constant() == read_pred@,
             r.len() == 0,
     {
-        ReadAccumGetPhase { inner: ReadAccumulator::new(servers, server_tokens, read_pred) }
+        ReadAccumGetPhase {
+            inner: ReadAccumulator::new(servers, server_tokens, get_request, read_pred),
+        }
     }
 
     #[verifier::type_invariant]
@@ -764,7 +807,7 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
     }
 }
 
-impl<C: Channel<K = ChannelInv>> ReadAccumWbPhase<C> {
+impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumWbPhase<C> {
     pub fn new(accum: ReadAccumulator<C>) -> (r: Self)
         requires
             accum.spec_n_wb_replies() == 0,

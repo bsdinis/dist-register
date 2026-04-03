@@ -715,6 +715,26 @@ impl ServerUniverse {
         }
     }
 
+    pub proof fn lemma_leq_trans(a: Self, b: Self, c: Self)
+        requires
+            a.inv(),
+            b.inv(),
+            c.inv(),
+            a.leq(b),
+            b.leq(c),
+        ensures
+            a.leq(c),
+    {
+        a.lemma_locs();
+        b.lemma_locs();
+        c.lemma_locs();
+        assert forall|k: u64| #[trigger] a.contains_key(k) implies a[k]@@.timestamp()
+            <= c[k]@@.timestamp() by {
+            assert(b.contains_key(k));
+            assert(c.contains_key(k));
+        }
+    }
+
     pub proof fn lemma_eq(self, other: ServerUniverse)
         requires
             self.inv(),

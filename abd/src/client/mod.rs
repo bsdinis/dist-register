@@ -190,6 +190,8 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
                     &&& cid == c.spec_id()
                     &&& cid.0 == id
                     &&& state_inv@.constant().server_locs.contains_key(cid.1)
+                    &&& state_inv@.constant().request_map_ids.request_auth_id
+                        == c.constant().request_map_id
                     &&& state_inv@.constant().commitments_ids.commitment_id
                         == c.constant().commitment_id
                     &&& state_inv@.constant().server_tokens_id == c.constant().server_tokens_id
@@ -245,6 +247,8 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
                 let c = self.pool.spec_channels()[c_id];
                 &&& c_id == c.spec_id()
                 &&& c_id.0 == self.id
+                &&& self.state_inv@.constant().request_map_ids.request_auth_id
+                    == c.constant().request_map_id
                 &&& self.state_inv@.constant().commitments_ids.commitment_id
                     == c.constant().commitment_id
                 &&& self.state_inv@.constant().server_tokens_id == c.constant().server_tokens_id
@@ -377,6 +381,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let accum = ReadAccumGetPhase::new(
             Tracked(server_lbs),
             Tracked(server_tokens_lb),
+            Tracked(request_proof),
             read_pred,
         );
         let quorum_res = bpool.broadcast(req, read_pred, accum).wait_for(

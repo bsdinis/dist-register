@@ -223,6 +223,7 @@ impl Request {
         ensures
             r.req_type() == request_inner.req_type(),
             r.request_key() == (r.client_id(), r.spec_tag()),
+            r.request_id() == request_proof@.id(),
             r.client_id() == client_id,
             r.spec_tag() == request_id,
             r.req_type() is Get ==> r.get() == request_inner->Get_0,

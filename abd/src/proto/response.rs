@@ -1,9 +1,11 @@
+use crate::invariants::requests::RequestProof;
 use crate::proto::get::GetResponse;
 use crate::proto::get_timestamp::GetTimestampResponse;
+#[cfg(verus_only)]
 use crate::proto::request::RequestInner;
 use crate::proto::write::WriteResponse;
+#[cfg(verus_only)]
 use crate::proto::ReqType;
-use crate::proto::RequestProof;
 
 use verdist::rpc::proto::TaggedMessage;
 

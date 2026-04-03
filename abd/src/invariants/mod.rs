@@ -25,11 +25,13 @@ pub mod committed_to;
 pub mod lin_queue;
 pub mod logatom;
 pub mod quorum;
+pub mod requests;
 
 use committed_to::*;
 use lin_queue::*;
 use logatom::*;
 use quorum::*;
+use requests::*;
 
 use vstd::prelude::*;
 
@@ -56,6 +58,7 @@ pub struct StatePredicate {
     pub register_id: Loc,
     pub server_locs: Map<u64, Loc>,
     pub commitments_ids: CommitmentIds,
+    pub request_map_ids: RequestMapIds,
     pub server_tokens_id: Loc,
 }
 
@@ -65,6 +68,7 @@ pub struct State<ML, RL> where ML: MutLinearizer<RegisterWrite>, RL: ReadLineari
     pub tracked servers: ServerUniverse,
     pub tracked server_tokens: GhostMonotonicMap<u64, Loc>,
     pub tracked commitments: Commitments,
+    pub tracked request_map: RequestMap,
 }
 
 impl<ML, RL> State<ML, RL> where
@@ -81,6 +85,7 @@ impl<ML, RL> State<ML, RL> where
         &&& self.servers.inv()
         &&& self.servers.is_auth()
         &&& self.commitments.is_full()
+        &&& self.request_map.is_full()
         // server claims
         &&& self.unclaimed_servers().finite()
         &&& self.server_tokens@.dom().finite()
@@ -114,6 +119,7 @@ impl<ML, RL> InvariantPredicate<StatePredicate, State<ML, RL>> for StatePredicat
         &&& p.lin_queue_ids == state.linearization_queue.ids()
         &&& p.server_locs == state.servers.locs()
         &&& p.commitments_ids == state.commitments.ids()
+        &&& p.request_map_ids == state.request_map.ids()
         &&& p.server_tokens_id == state.server_tokens.id()
         &&& state.inv()
     }
@@ -136,6 +142,7 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
     let tracked (register, view) = GhostVarAuth::<Option<u64>>::new(None);
     let tracked servers = ServerUniverse::dummy();
     let tracked commitments = Commitments::new(zero_perm);
+    let tracked request_map = RequestMap::new();
     let tracked zero_commitment = commitments.zero_commitment();
     let tracked mut linearization_queue = LinearizationQueue::new(register.id(), zero_commitment);
     let tracked server_tokens = GhostMonotonicMap::empty();
@@ -149,6 +156,7 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
         register_id: register.id(),
         server_locs: servers.locs(),
         commitments_ids: commitments.ids(),
+        request_map_ids: request_map.ids(),
         server_tokens_id: server_tokens.id(),
     };
 
@@ -157,6 +165,7 @@ pub proof fn initialize_system_state<ML, RL>(tracked zero_perm: PermissionU64) -
         linearization_queue,
         servers,
         commitments,
+        request_map,
         server_tokens,
     };
     assert forall|id| #[trigger]

@@ -1,6 +1,7 @@
 use crate::channel::ChannelInv;
 #[cfg(verus_only)]
 use crate::invariants;
+use crate::invariants::committed_to::ClientCtrToken;
 #[cfg(verus_only)]
 use crate::invariants::lin_queue::InsertError;
 #[cfg(verus_only)]
@@ -13,6 +14,7 @@ use crate::invariants::logatom::RegisterWrite;
 use crate::invariants::quorum::Quorum;
 #[cfg(verus_only)]
 use crate::invariants::quorum::ServerUniverse;
+use crate::invariants::requests::ClientReqCtrToken;
 #[cfg(verus_only)]
 use crate::invariants::RegisterView;
 use crate::invariants::StateInvariant;
@@ -56,8 +58,6 @@ use std::sync::Arc;
 use net_axioms::*;
 use utils::*;
 
-use super::invariants::committed_to::ClientCtrToken;
-
 verus! {
 
 // NOTE: LIMITATION
@@ -79,16 +79,18 @@ pub trait AbdRegisterClient<C, ML, RL> where
 
     spec fn inv(self) -> bool;
 
-    fn read(&self, lin: Tracked<RL>) -> (r: Result<
+    fn read(&mut self, lin: Tracked<RL>) -> (r: Result<
         (Option<u64>, Timestamp, Tracked<RL::Completion>),
         error::ReadError<RL, RL::Completion>,
     >)
         requires
-            lin@.pre(RegisterRead { id: Ghost(self.register_loc()) }),
+            lin@.pre(RegisterRead { id: Ghost(old(self).register_loc()) }),
             !lin@.namespaces().contains(invariants::state_inv_id()),
             lin@.namespaces().finite(),
-            self.inv(),
+            old(self).inv(),
         ensures
+            self.inv(),
+            self.named_locs() == old(self).named_locs(),
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
                 lin@.post(RegisterRead { id: Ghost(self.register_loc()) }, val, compl@)
@@ -161,6 +163,8 @@ pub struct AbdPool<Pool, ML, RL> where
     state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     client_ctr_token: Tracked<ClientCtrToken>,
     client_ctr: PAtomicU64,
+    request_id_ctr_token: Tracked<ClientReqCtrToken>,
+    request_id_ctr: PAtomicU64,
 }
 
 impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
@@ -174,6 +178,8 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         id: u64,
         client_ctr: PAtomicU64,
         client_ctr_token: Tracked<ClientCtrToken>,
+        request_id_ctr: PAtomicU64,
+        request_id_ctr_token: Tracked<ClientReqCtrToken>,
         state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     ) -> (r: Self)
         requires
@@ -191,10 +197,14 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
                 },
             state_inv@.namespace() == invariants::state_inv_id(),
             state_inv@.constant().commitments_ids.client_ctr_id == client_ctr_token@.id(),
+            state_inv@.constant().request_map_ids.client_req_ctr_id == request_id_ctr_token@.id(),
             state_inv@.constant().server_locs.len() == pool.spec_len(),
             client_ctr_token@.key() == id,
             client_ctr_token@.value().0 == 0,
             client_ctr_token@.value().1 == client_ctr.id(),
+            request_id_ctr_token@.key() == id,
+            request_id_ctr_token@.value().0 == 0,
+            request_id_ctr_token@.value().1 == request_id_ctr.id(),
         ensures
             r._inv(),
     {
@@ -205,6 +215,8 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
             register_id: Ghost(state_inv@.constant().register_id),
             client_ctr_token,
             client_ctr,
+            request_id_ctr_token,
+            request_id_ctr,
         }
     }
 
@@ -221,8 +233,12 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
         &&& self.state_inv@.constant().commitments_ids.client_ctr_id == self.client_ctr_token@.id()
+        &&& self.state_inv@.constant().request_map_ids.client_req_ctr_id
+            == self.request_id_ctr_token@.id()
         &&& self.client_ctr_token@.key() == self.id()
         &&& self.client_ctr_token@.value().1 == self.client_ctr.id()
+        &&& self.request_id_ctr_token@.key() == self.id()
+        &&& self.request_id_ctr_token@.value().1 == self.request_id_ctr.id()
         &&& self.pool.spec_len() == self.state_inv@.constant().server_locs.len()
         &&& forall|c_id| #[trigger]
             self.pool.spec_channels().contains_key(c_id) ==> {
@@ -262,6 +278,8 @@ pub struct AbdRegisterLocs {
     pub state_inv_namespace: int,
     pub client_ctr_perm: int,
     pub client_ctr_token_id: Loc,
+    pub request_id_ctr_perm: int,
+    pub request_id_ctr_token_id: Loc,
 }
 
 impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> where
@@ -287,6 +305,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             state_inv_namespace: self.state_inv@.namespace(),
             client_ctr_perm: self.client_ctr_token@.value().1,
             client_ctr_token_id: self.client_ctr_token@.id(),
+            request_id_ctr_perm: self.request_id_ctr_token@.value().1,
+            request_id_ctr_token_id: self.request_id_ctr_token@.id(),
         }
     }
 
@@ -294,7 +314,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         self._inv()
     }
 
-    fn read(&self, Tracked(lin): Tracked<RL>) -> (r: Result<
+    fn read(&mut self, Tracked(lin): Tracked<RL>) -> (r: Result<
         (Option<u64>, Timestamp, Tracked<RL::Completion>),
         error::ReadError<RL, RL::Completion>,
     >) {
@@ -323,8 +343,29 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             assert(state.inv());
         });
 
-        let req = Request::new_get(self.id, Tracked(server_lbs.extract_lbs()));
-        assert(req.request_key() == (self.id, req.spec_tag()));
+        let req_inner = RequestInner::new_get(Tracked(server_lbs.extract_lbs()));
+        let tracked request_proof;
+        let request_id;
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            let tracked mut perm;
+            proof {
+                perm = state.request_map.take_permission(self.request_id_ctr_token.borrow());
+            }
+            assume(perm.value() < u64::MAX); // XXX: integer overflow
+            request_id = self.request_id_ctr.fetch_add(Tracked(&mut perm), 1);
+            proof {
+                request_proof = state.request_map.issue_request_proof(
+                    self.request_id_ctr_token.borrow_mut(),
+                    request_id,
+                    req_inner,
+                    perm
+                );
+            }
+            // XXX: debug assert
+            assert(state.inv());
+        });
+
+        let req = Request::new(self.id, request_id, req_inner, Tracked(request_proof.duplicate()));
 
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
@@ -421,11 +462,34 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         }
         // non-unanimous read: write-back
 
+        let req_inner = RequestInner::new_write(value, max_ts, Tracked(commitment.duplicate()));
+        let tracked request_proof;
+        let request_id;
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            let tracked mut perm;
+            proof {
+                perm = state.request_map.take_permission(self.request_id_ctr_token.borrow());
+            }
+            assume(perm.value() < u64::MAX); // XXX: integer overflow
+            request_id = self.request_id_ctr.fetch_add(Tracked(&mut perm), 1);
+            proof {
+                request_proof = state.request_map.issue_request_proof(
+                    self.request_id_ctr_token.borrow_mut(),
+                    request_id,
+                    req_inner,
+                    perm
+                );
+            }
+            // XXX: debug assert
+            assert(state.inv());
+        });
+
+        let req = Request::new(self.id, request_id, req_inner, Tracked(request_proof.duplicate()));
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
         #[allow(unused_parens)]
         let replies_result = bpool.broadcast_filter(
-            Request::new_write(self.id, value, max_ts, Tracked(commitment.duplicate())),
+            req,
             read_pred,
             ReadAccumWbPhase::new(replies),
             |id: (u64, u64)| !agree_with_max.contains(&id.1),
@@ -578,7 +642,30 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 server_lbs = state.servers.extract_lbs();
             }
         });
-        let req = Request::new_get_timestamp(self.id, Tracked(server_lbs));
+
+        let req_inner = RequestInner::new_get_timestamp(Tracked(server_lbs.extract_lbs()));
+        let tracked request_proof;
+        let request_id;
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            let tracked mut perm;
+            proof {
+                perm = state.request_map.take_permission(self.request_id_ctr_token.borrow());
+            }
+            assume(perm.value() < u64::MAX); // XXX: integer overflow
+            request_id = self.request_id_ctr.fetch_add(Tracked(&mut perm), 1);
+            proof {
+                request_proof = state.request_map.issue_request_proof(
+                    self.request_id_ctr_token.borrow_mut(),
+                    request_id,
+                    req_inner,
+                    perm
+                );
+            }
+            // XXX: debug assert
+            assert(state.inv());
+        });
+        let req = Request::new(self.id, request_id, req_inner, Tracked(request_proof.duplicate()));
+
         let quorum = {
             let ghost qsize = self.spec_quorum_size();
             let bpool = BroadcastPool::new(&self.pool);
@@ -691,13 +778,46 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         });
 
         {
+            let req_inner = RequestInner::new_write(
+                value,
+                exec_ts,
+                Tracked(commitment.duplicate()),
+            );
+            let tracked request_proof;
+            let request_id;
+            vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+                let tracked mut perm;
+                proof {
+                    perm = state.request_map.take_permission(self.request_id_ctr_token.borrow());
+                }
+                assume(perm.value() < u64::MAX); // XXX: integer overflow
+                request_id = self.request_id_ctr.fetch_add(Tracked(&mut perm), 1);
+                proof {
+                    request_proof = state.request_map.issue_request_proof(
+                        self.request_id_ctr_token.borrow_mut(),
+                        request_id,
+                        req_inner,
+                        perm
+                    );
+                }
+                // XXX: debug assert
+                assert(state.inv());
+            });
+
+            let req = Request::new(
+                self.id,
+                request_id,
+                req_inner,
+                Tracked(request_proof.duplicate()),
+            );
+
             let bpool = BroadcastPool::new(&self.pool);
             let ghost qsize = self.spec_quorum_size();
             // TODO(obeys_cmp_spec): add this to verus
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
             let quorum_res = bpool.broadcast::<EmptyPred, _>(
-                Request::new_write(self.id, value, exec_ts, Tracked(commitment.duplicate())),
+                req,
                 Ghost(EmptyPred),
                 WriteAccumulator::new(Ghost(bpool.spec_channels())),
             ).wait_for(

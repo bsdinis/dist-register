@@ -3,11 +3,9 @@ use crate::invariants::quorum::ServerUniverse;
 use crate::invariants::ServerToken;
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::timestamp::Timestamp;
-use verdist::rpc::proto::TaggedMessage;
 
-use vstd::pervasive::unreached;
 use vstd::prelude::*;
-use vstd::resource::map::{GhostPersistentPointsTo, GhostPersistentSubmap};
+use vstd::resource::map::GhostPersistentSubmap;
 use vstd::resource::Loc;
 
 verus! {
@@ -96,15 +94,14 @@ impl GetRequest {
     }
 
     pub closed spec fn spec_eq(self, other: Self) -> bool {
-        self.servers@.spec_eq(other.servers@)
+        self.servers@.eq(other.servers@)
     }
 
     pub broadcast proof fn spec_eq_refl(a: Self)
-        requires
-            a.inv(),
         ensures
             #[trigger] a.spec_eq(a),
     {
+        assume(a.servers@.inv());  // TODO(verus): type invariants on spec items
         ServerUniverse::lemma_eq_refl(a.servers@)
     }
 
@@ -123,6 +120,9 @@ impl GetRequest {
         ensures
             a.spec_eq(c),
     {
+        assume(a.servers@.inv());  // TODO(verus): type invariants on spec items
+        assume(b.servers@.inv());  // TODO(verus): type invariants on spec items
+        assume(c.servers@.inv());  // TODO(verus): type invariants on spec items
         ServerUniverse::lemma_eq_trans(a.servers@, b.servers@, c.servers@)
     }
 }

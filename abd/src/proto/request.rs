@@ -1,12 +1,11 @@
 use crate::invariants::committed_to::WriteCommitment;
 use crate::invariants::quorum::ServerUniverse;
-#[cfg(verus_only)]
-use crate::proto::fake_request_proof;
+use crate::invariants::requests::RequestProof;
 use crate::proto::get::GetRequest;
 use crate::proto::get_timestamp::GetTimestampRequest;
 use crate::proto::write::WriteRequest;
+#[cfg(verus_only)]
 use crate::proto::ReqType;
-use crate::proto::RequestProof;
 use crate::timestamp::Timestamp;
 
 use verdist::rpc::proto::TaggedMessage;
@@ -43,6 +42,127 @@ impl TaggedMessage for Request {
     }
 }
 
+impl RequestInner {
+    pub closed spec fn req_type(self) -> ReqType {
+        match self {
+            RequestInner::Get(_) => ReqType::Get,
+            RequestInner::GetTimestamp(_) => ReqType::GetTimestamp,
+            RequestInner::Write(_) => ReqType::Write,
+        }
+    }
+
+    pub open spec fn spec_eq(self, other: Self) -> bool {
+        match (self, other) {
+            (RequestInner::Get(a), RequestInner::Get(b)) => a.spec_eq(b),
+            (RequestInner::GetTimestamp(a), RequestInner::GetTimestamp(b)) => a.spec_eq(b),
+            (RequestInner::Write(a), RequestInner::Write(b)) => a.spec_eq(b),
+            (_, _) => false,
+        }
+    }
+
+    pub broadcast proof fn spec_eq_refl(a: Self)
+        ensures
+            #[trigger] a.spec_eq(a),
+    {
+        match a {
+            RequestInner::Get(a) => { GetRequest::spec_eq_refl(a) },
+            RequestInner::GetTimestamp(a) => { GetTimestampRequest::spec_eq_refl(a) },
+            RequestInner::Write(a) => WriteRequest::spec_eq_refl(a),
+        }
+    }
+
+    pub broadcast proof fn spec_eq_symm(a: Self, b: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+        ensures
+            b.spec_eq(a),
+    {
+        match (a, b) {
+            (RequestInner::Get(a), RequestInner::Get(b)) => GetRequest::spec_eq_symm(a, b),
+            (
+                RequestInner::GetTimestamp(a),
+                RequestInner::GetTimestamp(b),
+            ) => GetTimestampRequest::spec_eq_symm(a, b),
+            (RequestInner::Write(a), RequestInner::Write(b)) => WriteRequest::spec_eq_symm(a, b),
+            (_, _) => {},
+        }
+    }
+
+    pub broadcast proof fn spec_eq_trans(a: Self, b: Self, c: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+            #[trigger] b.spec_eq(c),
+        ensures
+            a.spec_eq(c),
+    {
+        match (a, b, c) {
+            (
+                RequestInner::Get(a),
+                RequestInner::Get(b),
+                RequestInner::Get(c),
+            ) => GetRequest::spec_eq_trans(a, b, c),
+            (
+                RequestInner::GetTimestamp(a),
+                RequestInner::GetTimestamp(b),
+                RequestInner::GetTimestamp(c),
+            ) => GetTimestampRequest::spec_eq_trans(a, b, c),
+            (
+                RequestInner::Write(a),
+                RequestInner::Write(b),
+                RequestInner::Write(c),
+            ) => WriteRequest::spec_eq_trans(a, b, c),
+            (_, _, _) => {},
+        }
+    }
+
+    pub fn new_get(servers: Tracked<ServerUniverse>) -> (r: Self)
+        requires
+            servers@.inv(),
+            servers@.is_lb(),
+        ensures
+            r.req_type() is Get,
+            ({
+                let req = r->Get_0;
+                req.servers() == servers@
+            }),
+    {
+        RequestInner::Get(GetRequest::new(servers))
+    }
+
+    pub fn new_get_timestamp(servers: Tracked<ServerUniverse>) -> (r: Self)
+        requires
+            servers@.inv(),
+            servers@.is_lb(),
+        ensures
+            r.req_type() is GetTimestamp,
+            ({
+                let req = r->GetTimestamp_0;
+                req.servers() == servers@
+            }),
+    {
+        RequestInner::GetTimestamp(GetTimestampRequest::new(servers))
+    }
+
+    pub fn new_write(
+        value: Option<u64>,
+        timestamp: Timestamp,
+        commitment: Tracked<WriteCommitment>,
+    ) -> (r: Self)
+        requires
+            commitment@.key() == timestamp,
+            commitment@.value() == value,
+        ensures
+            r.req_type() is Write,
+            ({
+                let req = r->Write_0;
+                &&& req.spec_timestamp() == timestamp
+                &&& req.spec_value() == value
+            }),
+    {
+        RequestInner::Write(WriteRequest::new(value, timestamp, commitment))
+    }
+}
+
 impl Request {
     pub closed spec fn request_id(self) -> Loc {
         self.request.id()
@@ -57,11 +177,7 @@ impl Request {
     }
 
     pub closed spec fn req_type(self) -> ReqType {
-        match self.inner {
-            RequestInner::Get(_) => ReqType::Get,
-            RequestInner::GetTimestamp(_) => ReqType::GetTimestamp,
-            RequestInner::Write(_) => ReqType::Write,
-        }
+        self.inner.req_type()
     }
 
     pub closed spec fn get(self) -> GetRequest
@@ -95,68 +211,25 @@ impl Request {
         &&& self.request@.value().spec_eq(self.inner)
     }
 
-    // TODO: require submaps
-    pub fn new_get(client_id: u64, servers: Tracked<ServerUniverse>) -> (r: Self)
-        requires
-            servers@.inv(),
-            servers@.is_lb(),
-        ensures
-            r.req_type() is Get,
-            r.request_key() == (client_id, r.spec_tag()),
-            r.client_id() == client_id,
-            ({
-                let req = r.get();
-                req.servers() == servers@
-            }),
-    {
-        let request_id = REQUEST_TAG.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let inner = RequestInner::Get(GetRequest::new(servers));
-        let request = Tracked(fake_request_proof((client_id, request_id), inner));
-        Request { request_id, inner, request }
-    }
-
-    pub fn new_get_timestamp(client_id: u64, servers: Tracked<ServerUniverse>) -> (r: Self)
-        requires
-            servers@.inv(),
-            servers@.is_lb(),
-        ensures
-            r.req_type() is GetTimestamp,
-            r.request_key() == (client_id, r.spec_tag()),
-            r.client_id() == client_id,
-            ({
-                let req = r.get_timestamp();
-                req.servers() == servers@
-            }),
-    {
-        let request_id = REQUEST_TAG.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let inner = RequestInner::GetTimestamp(GetTimestampRequest::new(servers));
-        let request = Tracked(fake_request_proof((client_id, request_id), inner));
-        Request { request_id, inner, request }
-    }
-
-    pub fn new_write(
+    pub fn new(
         client_id: u64,
-        value: Option<u64>,
-        timestamp: Timestamp,
-        commitment: Tracked<WriteCommitment>,
+        request_id: u64,
+        request_inner: RequestInner,
+        request_proof: Tracked<RequestProof>,
     ) -> (r: Self)
         requires
-            commitment@.key() == timestamp,
-            commitment@.value() == value,
+            request_proof@.key() == (client_id, request_id),
+            request_proof@.value().spec_eq(request_inner),
         ensures
-            r.req_type() is Write,
-            r.request_key() == (client_id, r.spec_tag()),
+            r.req_type() == request_inner.req_type(),
+            r.request_key() == (r.client_id(), r.spec_tag()),
             r.client_id() == client_id,
-            ({
-                let req = r.write();
-                &&& req.spec_timestamp() == timestamp
-                &&& req.spec_value() == value
-            }),
+            r.spec_tag() == request_id,
+            r.req_type() is Get ==> r.get() == request_inner->Get_0,
+            r.req_type() is GetTimestamp ==> r.get_timestamp() == request_inner->GetTimestamp_0,
+            r.req_type() is Write ==> r.write() == request_inner->Write_0,
     {
-        let request_id = REQUEST_TAG.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let inner = RequestInner::Write(WriteRequest::new(value, timestamp, commitment));
-        let request = Tracked(fake_request_proof((client_id, request_id), inner));
-        Request { request_id, inner, request }
+        Request { request_id, inner: request_inner, request: request_proof }
     }
 
     pub fn destruct(self) -> (r: (u64, RequestInner, Tracked<RequestProof>))
@@ -209,78 +282,6 @@ impl Request {
             a.spec_eq(c),
     {
         RequestInner::spec_eq_trans(a.inner, b.inner, c.inner);
-    }
-}
-
-impl RequestInner {
-    pub open spec fn spec_eq(self, other: Self) -> bool {
-        match (self, other) {
-            (RequestInner::Get(a), RequestInner::Get(b)) => a.spec_eq(b),
-            (RequestInner::GetTimestamp(a), RequestInner::GetTimestamp(b)) => a.spec_eq(b),
-            (RequestInner::Write(a), RequestInner::Write(b)) => a.spec_eq(b),
-            (_, _) => false,
-        }
-    }
-
-    pub broadcast proof fn spec_eq_refl(a: Self)
-        ensures
-            #[trigger] a.spec_eq(a),
-    {
-        match a {
-            RequestInner::Get(a) => {
-                assume(a.inv());  // TODO(verus): limitation around spec values and type invariants
-                GetRequest::spec_eq_refl(a)
-            },
-            RequestInner::GetTimestamp(a) => {
-                assume(a.inv());  // TODO(verus): limitation around spec values and type invariants
-                GetTimestampRequest::spec_eq_refl(a)
-            },
-            RequestInner::Write(a) => WriteRequest::spec_eq_refl(a),
-        }
-    }
-
-    pub broadcast proof fn spec_eq_symm(a: Self, b: Self)
-        requires
-            #[trigger] a.spec_eq(b),
-        ensures
-            b.spec_eq(a),
-    {
-        match (a, b) {
-            (RequestInner::Get(a), RequestInner::Get(b)) => GetRequest::spec_eq_symm(a, b),
-            (
-                RequestInner::GetTimestamp(a),
-                RequestInner::GetTimestamp(b),
-            ) => GetTimestampRequest::spec_eq_symm(a, b),
-            (RequestInner::Write(a), RequestInner::Write(b)) => WriteRequest::spec_eq_symm(a, b),
-            (_, _) => {},
-        }
-    }
-
-    pub broadcast proof fn spec_eq_trans(a: Self, b: Self, c: Self)
-        requires
-            #[trigger] a.spec_eq(b),
-            #[trigger] b.spec_eq(c),
-        ensures
-            a.spec_eq(c),
-    {
-        match (a, b, c) {
-            (
-                RequestInner::Get(a),
-                RequestInner::Get(b),
-                RequestInner::Get(c),
-            ) => GetRequest::spec_eq_trans(a, b, c),
-            (
-                RequestInner::GetTimestamp(a),
-                RequestInner::GetTimestamp(b),
-                RequestInner::GetTimestamp(c),
-            ) => GetTimestampRequest::spec_eq_trans(a, b, c),
-            (
-                RequestInner::Write(a),
-                RequestInner::Write(b),
-                RequestInner::Write(c),
-            ) => WriteRequest::spec_eq_trans(a, b, c),
-            (_, _, _) => {},
-        }
     }
 }
 

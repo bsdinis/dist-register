@@ -374,7 +374,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
         let read_pred = Ghost(
-            ReadPred::new(state_constant, bpool.spec_channels(), token.value().min_ts),
+            ReadPred::new(state_constant, bpool.spec_channels(), token.value().min_ts, request_id),
         );
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
         #[allow(unused_parens)]
@@ -404,7 +404,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 });
                 return Err(
                     error::ReadError::FailedFirstQuorum {
-                        obtained: e.into_accumulator().n_replies(),
+                        obtained: e.into_accumulator().handled_replies().len(),
                         required: self.quorum_size(),
                         lincomp: Tracked(lincomp),
                     },
@@ -496,7 +496,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let replies_result = bpool.broadcast_filter(
             req,
             read_pred,
-            ReadAccumWbPhase::new(replies),
+            ReadAccumWbPhase::new(replies, request_id),
             |id: (u64, u64)| !agree_with_max.contains(&id.1),
         ).wait_for(
             (|s| -> (r: bool)
@@ -522,7 +522,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 let accum = replies.into_accumulator().destruct();
                 return Err(
                     error::ReadError::FailedSecondQuorum {
-                        obtained: accum.n_wb_replies(),
+                        obtained: accum.wb_replies().len(),
                         required: self.quorum_size().saturating_sub(accum.agree_with_max().len()),
                         lincomp: Tracked(lincomp),
                     },
@@ -680,7 +680,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             let quorum_res = bpool.broadcast::<EmptyPred, _>(
                 req,
                 Ghost(EmptyPred),
-                GetTimestampAccumulator::new(Ghost(bpool.spec_channels())),
+                GetTimestampAccumulator::new(Ghost(bpool.spec_channels()), request_id),
             ).wait_for(
                 (|s| -> (r: bool)
                     ensures
@@ -824,7 +824,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             let quorum_res = bpool.broadcast::<EmptyPred, _>(
                 req,
                 Ghost(EmptyPred),
-                WriteAccumulator::new(Ghost(bpool.spec_channels())),
+                WriteAccumulator::new(Ghost(bpool.spec_channels()), request_id),
             ).wait_for(
                 (|s| -> (r: bool)
                     ensures

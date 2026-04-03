@@ -43,7 +43,7 @@ impl TaggedMessage for Request {
 }
 
 impl RequestInner {
-    pub closed spec fn req_type(self) -> ReqType {
+    pub open spec fn req_type(self) -> ReqType {
         match self {
             RequestInner::Get(_) => ReqType::Get,
             RequestInner::GetTimestamp(_) => ReqType::GetTimestamp,
@@ -239,11 +239,16 @@ impl Request {
             r.2@.value().spec_eq(r.1),
             r.2@.id() == self.request_id(),
             r.2@.value() == self.request(),
+            r.2@.value().req_type() == self.req_type(),
             r.2@.key() == self.request_key(),
             r.2@.key() == (self.client_id(), self.spec_tag()),
+            r.2@.value().spec_eq(r.1),
             r.1 is Get <==> self.req_type() is Get,
             r.1 is GetTimestamp <==> self.req_type() is GetTimestamp,
             r.1 is Write <==> self.req_type() is Write,
+            self.req_type() is Get ==> r.1->Get_0 == self.get(),
+            self.req_type() is GetTimestamp ==> r.1->GetTimestamp_0 == self.get_timestamp(),
+            self.req_type() is Write ==> r.1->Write_0 == self.write(),
         no_unwind
     {
         proof {

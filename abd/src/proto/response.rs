@@ -42,35 +42,54 @@ impl Response {
     pub fn new(request_id: u64, inner: ResponseInner, request: Tracked<RequestProof>) -> (r: Self)
         requires
             request@.key().1 == request_id,
-            request@.value() is Get <==> inner is Get,
-            request@.value() is GetTimestamp <==> inner is GetTimestamp,
-            request@.value() is Write <==> inner is Write,
+            request@.value().req_type() is Get <==> inner is Get,
+            request@.value().req_type() is GetTimestamp <==> inner is GetTimestamp,
+            request@.value().req_type() is Write <==> inner is Write,
+            request@.value().req_type() is Get ==> {
+                let get_req = request@.value()->Get_0;
+                let get_resp = inner->Get_0;
+                &&& get_req.servers().contains_key(get_resp.server_id())
+                &&& get_req.servers()[get_resp.server_id()]@@.timestamp()
+                    <= get_resp.spec_timestamp()
+            },
         ensures
             r.spec_tag() == request_id,
             r.request_id() == request.id(),
             r.request_key() == request@.key(),
             r.request() == request@.value(),
-            inner is Get ==> r.req_type() is Get && inner->Get_0 == r.get(),
-            inner is GetTimestamp ==> r.req_type() is GetTimestamp && inner->GetTimestamp_0
-                == r.get_timestamp(),
-            inner is Write ==> r.req_type() is Write && inner->Write_0 == r.write(),
+            inner is Get ==> {
+                &&& r.req_type() is Get
+                &&& inner->Get_0 == r.get()
+            },
+            inner is GetTimestamp ==> {
+                &&& r.req_type() is GetTimestamp
+                &&& inner->GetTimestamp_0 == r.get_timestamp()
+            },
+            inner is Write ==> {
+                &&& r.req_type() is Write
+                &&& inner->Write_0 == r.write()
+            },
     {
         Response { request_id, inner, request }
     }
 
     #[verifier::type_invariant]
     spec fn inv(self) -> bool {
-        &&& self.request@.key().1 == self.spec_tag()
-        &&& self.request@.value() is Get <==> self.req_type() is Get
-        &&& self.request@.value() is GetTimestamp <==> self.req_type() is GetTimestamp
-        &&& self.request@.value() is Write <==> self.req_type() is Write
+        &&& self.request_key().1 == self.spec_tag()
+        &&& self.request().req_type() == self.req_type()
+        &&& self.req_type() is Get ==> {
+            let get_req = self.request()->Get_0;
+            let get_resp = self.get();
+            &&& get_req.servers().contains_key(get_resp.server_id())
+            &&& get_req.servers()[get_resp.server_id()]@@.timestamp() <= get_resp.spec_timestamp()
+        }
     }
 
-    pub closed spec fn server_id(self) -> u64 {
-        match self.inner {
-            ResponseInner::Get(req) => req.server_id(),
-            ResponseInner::GetTimestamp(req) => req.server_id(),
-            ResponseInner::Write(req) => req.server_id(),
+    pub open spec fn server_id(self) -> u64 {
+        match self.req_type() {
+            ReqType::Get => self.get().server_id(),
+            ReqType::GetTimestamp => self.get_timestamp().server_id(),
+            ReqType::Write => self.write().server_id(),
         }
     }
 
@@ -115,13 +134,23 @@ impl Response {
         self.inner->Write_0
     }
 
-    pub fn destruct_get(self) -> GetResponse
+    pub fn destruct_get(self) -> (r: GetResponse)
         requires
             self.req_type() is Get,
-        returns
-            self.get(),
+        ensures
+            r == self.get(),
+            ({
+                let get_req = self.request()->Get_0;
+                let get_resp = self.get();
+                &&& get_req.servers().contains_key(get_resp.server_id())
+                &&& get_req.servers()[get_resp.server_id()]@@.timestamp()
+                    <= get_resp.spec_timestamp()
+            }),
         no_unwind
     {
+        proof {
+            use_type_invariant(&self);
+        }
         match self.inner {
             ResponseInner::Get(g) => g,
             _ => {
@@ -194,6 +223,47 @@ impl Response {
             a.spec_eq(c),
     {
         ResponseInner::spec_eq_trans(a.inner, b.inner, c.inner);
+    }
+
+    pub broadcast proof fn lemma_spec_eq(a: Self, b: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+        ensures
+            a.spec_tag() == b.spec_tag(),
+            a.request_id() == b.request_id(),
+            a.request_key() == b.request_key(),
+            a.request() == b.request(),
+            a.req_type() == b.req_type(),
+            a.req_type() is Get ==> GetResponse::spec_eq(a.get(), b.get()),
+            a.req_type() is GetTimestamp ==> GetTimestampResponse::spec_eq(
+                a.get_timestamp(),
+                b.get_timestamp(),
+            ),
+            a.req_type() is Write ==> WriteResponse::spec_eq(a.write(), b.write()),
+    {
+    }
+
+    pub fn agree_request(&self, request_proof: &mut Tracked<RequestProof>)
+        requires
+            self.request_id() == old(request_proof)@.id(),
+        ensures
+            request_proof@.id() == old(request_proof)@.id(),
+            request_proof@@ == old(request_proof)@@,
+            self.request_key() == request_proof@.key() ==> self.request() == request_proof@.value(),
+        no_unwind
+    {
+        proof { request_proof.borrow_mut().intersection_agrees(self.request.borrow()) }
+    }
+
+    pub fn lemma_inv(&self)
+        ensures
+            self.request_key().1 == self.spec_tag(),
+            self.request().req_type() == self.req_type(),
+        no_unwind
+    {
+        proof {
+            use_type_invariant(self);
+        }
     }
 }
 
@@ -274,6 +344,11 @@ impl Clone for Response {
         }
         let inner = self.inner.clone();
         let request = Tracked(self.request.borrow().duplicate());
+        proof {
+            if inner is Get {
+                GetResponse::lemma_spec_eq(self.inner->Get_0, inner->Get_0);
+            }
+        }
         Response { request_id: self.request_id, inner, request }
     }
 }

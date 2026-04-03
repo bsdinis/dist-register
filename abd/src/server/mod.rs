@@ -7,6 +7,8 @@ use crate::invariants::logatom::ReadPerm;
 use crate::invariants::logatom::RegisterRead;
 use crate::invariants::logatom::RegisterWrite;
 use crate::invariants::logatom::WritePerm;
+#[cfg(verus_only)]
+use crate::invariants::quorum::ServerUniverse;
 use crate::invariants::StateInvariant;
 use crate::proto::GetRequest;
 use crate::proto::GetTimestampRequest;
@@ -165,6 +167,8 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                 &&& resp.server_token_id() == self.server_token_id()
                 &&& self.server_locs().contains_key(resp.server_id())
                 &&& self.server_locs()[resp.server_id()] == resp.loc()
+                &&& req.servers().contains_key(resp.server_id())
+                &&& req.servers()[resp.server_id()]@@.timestamp() <= resp.spec_timestamp()
             }),
     {
         proof {
@@ -176,14 +180,28 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     fn handle_get_timestamp(&self, req: GetTimestampRequest) -> (r: ResponseInner)
         ensures
             r is GetTimestamp,
+            ({
+                let resp = r->GetTimestamp_0;
+                &&& resp.server_id() == self.id
+            }),
     {
+        proof {
+            use_type_invariant(self);
+        }
         ResponseInner::GetTimestamp(self.register.read_timestamp(req))
     }
 
     fn handle_write(&self, req: WriteRequest) -> (r: ResponseInner)
         ensures
             r is Write,
+            ({
+                let resp = r->Write_0;
+                &&& resp.server_id() == self.id
+            }),
     {
+        proof {
+            use_type_invariant(self);
+        }
         ResponseInner::Write(self.register.write(req))
     }
 
@@ -195,22 +213,38 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
             r.request_id() == request.request_id(),
             r.request_key() == request.request_key(),
             r.request().spec_eq(request.request()),
+            r.server_id() == self.id,
             request.req_type() == r.req_type(),
             r.req_type() is Get ==> ({
+                let get_req = request.get();
                 let resp = r.get();
-                &&& resp.server_id() == self.id
                 &&& resp.spec_commitment().id() == self.commitment_id()
                 &&& resp.server_token_id() == self.server_token_id()
                 &&& self.server_locs().contains_key(resp.server_id())
                 &&& self.server_locs()[resp.server_id()] == resp.loc()
+                &&& get_req.servers().contains_key(resp.server_id())
+                &&& get_req.servers()[resp.server_id()]@@.timestamp() <= resp.spec_timestamp()
             }),
     {
         let (request_id, request_inner, request_proof) = request.destruct();
+        proof {}
         let resp_inner = match request_inner {
             RequestInner::Get(req) => self.handle_get(req),
             RequestInner::GetTimestamp(req) => self.handle_get_timestamp(req),
             RequestInner::Write(req) => self.handle_write(req),
         };
+
+        proof {
+            if request_inner is Get {
+                let get_req = request_inner->Get_0;
+                let proof_get_req = request_proof@.value()->Get_0;
+                assume(proof_get_req.servers().inv());  // TODO(verus): type invariants on spec items
+                assume(get_req.servers().inv());  // TODO(verus): type invariants on spec items
+                GetRequest::lemma_spec_eq(proof_get_req, get_req);
+                ServerUniverse::lemma_eq(proof_get_req.servers(), get_req.servers());
+                proof_get_req.servers().lemma_locs();
+            }
+        }
 
         let r = Response::new(request_id, resp_inner, request_proof);
         proof {

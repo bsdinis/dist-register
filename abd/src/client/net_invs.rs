@@ -21,12 +21,16 @@ use verdist::network::channel::Channel;
 use verdist::network::channel::ChannelInvariant;
 use verdist::rpc::replies::ReplyAccumulator;
 
+#[cfg(verus_only)]
+use verdist::rpc::proto::TaggedMessage;
 use vstd::invariant::InvariantPredicate;
 #[cfg(verus_only)]
 use vstd::map_lib::lemma_values_finite;
 use vstd::prelude::*;
 use vstd::resource::map::GhostPersistentSubmap;
 use vstd::resource::Loc;
+#[cfg(verus_only)]
+use vstd::std_specs::btree::increasing_seq;
 
 verus! {
 
@@ -38,6 +42,7 @@ pub ghost struct ReadPred<C: Channel<K = ChannelInv>> {
     pub server_tokens_id: Loc,
     pub min_timestamp: Timestamp,
     pub channels: Map<C::Id, C>,
+    pub get_request_id: u64,
 }
 
 impl<C: Channel<K = ChannelInv>> ReadPred<C> {
@@ -45,6 +50,7 @@ impl<C: Channel<K = ChannelInv>> ReadPred<C> {
         state: StatePredicate,
         channels: Map<C::Id, C>,
         old_watermark: MonotonicTimestampResource,
+        get_request_id: u64,
     ) -> ReadPred<C> {
         ReadPred {
             server_locs: state.server_locs,
@@ -53,6 +59,7 @@ impl<C: Channel<K = ChannelInv>> ReadPred<C> {
             server_tokens_id: state.server_tokens_id,
             min_timestamp: old_watermark@.timestamp(),
             channels,
+            get_request_id,
         }
     }
     // TODO: type invariant here relating the channels.dom() to the server_locs.dom()
@@ -67,8 +74,8 @@ pub struct ReadAccumulator<C: Channel<K = ChannelInv, Id = (u64, u64)>> {
     max_resp: Option<GetResponse>,
     /// The set of servers that we know are >= max_resp.timestamp()
     agree_with_max: BTreeSet<u64>,
-    /// Number of received get replies
-    n_get_replies: usize,
+    /// Received get replies
+    get_replies: BTreeSet<C::Id>,
     // TODO(qed/read/phase_2/write_inv): add write inv
     wb_replies: BTreeMap<(u64, u64), WriteResponse>,
     // Spec state
@@ -114,7 +121,9 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             servers@.inv(),
             servers@.is_lb(),
             get_request@.id() == read_pred@.request_map_id,
+            get_request@.key().1 == read_pred@.get_request_id,
             get_request@.value().req_type() is Get,
+            get_request@.value()->Get_0.servers().inv(),
             get_request@.value()->Get_0.servers().eq_timestamp(servers@),
             forall|q: Quorum| #[trigger]
                 servers@.valid_quorum(q) ==> {
@@ -131,15 +140,15 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
                 },
         ensures
             r.constant() == read_pred@,
-            r.spec_n_get_replies() == 0,
-            r.spec_n_wb_replies() == 0,
+            r.spec_get_replies().is_empty(),
+            r.spec_wb_replies().is_empty(),
             r.server_locs() == servers@.locs(),
             r.server_tokens_id() == server_tokens@.id(),
     {
         ReadAccumulator {
             max_resp: None,
             agree_with_max: BTreeSet::new(),
-            n_get_replies: 0,
+            get_replies: BTreeSet::new(),
             wb_replies: BTreeMap::new(),
             servers,
             server_tokens,
@@ -153,13 +162,26 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
         &&& self.max_resp is None <==> self.agree_with_max@.is_empty()
-        &&& self.agree_with_max@.is_empty() <==> self.n_get_replies@ == 0
+        &&& self.get_replies@.finite()
+        &&& forall|cid| #[trigger] self.get_replies@.contains(cid) ==> cid.0 == self.client_id()
+        &&& forall|cid|
+            {
+                &&& !#[trigger] self.get_replies@.contains(cid)
+                &&& #[trigger] self.servers@.contains_key(cid.1)
+                &&& cid.0 == self.client_id()
+            } ==> {
+                self.servers@[cid.1]@@.timestamp()
+                    == self.get_request@.value()->Get_0.servers()[cid.1]@@.timestamp()
+            }
+        &&& self.agree_with_max@.is_empty() <==> self.get_replies@.is_empty()
         &&& self.agree_with_max@ <= self.servers@.dom()
+        &&& self.agree_with_max@ <= self.get_replies@.map(|id: (u64, u64)| id.1)
         &&& self.agree_with_max@.finite()
         &&& self.servers@.inv()
         &&& self.servers@.is_lb()
         &&& self.server_tokens@@ <= self.servers@.locs()
         &&& self.get_request@.value().req_type() is Get
+        &&& self.get_request@.value()->Get_0.servers().inv()
         &&& self.get_request@.value()->Get_0.servers().leq(self.servers@)
         &&& forall|q: Quorum| #[trigger]
             self.servers@.valid_quorum(q) ==> {
@@ -175,11 +197,11 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             &&& resp.server_token_id() == self.server_tokens_id()
         }
         &&& self.wb_replies@.dom().finite()
-        &&& self.wb_replies@.len() == self.spec_n_wb_replies()
+        &&& self.wb_replies@.dom() == self.spec_wb_replies()
         &&& forall|c_id| #[trigger]
             self.channels@.contains_key(c_id) ==> {
                 let c = self.channels@[c_id];
-                &&& c_id.0 == self.get_request@.key().0
+                &&& c_id.0 == self.client_id()
                 &&& c.constant().request_map_id == self.request_map_id()
                 &&& c.constant().commitment_id == self.commitment_id()
                 &&& c.constant().server_tokens_id == self.server_tokens_id()
@@ -195,7 +217,16 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             server_tokens_id: self.server_tokens_id(),
             min_timestamp: self.spec_min_timestamp(),
             channels: self.channels(),
+            get_request_id: self.get_request_id(),
         }
+    }
+
+    pub closed spec fn client_id(self) -> u64 {
+        self.get_request@.key().0
+    }
+
+    pub closed spec fn get_request_id(self) -> u64 {
+        self.get_request@.key().1
     }
 
     pub closed spec fn servers(self) -> ServerUniverse {
@@ -232,7 +263,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
 
     pub fn servers_lb(&self) -> (r: Tracked<ServerUniverse>)
         requires
-            self.spec_n_get_replies() > 0,
+            !self.spec_get_replies().is_empty(),
         ensures
             self.server_locs() == r@.locs(),
             self.servers().leq(r@),
@@ -271,7 +302,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
 
     pub fn lemma_quorum(&self)
         requires
-            self.spec_n_get_replies() > 0,
+            !self.spec_get_replies().is_empty(),
         ensures
             self.quorum().inv(),
             self.quorum()@ <= self.server_locs().dom(),
@@ -284,7 +315,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
 
     pub fn max_resp(&self) -> (r: &GetResponse)
         requires
-            self.spec_n_get_replies() > 0,
+            !self.spec_get_replies().is_empty(),
         ensures
             r == self.spec_max_resp(),
             r.spec_commitment().id() == self.commitment_id(),
@@ -297,14 +328,14 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
 
     pub closed spec fn spec_max_resp(&self) -> GetResponse
         recommends
-            self.spec_n_get_replies() > 0,
+            !self.spec_get_replies().is_empty(),
     {
         self.max_resp->Some_0
     }
 
     pub open spec fn spec_max_timestamp(&self) -> Timestamp
         recommends
-            self.spec_n_get_replies() > 0,
+            !self.spec_get_replies().is_empty(),
     {
         self.spec_max_resp().spec_timestamp()
     }
@@ -320,64 +351,86 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
         &self.agree_with_max
     }
 
-    fn update_max_resp_and_quorum(
-        max_resp: &mut Option<GetResponse>,
-        agree_with_max: &mut BTreeSet<u64>,
-        n_get_replies: &mut usize,
-        resp: GetResponse,
-        server_id: u64,
-    )
+    #[allow(dead_code)]  // TODO: unsure we need this
+    fn lemma_unanimous(&self)
         requires
-            !old(agree_with_max)@.contains(server_id),
-            old(agree_with_max)@.finite(),
-            old(agree_with_max)@.is_empty() <==> old(n_get_replies)@ == 0,
-            *old(max_resp) is None <==> old(agree_with_max)@.is_empty(),
+            self.servers@.valid_quorum(self.quorum()),
+            self.max_resp is Some,
         ensures
-            *max_resp is Some,
-            agree_with_max@.finite(),
-            !agree_with_max@.is_empty(),
-            *n_get_replies == *old(n_get_replies) + 1,
-            *old(max_resp) is Some ==> {
-                let old_max_ts = old(max_resp)->Some_0.spec_timestamp();
-                let new_max_ts = max_resp->Some_0.spec_timestamp();
-                &&& resp.spec_timestamp() > old_max_ts ==> {
-                    &&& *max_resp == Some(resp)
-                    &&& agree_with_max@ == set![server_id]
-                }
-                &&& resp.spec_timestamp() == old_max_ts ==> {
-                    &&& *max_resp == *old(max_resp)
-                    &&& agree_with_max@ == old(agree_with_max)@.insert(server_id)
-                }
-                &&& resp.spec_timestamp() < old_max_ts ==> {
-                    &&& *max_resp == *old(max_resp)
-                    &&& agree_with_max@ == old(agree_with_max)@
-                }
-                &&& old_max_ts <= new_max_ts
-            },
-            *old(max_resp) is None ==> {
-                &&& *max_resp == Some(resp)
-                &&& agree_with_max@ == set![server_id]
-            },
-        no_unwind
+            forall|q: Quorum| #[trigger]
+                self.servers@.valid_quorum(q) ==> {
+                    self.min_timestamp@ <= self.servers@.quorum_timestamp(q)
+                },
     {
-        let mut new_val = None;
-        if let Some(max_resp) = max_resp.as_ref() {
-            if resp.timestamp() > max_resp.timestamp() {
-                new_val = Some(resp);
-            } else if resp.timestamp() == max_resp.timestamp() {
-                agree_with_max.insert(server_id);
-            }
-        } else {
-            new_val = Some(resp);
-        }
+        proof {
+            use_type_invariant(self);
 
-        if new_val.is_some() {
-            *max_resp = new_val;
-            agree_with_max.clear();
-            agree_with_max.insert(server_id);
+            let ghost quorum = self.quorum();
+            let ghost timestamp = self.max_resp->Some_0.spec_timestamp();
+
+            assert forall|id| #[trigger]
+                quorum@.contains(id) implies self.servers@[id]@@.timestamp() >= timestamp by {
+                assert(self.agree_with_max@.contains(id));
+            }
+
+            self.servers@.lemma_quorum_lb(quorum, timestamp);
         }
-        assume(n_get_replies < usize::MAX);  // XXX: integer overflow
-        *n_get_replies += 1
+    }
+
+    pub fn lemma_max_timestamp(&self)
+        requires
+            !self.spec_get_replies().is_empty(),
+        ensures
+            self.servers().inv(),
+            self.servers().valid_quorum(self.quorum()) ==> {
+                let q_ts = self.servers().quorum_timestamp(self.quorum());
+                &&& q_ts == self.spec_max_timestamp()
+                &&& self.spec_min_timestamp() <= q_ts
+            },
+    {
+        proof {
+            use_type_invariant(self);
+            if self.servers().valid_quorum(self.quorum()) {
+                assert(self.servers().inv());
+                assert(self.max_resp is Some);
+                assert(forall|id| #[trigger]
+                    self.agree_with_max@.contains(id) ==> {
+                        self.servers@[id]@@.timestamp() == self.spec_max_timestamp()
+                    });
+                assert(forall|id| #[trigger]
+                    self.quorum()@.contains(id) ==> {
+                        self.servers()[id]@@.timestamp() == self.spec_max_timestamp()
+                    });
+                let quorum_map = self.servers().map.restrict(self.quorum()@);
+                assert(quorum_map.dom() == self.quorum()@);
+                let quorum_vals = self.servers().quorum_vals(self.quorum());
+                assert(quorum_vals == quorum_map.values().map(
+                    |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
+                ));
+                assert(quorum_vals.finite()) by {
+                    assert(quorum_map.dom().finite());
+                    lemma_values_finite(quorum_map);
+                    assert(quorum_map.values().finite());
+                    quorum_map.values().lemma_map_finite(
+                        |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
+                    );
+                };
+                assume(quorum_vals.len() > 0);  // TODO(verus): this needs a verus lemma
+                assert forall|id| #[trigger]
+                    quorum_map.contains_key(id) implies quorum_map[id]@@.timestamp()
+                    == self.spec_max_timestamp() by {
+                    assert(self.quorum()@.contains(id));
+                    assert(self.agree_with_max@.contains(id));
+                    assert(self.servers()[id]@@.timestamp() == self.spec_max_timestamp());
+                }
+                assert(forall|v| quorum_vals.contains(v) ==> v == self.spec_max_timestamp());
+                assert(quorum_vals.find_unique_maximal(ServerUniverse::ts_leq())
+                    == self.spec_max_timestamp()) by {
+                    quorum_vals.find_unique_maximal_ensures(ServerUniverse::ts_leq())
+                };
+                assert(self.servers().quorum_timestamp(self.quorum()) == self.spec_max_timestamp());
+            }
+        }
     }
 
     proof fn update_servers(
@@ -466,154 +519,295 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
         ServerUniverse::lemma_leq_trans(req_servers, old_servers, *servers);
     }
 
-    #[allow(dead_code)]  // TODO: unsure we need this
-    fn lemma_unanimous(&self)
+    fn update_max_resp_and_quorum(
+        max_resp: &mut Option<GetResponse>,
+        agree_with_max: &mut BTreeSet<u64>,
+        get_replies: &mut BTreeSet<C::Id>,
+        resp: GetResponse,
+        id: (u64, u64),
+    )
         requires
-            self.servers@.valid_quorum(self.quorum()),
-            self.max_resp is Some,
+            !old(get_replies)@.contains(id),
+            !old(agree_with_max)@.contains(id.1),
+            old(get_replies)@.finite(),
+            forall|cid| #[trigger] old(get_replies)@.contains(cid) ==> cid.0 == id.0,
+            old(agree_with_max)@.finite(),
+            old(agree_with_max)@.is_empty() <==> old(get_replies)@.is_empty(),
+            old(agree_with_max)@ <= old(get_replies)@.map(|id: (u64, u64)| id.1),
+            *old(max_resp) is None <==> old(get_replies)@.is_empty(),
         ensures
-            forall|q: Quorum| #[trigger]
-                self.servers@.valid_quorum(q) ==> {
-                    self.min_timestamp@ <= self.servers@.quorum_timestamp(q)
-                },
-    {
-        proof {
-            use_type_invariant(self);
-
-            let ghost quorum = self.quorum();
-            let ghost timestamp = self.max_resp->Some_0.spec_timestamp();
-
-            assert forall|id| #[trigger]
-                quorum@.contains(id) implies self.servers@[id]@@.timestamp() >= timestamp by {
-                assert(self.agree_with_max@.contains(id));
-            }
-
-            self.servers@.lemma_quorum_lb(quorum, timestamp);
-        }
-    }
-
-    pub fn lemma_max_timestamp(&self)
-        requires
-            self.spec_n_get_replies() > 0,
-        ensures
-            self.servers().inv(),
-            self.servers().valid_quorum(self.quorum()) ==> {
-                let q_ts = self.servers().quorum_timestamp(self.quorum());
-                &&& q_ts == self.spec_max_timestamp()
-                &&& self.spec_min_timestamp() <= q_ts
-            },
-    {
-        proof {
-            use_type_invariant(self);
-            if self.servers().valid_quorum(self.quorum()) {
-                assert(self.servers().inv());
-                assert(self.max_resp is Some);
-                assert(forall|id| #[trigger]
-                    self.agree_with_max@.contains(id) ==> {
-                        self.servers@[id]@@.timestamp() == self.spec_max_timestamp()
-                    });
-                assert(forall|id| #[trigger]
-                    self.quorum()@.contains(id) ==> {
-                        self.servers()[id]@@.timestamp() == self.spec_max_timestamp()
-                    });
-                let quorum_map = self.servers().map.restrict(self.quorum()@);
-                assert(quorum_map.dom() == self.quorum()@);
-                let quorum_vals = self.servers().quorum_vals(self.quorum());
-                assert(quorum_vals == quorum_map.values().map(
-                    |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
-                ));
-                assert(quorum_vals.finite()) by {
-                    assert(quorum_map.dom().finite());
-                    lemma_values_finite(quorum_map);
-                    assert(quorum_map.values().finite());
-                    quorum_map.values().lemma_map_finite(
-                        |r: Tracked<MonotonicTimestampResource>| r@@.timestamp(),
-                    );
-                };
-                assume(quorum_vals.len() > 0);  // TODO(verus): this needs a verus lemma
-                assert forall|id| #[trigger]
-                    quorum_map.contains_key(id) implies quorum_map[id]@@.timestamp()
-                    == self.spec_max_timestamp() by {
-                    assert(self.quorum()@.contains(id));
-                    assert(self.agree_with_max@.contains(id));
-                    assert(self.servers()[id]@@.timestamp() == self.spec_max_timestamp());
+            *max_resp is Some,
+            get_replies@.finite(),
+            forall|cid| #[trigger] get_replies@.contains(cid) ==> cid.0 == id.0,
+            agree_with_max@.finite(),
+            !agree_with_max@.is_empty(),
+            get_replies@ == old(get_replies)@.insert(id),
+            agree_with_max@ <= get_replies@.map(|id: (u64, u64)| id.1),
+            *old(max_resp) is Some ==> {
+                let old_max_ts = old(max_resp)->Some_0.spec_timestamp();
+                let new_max_ts = max_resp->Some_0.spec_timestamp();
+                &&& resp.spec_timestamp() > old_max_ts ==> {
+                    &&& *max_resp == Some(resp)
+                    &&& agree_with_max@ == set![id.1]
                 }
-                assert(forall|v| quorum_vals.contains(v) ==> v == self.spec_max_timestamp());
-                assert(quorum_vals.find_unique_maximal(ServerUniverse::ts_leq())
-                    == self.spec_max_timestamp()) by {
-                    quorum_vals.find_unique_maximal_ensures(ServerUniverse::ts_leq())
-                };
-                assert(self.servers().quorum_timestamp(self.quorum()) == self.spec_max_timestamp());
+                &&& resp.spec_timestamp() == old_max_ts ==> {
+                    &&& *max_resp == *old(max_resp)
+                    &&& agree_with_max@ == old(agree_with_max)@.insert(id.1)
+                }
+                &&& resp.spec_timestamp() < old_max_ts ==> {
+                    &&& *max_resp == *old(max_resp)
+                    &&& agree_with_max@ == old(agree_with_max)@
+                }
+                &&& old_max_ts <= new_max_ts
+            },
+            *old(max_resp) is None ==> {
+                &&& *max_resp == Some(resp)
+                &&& agree_with_max@ == set![id.1]
+            },
+        no_unwind
+    {
+        assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+
+        let mut new_val = None;
+        if let Some(max_resp) = max_resp.as_ref() {
+            if resp.timestamp() > max_resp.timestamp() {
+                new_val = Some(resp);
+            } else if resp.timestamp() == max_resp.timestamp() {
+                agree_with_max.insert(id.1);
             }
+        } else {
+            new_val = Some(resp);
         }
+
+        if new_val.is_some() {
+            *max_resp = new_val;
+            agree_with_max.clear();
+            agree_with_max.insert(id.1);
+        }
+        get_replies.insert(id);
+
+        assert(forall|server_id| #[trigger]
+            agree_with_max@.contains(server_id) ==> get_replies@.contains((id.0, server_id)));
     }
 
-    fn insert_get(&mut self, id: (u64, u64), resp: GetResponse)
+    fn insert_get_aux(
+        max_resp: &mut Option<GetResponse>,
+        agree_with_max: &mut BTreeSet<u64>,
+        get_replies: &mut BTreeSet<C::Id>,
+        #[allow(unused_variables)]
+        servers: &mut Tracked<ServerUniverse>,
+        server_tokens: &mut Tracked<GhostPersistentSubmap<u64, Loc>>,
+        #[allow(unused_variables)]
+        min_timestamp: &Ghost<Timestamp>,
+        #[allow(unused_variables)]
+        commitment_id: &Ghost<Loc>,
+        #[allow(unused_variables)]
+        channels: &Ghost<Map<C::Id, C>>,
+        #[allow(unused_variables)]
+        get_request: &Tracked<RequestProof>,
+        id: (u64, u64),
+        resp: Response,
+    )
+        requires
+            get_request@.key().0 == id.0,
+            resp.server_id() == id.1,
+            resp.req_type() is Get,
+            resp.request() == get_request@.value(),
+            resp.get().spec_commitment().id() == commitment_id@,
+            *old(max_resp) is None <==> old(agree_with_max)@.is_empty(),
+            old(get_replies)@.finite(),
+            forall|cid| #[trigger]
+                old(get_replies)@.contains(cid) ==> cid.0 == get_request@.key().0,
+            forall|cid|
+                {
+                    &&& !#[trigger] old(get_replies)@.contains(cid)
+                    &&& old(servers)@.contains_key(cid.1)
+                    &&& cid.0 == get_request@.key().0
+                } ==> {
+                    old(servers)@[cid.1]@@.timestamp()
+                        == get_request@.value()->Get_0.servers()[cid.1]@@.timestamp()
+                },
+            old(agree_with_max)@.is_empty() <==> old(get_replies)@.is_empty(),
+            old(agree_with_max)@ <= old(servers)@.dom(),
+            old(agree_with_max)@ <= old(get_replies)@.map(|id: (u64, u64)| id.1),
+            old(agree_with_max)@.finite(),
+            old(servers)@.inv(),
+            old(servers)@.is_lb(),
+            old(server_tokens)@@ <= old(servers)@.locs(),
+            get_request@.value().req_type() is Get,
+            get_request@.value()->Get_0.servers().inv(),
+            get_request@.value()->Get_0.servers().leq(old(servers)@),
+            forall|q: Quorum| #[trigger]
+                old(servers)@.valid_quorum(q) ==> {
+                    min_timestamp@ <= old(servers)@.quorum_timestamp(q)
+                },
+            *old(max_resp) is Some ==> {
+                let resp = old(max_resp)->Some_0;
+                &&& forall|id| #[trigger]
+                    old(agree_with_max)@.contains(id) ==> {
+                        old(servers)@[id]@@.timestamp() == resp.spec_timestamp()
+                    }
+                &&& resp.spec_commitment().id() == commitment_id@
+                &&& resp.server_token_id() == old(server_tokens)@.id()
+            },
+            forall|c_id| #[trigger]
+                channels@.contains_key(c_id) ==> {
+                    let c = channels@[c_id];
+                    &&& c_id.0 == get_request@.key().0
+                    &&& c.constant().request_map_id == get_request@.id()
+                    &&& c.constant().commitment_id == commitment_id@
+                    &&& c.constant().server_tokens_id == old(server_tokens)@.id()
+                    &&& c.constant().server_locs == old(servers)@.locs()
+                },
+            old(server_tokens)@.id() == resp.get().server_token_id(),
+            old(servers)@.locs().contains_key(resp.server_id()),
+            old(servers)@.locs()[resp.server_id()] == resp.get().loc(),
+        ensures
+            servers@.locs() == old(servers)@.locs(),
+            server_tokens@.id() == old(server_tokens)@.id(),
+            get_replies@ == old(get_replies)@.insert(id),
+            *max_resp is None <==> agree_with_max@.is_empty(),
+            get_replies@.finite(),
+            forall|cid| #[trigger] get_replies@.contains(cid) ==> cid.0 == get_request@.key().0,
+            forall|cid|
+                {
+                    &&& !#[trigger] get_replies@.contains(cid)
+                    &&& servers@.contains_key(cid.1)
+                    &&& cid.0 == get_request@.key().0
+                } ==> {
+                    servers@[cid.1]@@.timestamp()
+                        == get_request@.value()->Get_0.servers()[cid.1]@@.timestamp()
+                },
+            agree_with_max@.is_empty() <==> get_replies@.is_empty(),
+            agree_with_max@ <= servers@.dom(),
+            agree_with_max@ <= get_replies@.map(|id: (u64, u64)| id.1),
+            agree_with_max@.finite(),
+            servers@.inv(),
+            servers@.is_lb(),
+            server_tokens@@ <= servers@.locs(),
+            get_request@.value().req_type() is Get,
+            get_request@.value()->Get_0.servers().leq(servers@),
+            forall|q: Quorum| #[trigger]
+                servers@.valid_quorum(q) ==> { min_timestamp@ <= servers@.quorum_timestamp(q) },
+            *max_resp is Some ==> {
+                let resp = max_resp->Some_0;
+                &&& forall|id| #[trigger]
+                    agree_with_max@.contains(id) ==> {
+                        servers@[id]@@.timestamp() == resp.spec_timestamp()
+                    }
+                &&& resp.spec_commitment().id() == commitment_id@
+                &&& resp.server_token_id() == server_tokens@.id()
+            },
+            forall|c_id| #[trigger]
+                channels@.contains_key(c_id) ==> {
+                    let c = channels@[c_id];
+                    &&& c_id.0 == get_request@.key().0
+                    &&& c.constant().request_map_id == get_request@.id()
+                    &&& c.constant().commitment_id == commitment_id@
+                    &&& c.constant().server_tokens_id == server_tokens@.id()
+                    &&& c.constant().server_locs == servers@.locs()
+                },
+            server_tokens@.id() == resp.get().server_token_id(),
+            servers@.locs().contains_key(resp.server_id()),
+            servers@.locs()[resp.server_id()] == resp.get().loc(),
+            resp.get().spec_commitment().id() == commitment_id@,
+        no_unwind
+    {
+        proof {
+            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+            assume(get_request@.value()->Get_0.servers().inv());  // TODO(verus): spec type invariants
+        }
+
+        if get_replies.contains(&id) {
+            return ;
+        }
+        let r = resp.destruct_get();
+
+        r.lemma_get_response();
+        r.lemma_token_agree(server_tokens);
+        assert(r.lb()@ is LowerBound);
+        let Tracked(lb) = r.duplicate_lb();
+        assert(lb@ is LowerBound);
+
+        proof {
+            Self::update_servers(
+                servers.borrow_mut(),
+                get_request@.value()->Get_0.servers(),
+                min_timestamp@,
+                agree_with_max@,
+                &*max_resp,
+                id.1,
+                lb,
+            );
+
+            assert forall|cid|
+                {
+                    &&& !#[trigger] get_replies@.insert(id).contains(cid)
+                    &&& servers@.contains_key(cid.1)
+                    &&& cid.0 == get_request@.key().0
+                } implies servers@[cid.1]@@.timestamp()
+                == get_request@.value()->Get_0.servers()[cid.1]@@.timestamp() by {
+                if cid.1 == id.1 {
+                    assert(get_replies@.insert(id).contains(cid));
+                } else {
+                    assert(servers@[cid.1]@@.timestamp()
+                        == get_request@.value()->Get_0.servers()[cid.1]@@.timestamp());
+                }
+            }
+        }
+
+        Self::update_max_resp_and_quorum(max_resp, agree_with_max, get_replies, r, id);
+    }
+
+    fn insert_get(&mut self, id: (u64, u64), resp: Response)
         requires
             ReadPred::inv(old(self).constant(), *old(self)),
-            resp.server_id() == id.1,
-            old(self).constant().server_tokens_id == resp.server_token_id(),
+            old(self).client_id() == id.0,
+            resp.req_type() is Get,
+            resp.get().server_id() == id.1,
+            resp.request() == old(self).get_request@.value(),
+            old(self).constant().server_tokens_id == resp.get().server_token_id(),
             old(self).constant().server_locs.contains_key(resp.server_id()),
-            old(self).constant().server_locs[resp.server_id()] == resp.loc(),
-            resp.spec_commitment().id() == old(self).commitment_id(),
+            old(self).constant().server_locs[resp.server_id()] == resp.get().loc(),
+            resp.get().spec_commitment().id() == old(self).commitment_id(),
         ensures
             ReadPred::inv(self.constant(), *self),
             self.constant() == old(self).constant(),
-            self.spec_n_get_replies() == old(self).spec_n_get_replies() + 1,
-            self.spec_n_wb_replies() == old(self).spec_n_wb_replies(),
+            self.spec_get_replies() == old(self).spec_get_replies().insert(id),
+            self.spec_wb_replies() == old(self).spec_wb_replies(),
         no_unwind
     {
         proof {
             use_type_invariant(&*self);
         }
 
-        resp.lemma_get_response();
-        resp.lemma_token_agree(&mut self.server_tokens);
-        assert(resp.lb()@ is LowerBound);
-        let Tracked(lb) = resp.duplicate_lb();
-        assert(lb@ is LowerBound);
-        proof {
-            // ASSUMPTIONS
-            // HACK
-            // This requires the request <-> reply matching predicate on the channel
-            // see TODO(proto_lb)
-            assume(self.servers[id.1]@@.timestamp() <= resp.spec_timestamp());
-            // This requires the uniqueness of the request tag
-            assume(!self.agree_with_max@.contains(id.1));
-
-            assume(self.get_request@.value()->Get_0.servers().inv());  // TODO(verus): spec type invariants
-            Self::update_servers(
-                self.servers.borrow_mut(),
-                self.get_request@.value()->Get_0.servers(),
-                self.min_timestamp@,
-                self.agree_with_max@,
-                &self.max_resp,
-                id.1,
-                lb,
-            );
-        }
-
-        Self::update_max_resp_and_quorum(
+        Self::insert_get_aux(
             &mut self.max_resp,
             &mut self.agree_with_max,
-            &mut self.n_get_replies,
+            &mut self.get_replies,
+            &mut self.servers,
+            &mut self.server_tokens,
+            &self.min_timestamp,
+            &self.commitment_id,
+            &self.channels,
+            &self.get_request,
+            id,
             resp,
-            id.1,
         );
     }
 
-    pub closed spec fn spec_n_get_replies(self) -> nat {
-        self.n_get_replies@ as nat
+    pub closed spec fn spec_get_replies(self) -> Set<C::Id> {
+        self.get_replies@
     }
 
-    pub fn n_get_replies(&self) -> (r: usize)
+    pub fn get_replies(&self) -> (r: BTreeSet<C::Id>)
         ensures
-            r == self.spec_n_get_replies(),
+            r@ == self.spec_get_replies(),
     {
         proof {
             use_type_invariant(self);
         }
-        self.n_get_replies
+        self.get_replies.clone()
     }
 
     fn insert_write(&mut self, id: (u64, u64), resp: WriteResponse)
@@ -623,8 +817,8 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             ReadPred::inv(self.constant(), *self),
             self.constant() == old(self).constant(),
             self.wb_replies@ == old(self).wb_replies@.insert(id, resp),
-            self.spec_n_get_replies() == old(self).spec_n_get_replies(),
-            self.spec_n_wb_replies() == old(self).spec_n_wb_replies() + 1,
+            self.spec_get_replies() == old(self).spec_get_replies(),
+            self.spec_wb_replies() == old(self).spec_wb_replies().insert(id),
         no_unwind
     {
         proof {
@@ -638,19 +832,19 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
         self.wb_replies.insert(id, resp);
     }
 
-    pub closed spec fn spec_n_wb_replies(self) -> nat {
-        self.wb_replies@.len()
+    pub closed spec fn spec_wb_replies(self) -> Set<C::Id> {
+        self.wb_replies@.dom()
     }
 
-    pub fn n_wb_replies(&self) -> (r: usize)
+    pub fn wb_replies(&self) -> (r: BTreeSet<C::Id>)
         ensures
-            r == self.spec_n_wb_replies(),
+            r@ == self.spec_wb_replies(),
     {
         proof {
             use_type_invariant(self);
-            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
         }
-        self.wb_replies.len()
+        assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+        clone_domain(&self.wb_replies)
     }
 }
 
@@ -659,6 +853,7 @@ pub struct ReadAccumGetPhase<C: Channel<K = ChannelInv, Id = (u64, u64)>> {
 }
 
 pub struct ReadAccumWbPhase<C: Channel<K = ChannelInv, Id = (u64, u64)>> {
+    request_tag: u64,
     inner: ReadAccumulator<C>,
 }
 
@@ -694,7 +889,9 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumGetPhase<C> {
             servers@.inv(),
             servers@.is_lb(),
             get_request@.id() == read_pred@.request_map_id,
+            get_request@.key().1 == read_pred@.get_request_id,
             get_request@.value().req_type() is Get,
+            get_request@.value()->Get_0.servers().inv(),
             get_request@.value()->Get_0.servers().eq_timestamp(servers@),
             forall|q: Quorum| #[trigger]
                 servers@.valid_quorum(q) ==> {
@@ -710,8 +907,9 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumGetPhase<C> {
                     &&& c.constant().server_locs == read_pred@.server_locs
                 },
         ensures
+            r.spec_request_tag() == get_request@.key().1,
             r.constant() == read_pred@,
-            r.len() == 0,
+            r.replies().is_empty(),
     {
         ReadAccumGetPhase {
             inner: ReadAccumulator::new(servers, server_tokens, get_request, read_pred),
@@ -720,11 +918,15 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumGetPhase<C> {
 
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
-        &&& self.inner.spec_n_wb_replies() == 0
+        &&& self.inner.spec_wb_replies().is_empty()
     }
 
-    pub closed spec fn len(self) -> nat {
-        self.inner.spec_n_get_replies()
+    pub closed spec fn spec_request_tag(self) -> u64 {
+        self.inner.get_request_id()
+    }
+
+    pub closed spec fn replies(self) -> Set<C::Id> {
+        self.inner.spec_get_replies()
     }
 
     pub closed spec fn constant(self) -> ReadPred<C> {
@@ -734,8 +936,8 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumGetPhase<C> {
     pub fn destruct(self) -> (r: ReadAccumulator<C>)
         ensures
             r.constant() == self.constant(),
-            r.spec_n_wb_replies() == 0,
-            r.spec_n_get_replies() == self.len(),
+            r.spec_wb_replies().is_empty(),
+            r.spec_get_replies() == self.replies(),
     {
         proof { use_type_invariant(&self) }
 
@@ -756,50 +958,52 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
         ensures
             self.constant() == old(self).constant(),
     {
-        // TODO(ask): very weird, adding the K type makes this fail,
-        // even though it should be a precondition
-        // assert({
-        //     &&& ReadPred::inv(pred@, *old(self))
-        //     &&& old(self).channels().contains_key(id)
-        //     &&& ({
-        //         let chan = old(self).channels()[id];
-        //         &&& chan.spec_id() == id
-        //         &&& C::K::recv_inv(chan.constant(), id, reply)
-        //     })
-        // });
-        let ghost chan;
         proof {
             use_type_invariant(&*self);
             use_type_invariant(&self.inner);
-            assert(ReadPred::inv(pred@, *self));
+
+            // assert(ReadPred::inv(pred@, *self));
+            // assert(self.constant() == pred@);
             assert(self.channels().contains_key(id));
-            assert(self.constant() == pred@);
-            chan = self.channels()[id];
-            assert(chan.constant().commitment_id == self.inner.commitment_id@);
-            assert(chan.spec_id() == id);
-            assume(C::K::recv_inv(chan.constant(), id, reply));
-            assume(reply.req_type() is Get);
-        }
-        let resp = reply.destruct_get();
+            let chan = self.channels()[id];
+            // assert(chan.constant().commitment_id == self.inner.commitment_id@);
+            // assert(chan.constant().request_map_id == self.inner.request_map_id());
+            // assert(chan.spec_id() == id);
 
+            assume(C::K::recv_inv(chan.constant(), id, reply));  // TODO(verus): this is a verus problem
+
+            // assert(self.inner.request_map_id() == reply.request_id());
+        }
+
+        reply.agree_request(&mut self.inner.get_request);
+        reply.lemma_inv();
+
+        /*
         proof {
-            assert(resp.server_id() == id.1);
-            assert(resp.spec_commitment().id() == self.inner.commitment_id());
-            assert(resp.server_token_id() == chan.constant().server_tokens_id);
-            assert(resp.server_token_id() == self.constant().server_tokens_id);
-            assert(self.constant().server_locs == chan.constant().server_locs);
-            assert(self.constant().server_locs.contains_key(resp.server_id()));
-            assert(self.constant().server_locs[resp.server_id()] == resp.loc());
+            assert(reply.spec_tag() == pred@.get_request_id);
+            assert(reply.spec_tag() == reply.request_key().1);
+            assert(id.0 == reply.request_key().0);
+            assert(reply.request_key().1 == self.inner.get_request@.key().1);
+            assert(reply.request_key() == self.inner.get_request@.key());
+            assert(reply.request() == self.inner.get_request@.value());
+            assert(reply.req_type() == self.inner.get_request@.value().req_type());
+            assert(reply.req_type() is Get);
         }
-        self.inner.insert_get(id, resp);
+        */
+
+        self.inner.insert_get(id, reply);
     }
 
-    open spec fn spec_n_replies(self) -> nat {
-        self.len()
+    open spec fn request_tag(self) -> u64 {
+        self.spec_request_tag()
     }
 
-    fn n_replies(&self) -> usize {
-        self.inner.n_get_replies()
+    open spec fn spec_handled_replies(self) -> Set<C::Id> {
+        self.replies()
+    }
+
+    fn handled_replies(&self) -> BTreeSet<C::Id> {
+        self.inner.get_replies()
     }
 
     open spec fn channels(self) -> Map<C::Id, C> {
@@ -808,22 +1012,27 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
 }
 
 impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumWbPhase<C> {
-    pub fn new(accum: ReadAccumulator<C>) -> (r: Self)
+    pub fn new(accum: ReadAccumulator<C>, request_tag: u64) -> (r: Self)
         requires
-            accum.spec_n_wb_replies() == 0,
+            accum.spec_wb_replies().is_empty(),
         ensures
-            r.len() == 0,
+            r.spec_request_tag() == request_tag,
+            r.replies().is_empty(),
             r.constant() == accum.constant(),
     {
-        ReadAccumWbPhase { inner: accum }
+        ReadAccumWbPhase { inner: accum, request_tag }
+    }
+
+    pub closed spec fn spec_request_tag(self) -> u64 {
+        self.request_tag
     }
 
     pub closed spec fn constant(self) -> ReadPred<C> {
         self.inner.constant()
     }
 
-    pub closed spec fn len(self) -> nat {
-        self.inner.spec_n_wb_replies()
+    pub closed spec fn replies(self) -> Set<C::Id> {
+        self.inner.spec_wb_replies()
     }
 
     pub fn destruct(self) -> (r: ReadAccumulator<C>)
@@ -858,12 +1067,16 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumWbPhase<C> where
         self.inner.insert_write(id, resp);
     }
 
-    open spec fn spec_n_replies(self) -> nat {
-        self.len()
+    open spec fn request_tag(self) -> u64 {
+        self.spec_request_tag()
     }
 
-    fn n_replies(&self) -> usize {
-        self.inner.n_wb_replies()
+    open spec fn spec_handled_replies(self) -> Set<C::Id> {
+        self.replies()
+    }
+
+    fn handled_replies(&self) -> BTreeSet<C::Id> {
+        self.inner.wb_replies()
     }
 
     open spec fn channels(self) -> Map<C::Id, C> {
@@ -875,32 +1088,39 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumWbPhase<C> where
 pub struct GetTimestampAccumulator<C: Channel<K = ChannelInv>> {
     replies: BTreeMap<(u64, u64), GetTimestampResponse>,
     channels: Ghost<Map<C::Id, C>>,
+    request_tag: u64,
 }
 
 #[allow(dead_code)]
 pub struct WriteAccumulator<C: Channel<K = ChannelInv>> {
     replies: BTreeMap<(u64, u64), ()>,
     channels: Ghost<Map<C::Id, C>>,
+    request_tag: u64,
 }
 
-impl<C: Channel<K = ChannelInv>> GetTimestampAccumulator<C> {
-    pub fn new(channels: Ghost<Map<C::Id, C>>) -> (r: Self)
+impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
+    pub fn new(channels: Ghost<Map<C::Id, C>>, request_tag: u64) -> (r: Self)
         ensures
-            r.len() == 0,
+            r.spec_request_tag() == request_tag,
+            r.replies().is_empty(),
             r.spec_channels() == channels@,
     {
-        GetTimestampAccumulator { replies: BTreeMap::new(), channels }
+        GetTimestampAccumulator { replies: BTreeMap::new(), channels, request_tag }
+    }
+
+    pub closed spec fn spec_request_tag(self) -> u64 {
+        self.request_tag
     }
 
     pub fn into(self) -> (r: BTreeMap<(u64, u64), GetTimestampResponse>)
         ensures
-            r@.len() == self.len(),
+            r@.dom() == self.replies(),
     {
         self.replies
     }
 
-    pub closed spec fn len(self) -> nat {
-        self.replies@.len()
+    pub closed spec fn replies(self) -> Set<C::Id> {
+        self.replies@.dom()
     }
 
     pub closed spec fn spec_channels(self) -> Map<C::Id, C> {
@@ -927,13 +1147,17 @@ impl<C> ReplyAccumulator<C, EmptyPred> for GetTimestampAccumulator<C> where
         self.replies.insert(id, resp);
     }
 
-    open spec fn spec_n_replies(self) -> nat {
-        self.len()
+    open spec fn request_tag(self) -> u64 {
+        self.spec_request_tag()
     }
 
-    fn n_replies(&self) -> usize {
+    open spec fn spec_handled_replies(self) -> Set<C::Id> {
+        self.replies()
+    }
+
+    fn handled_replies(&self) -> BTreeSet<C::Id> {
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
-        self.replies.len()
+        clone_domain(&self.replies)
     }
 
     open spec fn channels(self) -> Map<C::Id, C> {
@@ -941,24 +1165,29 @@ impl<C> ReplyAccumulator<C, EmptyPred> for GetTimestampAccumulator<C> where
     }
 }
 
-impl<C: Channel<K = ChannelInv>> WriteAccumulator<C> {
-    pub fn new(channels: Ghost<Map<C::Id, C>>) -> (r: Self)
+impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> WriteAccumulator<C> {
+    pub fn new(channels: Ghost<Map<C::Id, C>>, request_tag: u64) -> (r: Self)
         ensures
-            r.len() == 0,
+            r.spec_request_tag() == request_tag,
+            r.replies().is_empty(),
             r.spec_channels() == channels@,
     {
-        WriteAccumulator { replies: BTreeMap::new(), channels }
+        WriteAccumulator { replies: BTreeMap::new(), channels, request_tag }
+    }
+
+    pub closed spec fn spec_request_tag(self) -> u64 {
+        self.request_tag
     }
 
     pub fn into(self) -> (r: BTreeMap<(u64, u64), ()>)
         ensures
-            r@.len() == self.len(),
+            r@.dom() == self.replies(),
     {
         self.replies
     }
 
-    pub closed spec fn len(self) -> nat {
-        self.replies@.len()
+    pub closed spec fn replies(self) -> Set<C::Id> {
+        self.replies@.dom()
     }
 
     pub closed spec fn spec_channels(self) -> Map<C::Id, C> {
@@ -985,13 +1214,17 @@ impl<C> ReplyAccumulator<C, EmptyPred> for WriteAccumulator<C> where
         self.replies.insert(id, ());
     }
 
-    open spec fn spec_n_replies(self) -> nat {
-        self.len()
+    open spec fn request_tag(self) -> u64 {
+        self.spec_request_tag()
     }
 
-    fn n_replies(&self) -> usize {
+    open spec fn spec_handled_replies(self) -> Set<C::Id> {
+        self.replies()
+    }
+
+    fn handled_replies(&self) -> BTreeSet<C::Id> {
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
-        self.replies.len()
+        clone_domain(&self.replies)
     }
 
     open spec fn channels(self) -> Map<C::Id, C> {
@@ -1014,6 +1247,39 @@ impl<C: Channel<K = ChannelInv>> InvariantPredicate<EmptyPred, WriteAccumulator<
     open spec fn inv(pred: EmptyPred, v: WriteAccumulator<C>) -> bool {
         true
     }
+}
+
+pub fn clone_domain<K: Ord + Clone, V>(map: &BTreeMap<K, V>) -> (dom: BTreeSet<K>)
+    requires
+        vstd::laws_cmp::obeys_cmp_spec::<K>(),
+    ensures
+        map@.dom() == dom@,
+{
+    proof {
+        admit();  // TODO: prove domain clone
+    }
+    let map_keys = map.keys();
+    assert(map_keys@.0 == 0);
+    assert(map_keys@.1.to_set() =~= map@.dom());
+    let ghost g_keys = map_keys@.1;
+
+    let mut dom = BTreeSet::new();
+    assert(dom@ =~= g_keys.take(0).to_set());
+
+    for k in iter: map_keys
+        invariant
+            iter.keys == g_keys,
+            g_keys == map@.dom().to_seq(),
+            increasing_seq(g_keys),
+            dom@ == iter@.to_set(),
+    {
+        assert(iter.keys.take(iter.pos).push(*k) =~= iter.keys.take(iter.pos + 1));
+        dom.insert(k.clone());
+        proof {
+            admit();  // TODO: prove domain clone
+        }
+    }
+    dom
 }
 
 } // verus!

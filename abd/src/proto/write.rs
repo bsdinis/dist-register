@@ -26,6 +26,8 @@ pub struct WriteRequest {
 pub struct WriteResponse {
     #[allow(unused)]
     lb: Tracked<MonotonicTimestampResource>,
+    #[allow(unused)]
+    server_token: Tracked<ServerToken>,
     // TODO(qed/read/phase_2):
     //  - return the ghost request that was sent in the request to tie down the lb here
 }
@@ -117,6 +119,7 @@ impl WriteResponse {
     #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
         &&& self.lb@@ is LowerBound
+        &&& self.lb@.loc() == self.server_token@.value()
     }
 
     pub closed spec fn lb(self) -> MonotonicTimestampResource {
@@ -127,27 +130,44 @@ impl WriteResponse {
         self.lb@@.timestamp()
     }
 
+    pub closed spec fn spec_server_token(self) -> ServerToken {
+        self.server_token@
+    }
+
+    pub closed spec fn server_token_id(self) -> Loc {
+        self.server_token@.id()
+    }
+
+    pub closed spec fn server_id(self) -> u64 {
+        self.server_token@.key()
+    }
+
     pub open spec fn loc(self) -> Loc {
         self.lb().loc()
     }
 
-    pub fn new(lb: Tracked<MonotonicTimestampResource>) -> (r: Self)
+    pub fn new(lb: Tracked<MonotonicTimestampResource>, server_token: Tracked<ServerToken>) -> (r:
+        Self)
         requires
             lb@@ is LowerBound,
+            lb@.loc() == server_token@.value(),
         ensures
             r.lb() == lb@,
+            r.lb().loc() == lb@.loc(),
             r.spec_timestamp() == lb@@.timestamp(),
+            r.spec_server_token() == server_token@,
+            r.server_id() == server_token@.key(),
+            r.server_token_id() == server_token@.id(),
     {
-        WriteResponse { lb }
-    }
-
-    pub closed spec fn server_id(self) -> u64 {
-        0
+        WriteResponse { lb, server_token }
     }
 
     pub closed spec fn spec_eq(self, other: Self) -> bool {
         &&& self.lb@.loc() == other.lb@.loc()
-        &&& self.lb@@.timestamp() == other.lb@@.timestamp()
+        &&& self.lb@@.timestamp()
+            == other.lb@@.timestamp()
+        // TODO server token
+
     }
 
     pub broadcast proof fn spec_eq_refl(a: Self)
@@ -181,11 +201,13 @@ impl Clone for WriteResponse {
             r.spec_eq(*self),
     {
         let tracked new_lb;
+        let tracked server_token;
         proof {
             use_type_invariant(self);
             new_lb = self.lb.borrow().extract_lower_bound();
+            server_token = self.server_token.borrow().duplicate();
         }
-        WriteResponse::new(Tracked(new_lb))
+        WriteResponse::new(Tracked(new_lb), Tracked(server_token))
     }
 }
 

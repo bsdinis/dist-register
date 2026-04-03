@@ -59,11 +59,7 @@ impl GetRequest {
             old(self).servers().contains_key(server_id@),
         ensures
             self.servers().locs() == old(self).servers().locs(),
-            forall|id| #[trigger]
-                self.servers().contains_key(id) ==> {
-                    &&& self.servers()[id]@.loc() == old(self).servers()[id]@.loc()
-                    &&& self.servers()[id]@@.timestamp() == old(self).servers()[id]@@.timestamp()
-                },
+            self.servers().spec_eq(old(self).servers()),
             r@.loc() == self.servers()[server_id@]@.loc(),
             r@@.timestamp() == self.servers()[server_id@]@@.timestamp(),
             r@@ is LowerBound,
@@ -81,6 +77,15 @@ impl GetRequest {
             self.servers.borrow_mut().tracked_insert_lb(server_id@, lb);
 
             assert forall|id| #[trigger] self.servers@.contains_key(id) implies {
+                &&& self.servers@[id]@.loc() == old_servers[id]@.loc()
+                &&& self.servers@[id]@@.timestamp() == old_servers[id]@@.timestamp()
+            } by {
+                if id != server_id@ {
+                    assert(unchanged_servers.contains_key(id));  // TRIGGER
+                }
+            }
+
+            assert forall|id| #[trigger] old_servers.contains_key(id) implies {
                 &&& self.servers@[id]@.loc() == old_servers[id]@.loc()
                 &&& self.servers@[id]@@.timestamp() == old_servers[id]@@.timestamp()
             } by {
@@ -125,6 +130,14 @@ impl GetRequest {
         assume(c.servers@.inv());  // TODO(verus): type invariants on spec items
         ServerUniverse::lemma_eq_trans(a.servers@, b.servers@, c.servers@)
     }
+
+    pub broadcast proof fn lemma_spec_eq(a: Self, b: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+        ensures
+            a.servers().eq(b.servers()),
+    {
+    }
 }
 
 #[allow(unused)]
@@ -135,11 +148,7 @@ impl GetResponse {
         &&& self.lb@.loc() == self.server_token@.value()
         &&& self.lb@@.timestamp() == self.timestamp
         &&& self.commitment@.key() == self.timestamp
-        &&& self.commitment@.value()
-            == self.value
-        // Q: need to tie the server_token to the global invariant (by the id)
-        // Q: need to tie the server_token.key() to the server this came from
-
+        &&& self.commitment@.value() == self.value
     }
 
     pub closed spec fn lb(self) -> MonotonicTimestampResource {
@@ -313,6 +322,23 @@ impl GetResponse {
             #[trigger] b.spec_eq(c),
         ensures
             a.spec_eq(c),
+    {
+    }
+
+    pub broadcast proof fn lemma_spec_eq(a: Self, b: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+        ensures
+            a.lb().loc() == b.lb().loc(),
+            a.lb()@.timestamp() == b.lb()@.timestamp(),
+            a.spec_timestamp() == b.spec_timestamp(),
+            a.spec_value() == b.spec_value(),
+            a.spec_commitment().id() == b.spec_commitment().id(),
+            a.spec_commitment()@ == b.spec_commitment()@,
+            a.spec_server_token().id() == b.spec_server_token().id(),
+            a.spec_server_token()@ == b.spec_server_token()@,
+            a.server_token_id() == b.server_token_id(),
+            a.server_id() == b.server_id(),
     {
     }
 }

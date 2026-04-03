@@ -1,4 +1,5 @@
 use crate::invariants::quorum::ServerUniverse;
+use crate::invariants::ServerToken;
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::timestamp::Timestamp;
 
@@ -17,6 +18,8 @@ pub struct GetTimestampResponse {
     timestamp: Timestamp,
     #[allow(unused)]
     lb: Tracked<MonotonicTimestampResource>,
+    #[allow(unused)]
+    server_token: Tracked<ServerToken>,
 }
 
 #[allow(unused)]
@@ -81,6 +84,7 @@ impl GetTimestampResponse {
     pub closed spec fn inv(self) -> bool {
         &&& self.lb@@ is LowerBound
         &&& self.lb@@.timestamp() == self.timestamp
+        &&& self.lb@.loc() == self.server_token@.value()
     }
 
     pub closed spec fn lb(self) -> MonotonicTimestampResource {
@@ -91,19 +95,40 @@ impl GetTimestampResponse {
         self.timestamp
     }
 
+    pub closed spec fn spec_server_token(self) -> ServerToken {
+        self.server_token@
+    }
+
+    pub closed spec fn server_token_id(self) -> Loc {
+        self.server_token@.id()
+    }
+
+    pub closed spec fn server_id(self) -> u64 {
+        self.server_token@.key()
+    }
+
     pub open spec fn loc(self) -> Loc {
         self.lb().loc()
     }
 
-    pub fn new(timestamp: Timestamp, lb: Tracked<MonotonicTimestampResource>) -> (r: Self)
+    pub fn new(
+        timestamp: Timestamp,
+        lb: Tracked<MonotonicTimestampResource>,
+        server_token: Tracked<ServerToken>,
+    ) -> (r: Self)
         requires
             lb@@ is LowerBound,
             lb@@.timestamp() == timestamp,
+            lb@.loc() == server_token@.value(),
         ensures
             r.lb() == lb@,
             r.spec_timestamp() == timestamp,
+            r.spec_server_token() == server_token@,
+            r.server_id() == server_token@.key(),
+            r.server_token_id() == server_token@.id(),
+            r.loc() == server_token@.value(),
     {
-        GetTimestampResponse { timestamp, lb }
+        GetTimestampResponse { timestamp, lb, server_token }
     }
 
     pub fn timestamp(&self) -> (ts: Timestamp)
@@ -113,14 +138,13 @@ impl GetTimestampResponse {
         self.timestamp.clone()
     }
 
-    pub closed spec fn server_id(self) -> u64 {
-        0
-    }
-
     pub closed spec fn spec_eq(self, other: Self) -> bool {
         &&& self.timestamp == other.timestamp
         &&& self.lb@.loc() == other.lb@.loc()
-        &&& self.lb@@.timestamp() == other.lb@@.timestamp()
+        &&& self.lb@@.timestamp()
+            == other.lb@@.timestamp()
+        // TODO server token
+
     }
 
     pub broadcast proof fn spec_eq_refl(a: Self)
@@ -170,11 +194,13 @@ impl Clone for GetTimestampResponse {
             r.spec_eq(*self),
     {
         let tracked new_lb;
+        let tracked server_token;
         proof {
             use_type_invariant(self);
             new_lb = self.lb.borrow().extract_lower_bound();
+            server_token = self.server_token.borrow().duplicate();
         }
-        GetTimestampResponse::new(self.timestamp.clone(), Tracked(new_lb))
+        GetTimestampResponse::new(self.timestamp.clone(), Tracked(new_lb), Tracked(server_token))
     }
 }
 

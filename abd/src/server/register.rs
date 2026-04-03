@@ -163,14 +163,18 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             r.server_token_id() == self.server_token_id(),
             r.loc() == self.resource_loc(),
             r.server_id() == self.id(),
+            req.servers().contains_key(r.server_id()),
+            req.servers()[r.server_id()]@@.timestamp() <= r.spec_timestamp(),
     {
         let ghost server_id = self.server_token@.key();
         // TODO(client_send_inv): add this
         assume(req.servers().contains_key(server_id));
+        assert(req.servers().contains_key(server_id));
 
         let lb = req.server_lower_bound(Ghost(server_id));
-        // TODO(client_send_inv): add this
         assume(req.servers()[server_id]@.loc() == self.server_token@.value());
+        assert(req.servers().locs().contains_key(server_id));
+        assert(req.servers().contains_key(server_id));
 
         let tracked r = self.resource.borrow();
 
@@ -191,6 +195,9 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             assert(commitment.value() == self.value);
         }
 
+        assert(req.servers()[server_id]@@.timestamp() == lb@@.timestamp());
+        assert(req.servers()[server_id]@@.timestamp() <= r@.timestamp());
+        assert(req.servers()[server_id]@@.timestamp() <= new_lb@.timestamp());
         GetResponse::new(
             self.value.clone(),
             self.timestamp.clone(),
@@ -206,17 +213,20 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
         ensures
+            r.server_id() == self.id(),
             r.spec_timestamp() == self.timestamp,
             r.loc() == self.resource_loc(),
     {
         let tracked r = self.resource.borrow();
         let tracked lb = r.extract_lower_bound();
+        let tracked server_token;
 
         proof {
             lb.lemma_lower_bound(r);
+            server_token = self.server_token.borrow().duplicate();
         }
 
-        GetTimestampResponse::new(self.timestamp.clone(), Tracked(lb))
+        GetTimestampResponse::new(self.timestamp.clone(), Tracked(lb), Tracked(server_token))
     }
 
     pub fn write(self, req: WriteRequest) -> (r: Self)
@@ -360,6 +370,8 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
             r.server_id() == self.id(),
             r.spec_commitment().id() == self.commitment_id(),
             r.server_token_id() == self.server_token_id(),
+            req.servers().contains_key(r.server_id()),
+            req.servers()[r.server_id()]@@.timestamp() <= r.spec_timestamp(),
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();
@@ -372,6 +384,7 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     pub fn read_timestamp(&self, req: GetTimestampRequest) -> (r: GetTimestampResponse)
         ensures
             r.loc() == self.resource_loc(),
+            r.server_id() == self.id(),
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();
@@ -385,20 +398,23 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     pub fn write(&self, req: WriteRequest) -> (r: WriteResponse)
         ensures
             r.loc() == self.resource_loc(),
+            r.server_id() == self.id(),
     {
         let (guard, handle) = self.inner.acquire_write();
 
         let new_value = guard.write(req);
         let tracked r = new_value.resource.borrow();
         let tracked lower_bound = r.extract_lower_bound();
+        let tracked server_token;
 
         proof {
             lower_bound.lemma_lower_bound(r);
+            server_token = new_value.server_token.borrow().duplicate();
         }
 
         handle.release_write(new_value);
 
-        WriteResponse::new(Tracked(lower_bound))
+        WriteResponse::new(Tracked(lower_bound), Tracked(server_token))
     }
 }
 

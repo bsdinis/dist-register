@@ -28,6 +28,7 @@ pub struct BroadcastPool<'a, Pool> {
 // TODO: remove request generic
 impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     Pool: ConnectionPool,
+    ChannelResp<Pool>: TaggedMessage,
     Pool::C: Channel<S = Request>,
     ChannelResp<Pool>: TaggedMessage + std::fmt::Debug,
     Request: TaggedMessage + Clone + std::fmt::Debug,
@@ -56,6 +57,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
 
         requires
             Pred::inv(pred@, accum),
+            accum.request_tag() == request.spec_tag(),
             accum.spec_handled_replies().is_empty(),
             accum.channels() == self.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
@@ -111,6 +113,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
 
         requires
             Pred::inv(pred@, accum),
+            accum.request_tag() == request.spec_tag(),
             accum.spec_handled_replies().is_empty(),
             accum.channels() == self.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),

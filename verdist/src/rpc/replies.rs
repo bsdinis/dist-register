@@ -4,16 +4,22 @@ use crate::network::channel::Channel;
 #[cfg(verus_only)]
 use crate::network::channel::ChannelInvariant;
 use crate::network::error::TryRecvError;
+use crate::rpc::proto::TaggedMessage;
 
 use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 
 verus! {
 
-pub trait ReplyAccumulator<C, Pred>: Sized where C: Channel, Pred: InvariantPredicate<Pred, Self> {
+pub trait ReplyAccumulator<C, Pred>: Sized where
+    C: Channel,
+    C::R: TaggedMessage,
+    Pred: InvariantPredicate<Pred, Self>,
+ {
     fn insert(&mut self, pred: Ghost<Pred>, id: C::Id, reply: C::R)
         requires
             Pred::inv(pred@, *old(self)),
+            old(self).request_tag() == reply.spec_tag(),
             old(self).channels().contains_key(id),
             ({
                 let chan = old(self).channels()[id];
@@ -22,10 +28,13 @@ pub trait ReplyAccumulator<C, Pred>: Sized where C: Channel, Pred: InvariantPred
             }),
         ensures
             Pred::inv(pred@, *self),
+            self.request_tag() == old(self).request_tag(),
             self.spec_handled_replies() == old(self).spec_handled_replies().insert(id),
             self.channels() == old(self).channels(),
         no_unwind
     ;
+
+    spec fn request_tag(self) -> u64;
 
     spec fn spec_handled_replies(self) -> Set<C::Id>;
 
@@ -41,6 +50,7 @@ pub trait ReplyAccumulator<C, Pred>: Sized where C: Channel, Pred: InvariantPred
 
 pub struct Replies<C, Pred, A> where
     C: Channel,
+    C::R: TaggedMessage,
     Pred: InvariantPredicate<Pred, A>,
     A: ReplyAccumulator<C, Pred>,
  {
@@ -51,6 +61,7 @@ pub struct Replies<C, Pred, A> where
 
 impl<C, Pred, A> Replies<C, Pred, A> where
     C: Channel,
+    C::R: TaggedMessage,
     Pred: InvariantPredicate<Pred, A>,
     A: ReplyAccumulator<C, Pred>,
  {
@@ -63,6 +74,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
             r.spec_len() == 0,
             r.pred() == pred@,
             r.channels() == accum.channels(),
+            r.request_tag() == accum.request_tag(),
     {
         Replies { pred, accum, errors: BTreeMap::new() }
     }
@@ -80,6 +92,10 @@ impl<C, Pred, A> Replies<C, Pred, A> where
         proof {
             use_type_invariant(self);
         }
+    }
+
+    pub closed spec fn request_tag(self) -> u64 {
+        self.accum.request_tag()
     }
 
     pub closed spec fn pred(self) -> Pred {
@@ -146,12 +162,14 @@ impl<C, Pred, A> Replies<C, Pred, A> where
     pub fn insert_reply(&mut self, id: C::Id, reply: C::R)
         requires
             old(self).channels().contains_key(id),
+            old(self).request_tag() == reply.spec_tag(),
             ({
                 let chan = old(self).channels()[id];
                 &&& chan.spec_id() == id
                 &&& C::K::recv_inv(chan.constant(), id, reply)
             }),
         ensures
+            self.request_tag() == old(self).request_tag(),
             self.spec_handled_replies() == old(self).spec_handled_replies().insert(id),
             self.spec_errors() == old(self).spec_errors(),
             self.pred() == old(self).pred(),
@@ -166,6 +184,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
 
     pub fn insert_error(&mut self, id: C::Id, err: TryRecvError)
         ensures
+            self.request_tag() == old(self).request_tag(),
             self.accumulator() == old(self).accumulator(),
             self.spec_errors() == old(self).spec_errors().insert(id, err),
             self.pred() == old(self).pred(),

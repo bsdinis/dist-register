@@ -273,8 +273,10 @@ impl<K, R, S> Listener<ClientChannel<K, R, S>> for ModelledListener<R, S> where
  {
     #[allow(unused_variables)]
     #[verifier::external_body]
-    fn try_accept(&self, gen_pred: Ghost<spec_fn(&Self) -> K>) -> (r: Result<ClientChannel<K, R, S>, TryListenError>)
-    {
+    fn try_accept(&self, gen_pred: Ghost<spec_fn(&Self) -> K>) -> (r: Result<
+        ClientChannel<K, R, S>,
+        TryListenError,
+    >) {
         let client_id = self.registering_rx.try_recv()?;
         report_accept(self.id, client_id);
 

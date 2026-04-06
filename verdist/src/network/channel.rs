@@ -72,7 +72,6 @@ pub trait ChannelInvariant<K, Id, R, S> {
 //
 // This should verify?
 // Meaning two RwLocks would be the same if their predicates are the same??
-
 /// A reliable and typed channel
 ///
 /// The spec is in the type -- by virtue of having a type `R` the receiver learns something
@@ -131,7 +130,7 @@ pub trait Channel {
 pub trait Listener<C> where C: Channel {
     fn try_accept(&self, gen_pred: Ghost<spec_fn(&Self) -> C::K>) -> (r: Result<C, TryListenError>)
         ensures
-            r is Ok ==> r->Ok_0.constant() == gen_pred(self)
+            r is Ok ==> r->Ok_0.constant() == gen_pred(self),
     ;
 }
 

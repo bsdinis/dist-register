@@ -4,6 +4,7 @@ use crate::network::channel::Channel;
 use crate::network::channel::ChannelInvariant;
 #[cfg(verus_only)]
 use crate::pool::ChannelId;
+use crate::pool::ChannelResp;
 use crate::pool::ConnectionPool;
 use crate::pool::PoolChannel;
 use crate::rpc::replies::ReplyAccumulator;
@@ -12,10 +13,13 @@ use crate::rpc::Replies;
 use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 
+use super::proto::TaggedMessage;
+
 verus! {
 
 pub struct RequestContext<'a, Pool, Pred, A> where
     Pool: ConnectionPool,
+    ChannelResp<Pool>: TaggedMessage,
     Pred: InvariantPredicate<Pred, A>,
     A: ReplyAccumulator<PoolChannel<Pool>, Pred>,
  {
@@ -26,12 +30,14 @@ pub struct RequestContext<'a, Pool, Pred, A> where
 
 impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
     Pool: ConnectionPool,
+    ChannelResp<Pool>: TaggedMessage,
     Pred: InvariantPredicate<Pred, A>,
     A: ReplyAccumulator<PoolChannel<Pool>, Pred>,
  {
     pub fn new(pool: &'a Pool, request_tag: u64, pred: Ghost<Pred>, accum: A) -> (r: Self)
         requires
             Pred::inv(pred@, accum),
+            accum.request_tag() == request_tag,
             accum.spec_handled_replies().is_empty(),
             accum.channels() == pool.spec_channels(),
             vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
@@ -44,7 +50,8 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
 
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
-        self.pool.spec_channels() == self.replies.channels()
+        &&& self.pool.spec_channels() == self.replies.channels()
+        &&& self.request_tag == self.replies.request_tag()
     }
 
     pub fn tag(&self) -> u64 {
@@ -84,6 +91,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
         }
         let ghost pred = self.pred();
         let ghost channels = self.channels();
+        let ghost request_tag = self.request_tag;
         let mut self_mut = self;
         loop
             invariant
@@ -94,6 +102,8 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
                 channels == self.channels(),
                 self_mut.pool.spec_channels() == channels,
                 self_mut.replies.channels() == channels,
+                self_mut.request_tag == request_tag,
+                self_mut.replies.request_tag() == request_tag,
         {
             if termination_cond(&self_mut.replies) {
                 self_mut.replies.lemma_pred();
@@ -133,14 +143,17 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
                                 let chan = self_mut.pool.spec_channels()[id];
                                 r is Ok && r->Ok_0 is Some ==> {
                                     let resp = r->Ok_0->Some_0;
-                                    <<Pool as ConnectionPool>::C as Channel>::K::recv_inv(
+                                    &&& <<Pool as ConnectionPool>::C as Channel>::K::recv_inv(
                                         chan.constant(),
                                         id,
                                         resp,
                                     )
+                                    &&& resp.spec_tag() == request_tag
                                 }
                             }
                         },
+                    self_mut.request_tag == request_tag,
+                    self_mut.replies.request_tag() == request_tag,
             {
                 proof {
                     self_mut.pool.lemma_channels();

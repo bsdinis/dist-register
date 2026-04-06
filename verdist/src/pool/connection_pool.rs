@@ -83,7 +83,9 @@ pub proof fn lemma_channel_seq_to_map<C: Channel>(s: Seq<C>, m: Map<C::Id, C>)
 }
 
 pub trait ConnectionPool {
-    type C: Channel;
+    type R: TaggedMessage;
+
+    type C: Channel<R = Self::R>;
 
     fn len(&self) -> (r: usize)
         ensures
@@ -100,7 +102,7 @@ pub trait ConnectionPool {
 
     spec fn spec_channels(&self) -> Map<<Self::C as Channel>::Id, Self::C>;
 
-    fn poll(&self, request_id: u64) -> (r: Vec<
+    fn poll(&self, request_tag: u64) -> (r: Vec<
         (
             <Self::C as Channel>::Id,
             Result<Option<ChannelResp<Self>>, crate::network::error::TryRecvError>,
@@ -113,7 +115,8 @@ pub trait ConnectionPool {
                     &&& self.spec_channels().contains_key(id)
                     &&& r is Ok && r->Ok_0 is Some ==> {
                         let resp = r->Ok_0->Some_0;
-                        <Self::C as Channel>::K::recv_inv(
+                        &&& resp.spec_tag() == request_tag
+                        &&& <Self::C as Channel>::K::recv_inv(
                             self.spec_channels()[id].constant(),
                             id,
                             resp,
@@ -194,7 +197,6 @@ impl<C> FlawlessPool<C> where C: Channel {
     {
         use_type_invariant(self);
     }
-
 }
 
 impl<C> FlawlessPool<BufChannel<C>> where C: Channel, C::S: TaggedMessage, C::R: TaggedMessage {
@@ -214,6 +216,8 @@ impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where
     C::S: TaggedMessage,
     C::R: TaggedMessage,
  {
+    type R = C::R;
+
     type C = BufChannel<C>;
 
     fn len(&self) -> usize {
@@ -256,7 +260,8 @@ impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where
                         &&& self.spec_channels().contains_key(id)
                         &&& resp is Ok && resp->Ok_0 is Some ==> {
                             let x = resp->Ok_0->Some_0;
-                            <Self::C as Channel>::K::recv_inv(
+                            &&& x.spec_tag() == request_tag
+                            &&& <Self::C as Channel>::K::recv_inv(
                                 self.spec_channels()[id].constant(),
                                 id,
                                 x,
@@ -275,14 +280,6 @@ impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where
             let res = channel.try_recv_tag(request_tag);
             let ghost old_v = v@;
             v.push((channel.id(), res));
-            proof {
-                assert(v@ == old_v.push((channel.spec_id(), res)));
-                let last_idx = old_v.len();
-                let ghost tup = v@[last_idx as int];
-                if res is Ok && res->Ok_0 is Some {
-                    let ghost x = res->Ok_0->Some_0;
-                }
-            }
         }
 
         v

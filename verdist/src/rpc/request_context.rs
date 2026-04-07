@@ -71,6 +71,8 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
     }
 
     #[verifier::exec_allows_no_decreases_clause]
+    // TODO: a mechanism to ensure that the Replies we get back is the same we put in (i.e., same
+    // identity, not same value, would be useful, maybe)
     pub fn wait_for<F>(self, termination_cond: F) -> (r: Result<
         Replies<PoolChannel<Pool>, Pred, A>,
         Replies<PoolChannel<Pool>, Pred, A>,
@@ -80,10 +82,10 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
         ensures
             r is Ok ==> {
                 &&& call_ensures(termination_cond, (&r->Ok_0,), true)
-                &&& Pred::inv(self.pred(), r->Ok_0.accumulator())
+                &&& Pred::inv(self.pred(), r->Ok_0.spec_accumulator())
             },
             r is Err ==> {
-                &&& Pred::inv(self.pred(), r->Err_0.accumulator())
+                &&& Pred::inv(self.pred(), r->Err_0.spec_accumulator())
             },
     {
         proof {
@@ -107,7 +109,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
         {
             if termination_cond(&self_mut.replies) {
                 self_mut.replies.lemma_pred();
-                assert(Pred::inv(self_mut.replies.pred(), self_mut.replies.accumulator()));
+                assert(Pred::inv(self_mut.replies.pred(), self_mut.replies.spec_accumulator()));
                 assert(self_mut.replies.pred() == pred);
                 return Ok(self_mut.replies);
             }
@@ -117,10 +119,10 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
                 let replies = self_mut.replies;
                 replies.lemma_pred();
 
-                assert(Pred::inv(replies.pred(), replies.accumulator()));
+                assert(Pred::inv(replies.pred(), replies.spec_accumulator()));
                 assert(replies.pred() == pred);
-                assert(Pred::inv(pred, replies.accumulator()));
-                assert(Pred::inv(self.pred(), replies.accumulator()));
+                assert(Pred::inv(pred, replies.spec_accumulator()));
+                assert(Pred::inv(self.pred(), replies.spec_accumulator()));
                 return Err(replies);
             }
             let resps = self_mut.pool.poll(self_mut.request_tag);

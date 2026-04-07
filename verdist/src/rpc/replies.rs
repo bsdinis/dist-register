@@ -87,7 +87,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
 
     pub fn lemma_pred(&self)
         ensures
-            Pred::inv(self.pred(), self.accumulator()),
+            Pred::inv(self.pred(), self.spec_accumulator()),
     {
         proof {
             use_type_invariant(self);
@@ -129,14 +129,20 @@ impl<C, Pred, A> Replies<C, Pred, A> where
         self.len() + self.errors.len()
     }
 
-    pub closed spec fn accumulator(self) -> A {
+    pub closed spec fn spec_accumulator(self) -> A {
         self.accum
+    }
+
+    pub fn accumulator(&self) -> &A
+        returns self.spec_accumulator()
+    {
+        &self.accum
     }
 
     pub fn into_accumulator(self) -> (r: A)
         ensures
             r.spec_handled_replies() == self.spec_handled_replies(),
-            r == self.accumulator(),
+            r == self.spec_accumulator(),
     {
         self.accum
     }
@@ -185,7 +191,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
     pub fn insert_error(&mut self, id: C::Id, err: TryRecvError)
         ensures
             self.request_tag() == old(self).request_tag(),
-            self.accumulator() == old(self).accumulator(),
+            self.spec_accumulator() == old(self).spec_accumulator(),
             self.spec_errors() == old(self).spec_errors().insert(id, err),
             self.pred() == old(self).pred(),
             self.channels() == old(self).channels(),

@@ -31,53 +31,57 @@ impl ChannelInv {
     }
 }
 
+pub open spec fn chan_request_inv(
+    k: ChannelInv,
+    client_id: u64,
+    server_id: u64,
+    r: Request,
+) -> bool {
+    &&& r.request_key() == (client_id, r.spec_tag())
+    &&& r.request_id() == k.request_map_id
+    &&& r.req_type() is Get ==> {
+        let get_req = r.get();
+        &&& k.server_locs == get_req.servers().locs()
+    }
+}
+
+pub open spec fn chan_response_inv(
+    k: ChannelInv,
+    client_id: u64,
+    server_id: u64,
+    r: Response,
+) -> bool {
+    &&& r.request_id() == k.request_map_id
+    &&& r.server_id() == server_id
+    &&& r.request_key().0 == client_id
+    &&& r.req_type() is Get ==> {
+        let get_resp = r.get();
+        &&& get_resp.spec_commitment().id() == k.commitment_id
+        &&& get_resp.server_token_id() == k.server_tokens_id
+        &&& k.server_locs.contains_key(get_resp.server_id())
+        &&& k.server_locs[get_resp.server_id()] == get_resp.loc()
+    }
+}
+
 // Invariant on server
 impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv {
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Request) -> bool {
-        &&& r.request_key() == (id.1, r.spec_tag())
-        &&& r.request_id() == k.request_map_id
-        &&& r.req_type() is Get ==> {
-            let recv = r.get();
-            &&& k.server_locs == recv.servers().locs()
-        }
+        chan_request_inv(k, id.1, id.0, r)
     }
 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Response) -> bool {
-        &&& s.request_id() == k.request_map_id
-        &&& s.server_id() == id.0
-        &&& s.request_key().0 == id.1
-        &&& s.req_type() is Get ==> {
-            let sent = s.get();
-            &&& sent.spec_commitment().id() == k.commitment_id
-            &&& sent.server_token_id() == k.server_tokens_id
-            &&& k.server_locs.contains_key(sent.server_id())
-            &&& k.server_locs[sent.server_id()] == sent.loc()
-        }
+        chan_response_inv(k, id.1, id.0, s)
     }
 }
 
 // Invariant on client
 impl ChannelInvariant<ChannelInv, (u64, u64), Response, Request> for ChannelInv {
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Response) -> bool {
-        &&& r.request_id() == k.request_map_id
-        &&& r.server_id() == id.1
-        &&& r.request_key().0 == id.0
-        &&& r.req_type() is Get ==> {
-            let recv = r.get();
-            &&& recv.spec_commitment().id() == k.commitment_id
-            &&& recv.server_token_id() == k.server_tokens_id
-            &&& k.server_locs.contains_key(recv.server_id())
-            &&& k.server_locs[recv.server_id()] == recv.loc()
-        }
+        chan_response_inv(k, id.0, id.1, r)
     }
 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Request) -> bool {
-        &&& s.request_key() == (id.0, s.spec_tag())
-        &&& s.request_id() == k.request_map_id
-        &&& s.req_type() is Get ==> {
-            let sent = s.get();
-            &&& k.server_locs == sent.servers().locs()
-        }
+        chan_request_inv(k, id.0, id.1, s)
     }
 }
 

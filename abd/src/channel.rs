@@ -36,6 +36,10 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Request, Response> for ChannelInv 
     open spec fn recv_inv(k: ChannelInv, id: (u64, u64), r: Request) -> bool {
         &&& r.request_key() == (id.1, r.spec_tag())
         &&& r.request_id() == k.request_map_id
+        &&& r.req_type() is Get ==> {
+            let recv = r.get();
+            &&& k.server_locs == recv.servers().locs()
+        }
     }
 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Response) -> bool {
@@ -70,6 +74,10 @@ impl ChannelInvariant<ChannelInv, (u64, u64), Response, Request> for ChannelInv 
     open spec fn send_inv(k: ChannelInv, id: (u64, u64), s: Request) -> bool {
         &&& s.request_key() == (id.0, s.spec_tag())
         &&& s.request_id() == k.request_map_id
+        &&& s.req_type() is Get ==> {
+            let sent = s.get();
+            &&& k.server_locs == sent.servers().locs()
+        }
     }
 }
 

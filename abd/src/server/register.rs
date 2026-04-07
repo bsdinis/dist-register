@@ -156,6 +156,8 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         requires
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
+            req.servers().locs().contains_key(self.id()),
+            req.servers().locs()[self.id()] == self.resource_loc(),
         ensures
             r.spec_value() == self.value,
             r.spec_timestamp() == self.timestamp,
@@ -166,15 +168,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             req.servers().contains_key(r.server_id()),
             req.servers()[r.server_id()]@@.timestamp() <= r.spec_timestamp(),
     {
-        let ghost server_id = self.server_token@.key();
-        // TODO(client_send_inv): add this
-        assume(req.servers().contains_key(server_id));
-        assert(req.servers().contains_key(server_id));
-
-        let lb = req.server_lower_bound(Ghost(server_id));
-        assume(req.servers()[server_id]@.loc() == self.server_token@.value());
-        assert(req.servers().locs().contains_key(server_id));
-        assert(req.servers().contains_key(server_id));
+        let lb = req.server_lower_bound(Ghost(self.id()));
 
         let tracked r = self.resource.borrow();
 
@@ -195,9 +189,9 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             assert(commitment.value() == self.value);
         }
 
-        assert(req.servers()[server_id]@@.timestamp() == lb@@.timestamp());
-        assert(req.servers()[server_id]@@.timestamp() <= r@.timestamp());
-        assert(req.servers()[server_id]@@.timestamp() <= new_lb@.timestamp());
+        assert(req.servers()[self.id()]@@.timestamp() == lb@@.timestamp());
+        assert(req.servers()[self.id()]@@.timestamp() <= r@.timestamp());
+        assert(req.servers()[self.id()]@@.timestamp() <= new_lb@.timestamp());
         GetResponse::new(
             self.value.clone(),
             self.timestamp.clone(),
@@ -365,6 +359,9 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     }
 
     pub fn read(&self, req: GetRequest) -> (r: GetResponse)
+        requires
+            req.servers().locs().contains_key(self.id()),
+            req.servers().locs()[self.id()] == self.resource_loc(),
         ensures
             r.loc() == self.resource_loc(),
             r.server_id() == self.id(),

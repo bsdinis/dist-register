@@ -253,6 +253,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
                     == c.constant().commitment_id
                 &&& self.state_inv@.constant().server_tokens_id == c.constant().server_tokens_id
                 &&& self.state_inv@.constant().server_locs == c.constant().server_locs
+                &&& self.state_inv@.constant().server_locs.contains_key(c_id.1)
             }
     }
 

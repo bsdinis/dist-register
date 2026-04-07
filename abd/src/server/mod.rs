@@ -158,6 +158,8 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     }
 
     fn handle_get(&self, req: GetRequest) -> (r: ResponseInner)
+        requires
+            req.servers().locs() == self.server_locs(),
         ensures
             r is Get,
             ({
@@ -208,6 +210,10 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     fn handle(&self, request: Request, client_id: u64) -> (r: Response)
         requires
             request.request_key() == (client_id, request.spec_tag()),
+            request.req_type() is Get ==> {
+                let get_req = request.get();
+                &&& get_req.servers().locs() == self.server_locs()
+            },
         ensures
             r.spec_tag() == request.spec_tag(),
             r.request_id() == request.request_id(),
@@ -303,6 +309,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         {
             match channel.try_recv() {
                 Ok(req) => {
+                    assert(C::K::recv_inv(channel.constant(), channel.spec_id(), req));
                     let response = self.handle(req, channel.id().1);
                     assert(C::K::send_inv(channel.constant(), channel.spec_id(), response));
                     if channel.send(&response).is_err() {

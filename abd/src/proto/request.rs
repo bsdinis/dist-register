@@ -147,19 +147,24 @@ impl RequestInner {
         value: Option<u64>,
         timestamp: Timestamp,
         commitment: Tracked<WriteCommitment>,
+        servers: Tracked<ServerUniverse>,
     ) -> (r: Self)
         requires
+            servers@.inv(),
+            servers@.is_lb(),
             commitment@.key() == timestamp,
             commitment@.value() == value,
         ensures
             r.req_type() is Write,
             ({
                 let req = r->Write_0;
+                &&& req.servers() == servers@
                 &&& req.spec_timestamp() == timestamp
                 &&& req.spec_value() == value
+                &&& req.commitment_id() == commitment@.id()
             }),
     {
-        RequestInner::Write(WriteRequest::new(value, timestamp, commitment))
+        RequestInner::Write(WriteRequest::new(value, timestamp, commitment, servers))
     }
 }
 

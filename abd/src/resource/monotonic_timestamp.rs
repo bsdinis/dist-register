@@ -275,6 +275,21 @@ impl MonotonicTimestampResource {
     {
         self.r.validate_2(&other.r)
     }
+
+    pub proof fn weaken(tracked &self, target: Timestamp) -> (tracked out: Self)
+        requires
+            self@ is LowerBound,
+            self@.timestamp() >= target,
+        ensures
+            out.loc() == self.loc(),
+            out@ is LowerBound,
+            out@.timestamp() == target,
+    {
+        let r_target = MonotonicTimestampResourceValue::LowerBound { lower_bound: target };
+        assert(MonotonicTimestampResourceValue::op(r_target, self@) == self@);
+        let tracked r = self.r.duplicate_previous(r_target);
+        MonotonicTimestampResource { r }
+    }
 }
 
 } // verus!

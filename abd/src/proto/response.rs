@@ -52,6 +52,14 @@ impl Response {
                 &&& get_req.servers()[get_resp.server_id()]@@.timestamp()
                     <= get_resp.spec_timestamp()
             },
+            request@.value().req_type() is Write ==> {
+                let write_req = request@.value()->Write_0;
+                let write_resp = inner->Write_0;
+                &&& write_req.servers().contains_key(write_resp.server_id())
+                &&& write_req.servers()[write_resp.server_id()]@@.timestamp()
+                    <= write_resp.spec_timestamp()
+                &&& write_req.spec_timestamp() <= write_resp.spec_timestamp()
+            },
         ensures
             r.spec_tag() == request_id,
             r.request_id() == request.id(),
@@ -82,6 +90,14 @@ impl Response {
             let get_resp = self.get();
             &&& get_req.servers().contains_key(get_resp.server_id())
             &&& get_req.servers()[get_resp.server_id()]@@.timestamp() <= get_resp.spec_timestamp()
+        }
+        &&& self.req_type() is Write ==> {
+            let write_req = self.request()->Write_0;
+            let write_resp = self.write();
+            &&& write_req.servers().contains_key(write_resp.server_id())
+            &&& write_req.servers()[write_resp.server_id()]@@.timestamp()
+                <= write_resp.spec_timestamp()
+            &&& write_req.spec_timestamp() <= write_resp.spec_timestamp()
         }
     }
 
@@ -167,6 +183,9 @@ impl Response {
             self.get_timestamp(),
         no_unwind
     {
+        proof {
+            use_type_invariant(&self);
+        }
         match self.inner {
             ResponseInner::GetTimestamp(g) => g,
             _ => {
@@ -176,13 +195,22 @@ impl Response {
         }
     }
 
-    pub fn destruct_write(self) -> WriteResponse
+    pub fn destruct_write(self) -> (r: WriteResponse)
         requires
             self.req_type() is Write,
-        returns
-            self.write(),
+        ensures
+            r == self.write(),
+            ({
+                let write_req = self.request()->Write_0;
+                let write_resp = self.write();
+                &&& write_req.servers().contains_key(write_resp.server_id())
+                &&& write_req.spec_timestamp() <= write_resp.spec_timestamp()
+            }),
         no_unwind
     {
+        proof {
+            use_type_invariant(&self);
+        }
         match self.inner {
             ResponseInner::Write(g) => g,
             _ => {
@@ -253,6 +281,25 @@ impl Response {
         no_unwind
     {
         proof { request_proof.borrow_mut().intersection_agrees(self.request.borrow()) }
+    }
+
+    pub fn agree_request_opt(&self, request_proof: &mut Tracked<Option<RequestProof>>)
+        requires
+            old(request_proof)@ is Some,
+            self.request_id() == old(request_proof)@->Some_0.id(),
+        ensures
+            request_proof@ is Some,
+            request_proof@->Some_0.id() == old(request_proof)@->Some_0.id(),
+            request_proof@->Some_0@ == old(request_proof)@->Some_0@,
+            self.request_key() == request_proof@->Some_0.key() ==> self.request()
+                == request_proof@->Some_0.value(),
+        no_unwind
+    {
+        proof {
+            let tracked mut pf = request_proof.borrow_mut().tracked_take();
+            pf.intersection_agrees(self.request.borrow());
+            *request_proof.borrow_mut() = Some(pf);
+        }
     }
 
     pub fn lemma_inv(&self)
@@ -347,6 +394,9 @@ impl Clone for Response {
         proof {
             if inner is Get {
                 GetResponse::lemma_spec_eq(self.inner->Get_0, inner->Get_0);
+            }
+            if inner is Write {
+                WriteResponse::lemma_spec_eq(self.inner->Write_0, inner->Write_0);
             }
         }
         Response { request_id: self.request_id, inner, request }

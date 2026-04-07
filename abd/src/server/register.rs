@@ -38,6 +38,7 @@ pub struct MonotonicRegisterInner<ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
+    pub id: u64,
     pub value: Option<u64>,
     pub timestamp: Timestamp,
     pub commitment: Tracked<WriteCommitment>,
@@ -59,6 +60,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             state_inv@.namespace() == invariants::state_inv_id(),
             state_inv@.constant().server_locs.contains_key(server_id),
         ensures
+            r.id == server_id,
             r.value is None,
             r.timestamp == Timestamp::spec_default(),
             r.resource@@ is HalfRightToAdvance,
@@ -102,6 +104,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             assert(state.inv());
         });
         MonotonicRegisterInner {
+            id: server_id,
             value: None,
             timestamp: Timestamp::default(),
             resource: Tracked(resource),
@@ -142,6 +145,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
     }
 
     pub open spec fn inv(&self) -> bool {
+        &&& self.id == self.id()
         &&& self.timestamp == self.resource@@.timestamp()
         &&& self.timestamp == self.commitment@.key()
         &&& self.value == self.commitment@.value()
@@ -223,10 +227,13 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         GetTimestampResponse::new(self.timestamp.clone(), Tracked(lb), Tracked(server_token))
     }
 
-    pub fn write(self, req: WriteRequest) -> (r: Self)
+    pub fn write(self, mut req: WriteRequest) -> (r: Self)
         requires
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
+            req.servers().locs().contains_key(self.id()),
+            req.servers().locs()[self.id()] == self.resource_loc(),
+            req.commitment_id() == self.commitment_id(),
         ensures
             r.inv(),
             r.ids() == self.ids(),
@@ -234,10 +241,14 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             req.spec_timestamp() > self.timestamp ==> r.timestamp == req.spec_timestamp() && r.value
                 == req.spec_value(),
             req.spec_timestamp() <= self.timestamp ==> self == r,
+            req.spec_timestamp() <= r.timestamp,
+            req.servers().contains_key(r.id()),
+            req.servers()[r.id()]@@.timestamp() <= r.timestamp,
+            req.spec_timestamp() <= r.timestamp,
     {
-        let (value, timestamp, commitment) = req.destruct();
-        assume(commitment.id() == self.commitment_id());  // TODO(client_send_inv);
-        if timestamp > self.timestamp {
+        #[allow(unused_variables)]
+        let (value, timestamp, commitment, mut lb) = req.destruct(self.id);
+        let ret = if timestamp > self.timestamp {
             let tracked mut r = self.resource.get();
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
@@ -281,6 +292,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             });
 
             MonotonicRegisterInner {
+                id: self.id,
                 value,
                 timestamp,
                 resource: Tracked(r),
@@ -290,7 +302,12 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             }
         } else {
             self
+        };
+
+        proof {
+            lb.lemma_lower_bound(ret.resource.borrow());
         }
+        ret
     }
 }
 
@@ -393,9 +410,17 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     }
 
     pub fn write(&self, req: WriteRequest) -> (r: WriteResponse)
+        requires
+            req.servers().locs().contains_key(self.id()),
+            req.servers().locs()[self.id()] == self.resource_loc(),
+            req.commitment_id() == self.commitment_id(),
         ensures
             r.loc() == self.resource_loc(),
             r.server_id() == self.id(),
+            r.server_token_id() == self.server_token_id(),
+            req.servers().contains_key(r.server_id()),
+            req.servers()[r.server_id()]@@.timestamp() <= r.spec_timestamp(),
+            req.spec_timestamp() <= r.spec_timestamp(),
     {
         let (guard, handle) = self.inner.acquire_write();
 

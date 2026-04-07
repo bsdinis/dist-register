@@ -194,11 +194,20 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
     }
 
     fn handle_write(&self, req: WriteRequest) -> (r: ResponseInner)
+        requires
+            req.servers().locs() == self.server_locs(),
+            req.commitment_id() == self.commitment_id(),
         ensures
             r is Write,
             ({
                 let resp = r->Write_0;
                 &&& resp.server_id() == self.id
+                &&& resp.server_token_id() == self.server_token_id()
+                &&& self.server_locs().contains_key(resp.server_id())
+                &&& self.server_locs()[resp.server_id()] == resp.loc()
+                &&& req.servers().contains_key(resp.server_id())
+                &&& req.servers()[resp.server_id()]@@.timestamp() <= resp.spec_timestamp()
+                &&& req.spec_timestamp() <= resp.spec_timestamp()
             }),
     {
         proof {
@@ -213,6 +222,11 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
             request.req_type() is Get ==> {
                 let get_req = request.get();
                 &&& get_req.servers().locs() == self.server_locs()
+            },
+            request.req_type() is Write ==> {
+                let write_req = request.write();
+                &&& write_req.servers().locs() == self.server_locs()
+                &&& write_req.commitment_id() == self.commitment_id()
             },
         ensures
             r.spec_tag() == request.spec_tag(),
@@ -231,9 +245,17 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                 &&& get_req.servers().contains_key(resp.server_id())
                 &&& get_req.servers()[resp.server_id()]@@.timestamp() <= resp.spec_timestamp()
             }),
+            r.req_type() is Write ==> ({
+                let write_req = request.write();
+                let resp = r.write();
+                &&& resp.server_token_id() == self.server_token_id()
+                &&& self.server_locs().contains_key(resp.server_id())
+                &&& self.server_locs()[resp.server_id()] == resp.loc()
+                &&& write_req.servers().contains_key(resp.server_id())
+                &&& write_req.servers()[resp.server_id()]@@.timestamp() <= resp.spec_timestamp()
+            }),
     {
         let (request_id, request_inner, request_proof) = request.destruct();
-        proof {}
         let resp_inner = match request_inner {
             RequestInner::Get(req) => self.handle_get(req),
             RequestInner::GetTimestamp(req) => self.handle_get_timestamp(req),
@@ -249,6 +271,15 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                 GetRequest::lemma_spec_eq(proof_get_req, get_req);
                 ServerUniverse::lemma_eq(proof_get_req.servers(), get_req.servers());
                 proof_get_req.servers().lemma_locs();
+            }
+            if request_inner is Write {
+                let write_req = request_inner->Write_0;
+                let proof_write_req = request_proof@.value()->Write_0;
+                assume(proof_write_req.servers().inv());  // TODO(verus): type invariants on spec items
+                assume(write_req.servers().inv());  // TODO(verus): type invariants on spec items
+                WriteRequest::lemma_spec_eq(proof_write_req, write_req);
+                ServerUniverse::lemma_eq(proof_write_req.servers(), write_req.servers());
+                proof_write_req.servers().lemma_locs();
             }
         }
 

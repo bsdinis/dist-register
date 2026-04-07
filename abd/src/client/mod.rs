@@ -375,12 +375,28 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
         let read_pred = Ghost(
-            ReadPred::new(state_constant, bpool.spec_channels(), token.value().min_ts, request_id),
+            ReadPred::new(
+                state_constant,
+                bpool.spec_channels(),
+                token.value().min_ts,
+                self.id,
+                request_proof,
+            ),
         );
         assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
+        let tracked server_lbs_cpy;
+        proof {
+            server_lbs_cpy = server_lbs.extract_lbs();
+            ServerUniverse::lemma_eq_timestamp_trans(
+                request_proof.value()->Get_0.servers(),
+                server_lbs,
+                server_lbs_cpy,
+            );
+            server_lbs.lemma_leq_quorums(server_lbs_cpy, read_pred@.min_timestamp);
+        }
         #[allow(unused_parens)]
         let accum = ReadAccumGetPhase::new(
-            Tracked(server_lbs),
+            Tracked(server_lbs_cpy),
             Tracked(server_tokens_lb),
             Tracked(request_proof),
             read_pred,
@@ -468,7 +484,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         }
         // non-unanimous read: write-back
 
-        let req_inner = RequestInner::new_write(value, max_ts, Tracked(commitment.duplicate()));
+        let req_inner = RequestInner::new_write(
+            value,
+            max_ts,
+            Tracked(commitment.duplicate()),
+            Tracked(server_lbs),
+        );
         let tracked request_proof;
         let request_id;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -491,22 +512,26 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         });
 
         let req = Request::new(self.id, request_id, req_inner, Tracked(request_proof.duplicate()));
+        let read_wb_pred = Ghost(
+            ReadWbPred {
+                read_pred: ReadPred { wb_request_id: Some(request_proof.key().1), ..read_pred@ },
+                max_resp: *max_resp,
+            },
+        );
         let ghost qsize = self.spec_quorum_size();
         let bpool = BroadcastPool::new(&self.pool);
+        let accum = ReadAccumWbPhase::new(replies, Tracked(request_proof));
         #[allow(unused_parens)]
         let replies_result = bpool.broadcast_filter(
             req,
-            read_pred,
-            ReadAccumWbPhase::new(replies, request_id),
+            read_wb_pred,
+            accum,
             |id: (u64, u64)| !agree_with_max.contains(&id.1),
         ).wait_for(
             (|s| -> (r: bool)
                 ensures
-                    r ==> s.spec_len() + agree_with_max@.len() >= qsize,
-                {
-                    assume(s.spec_len() + agree_with_max.len() < usize::MAX);  // XXX: integer overflow
-                    s.len() + agree_with_max.len() >= self.quorum_size()
-                }),
+                    r ==> s.spec_accumulator().spec_agree_with_max().len() >= qsize,
+                { s.accumulator().agree_with_max().len() >= self.quorum_size() }),
         );
 
         let wb_replies = match replies_result {
@@ -532,36 +557,39 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         };
 
         let tracked comp;
+        wb_replies.lemma_quorum();
+        wb_replies.lemma_max_timestamp();
+        let Tracked(replies_servers) = wb_replies.servers_lb();  // needed to have an owned instance
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
-                let ghost old_watermark = state.linearization_queue.watermark();
                 let ghost old_known = state.linearization_queue.known_timestamps();
-                let ghost old_servers = state.servers;
-                let ghost old_unclaimed = state.unclaimed_servers();
-                let ghost old_server_tokens = state.server_tokens@;
-                assert(old_servers.locs().dom() == old_servers.dom());
-
-
-                /*
-                old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
+                state.servers.lemma_locs();
+                replies_servers.lemma_locs();
 
                 state.commitments.agree_commitment(&commitment);
+                // NOTE: this is an annoying thing from the way that equality works for
+                // ServerUniverse. Even though replies_server does not change, it is not `==`
+                let ghost old_replies_servers = replies_servers;
+                replies_servers.lemma_lb(&state.servers);
+                old_replies_servers.lemma_eq(replies_servers);
+                assert(old_replies_servers.valid_quorum(wb_replies.quorum()));
+                replies_servers.lemma_leq_implies_validity(state.servers, wb_replies.quorum());
+                replies_servers.lemma_leq_retains_unanimity(state.servers, wb_replies.quorum(), max_ts);
+                assert(state.servers.unanimous_quorum(wb_replies.quorum(), max_ts));
+                state.servers.lemma_quorum_lb(wb_replies.quorum(), max_ts);
 
                 let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);
-                let tracked watermark = state.linearization_queue.apply_linearizers_up_to(&mut state.register, max_ts);
+                let tracked watermark = state.linearization_queue.apply_linearizers_up_to(
+                        &mut state.register,
+                        max_ts,
+                );
 
-                if max_ts > old_watermark {
-                    state.servers.lemma_quorum_lb(quorum, max_ts);
-                    assert(state.linearization_queue.watermark() == max_ts);
-                } else {
-                    assert(old_watermark == state.linearization_queue.watermark());
-                }
-
-                comp = state.linearization_queue.extract_read_completion(token, max_ts, watermark, commitment);
-                */
-
-                admit(); // TODO(qed/read/phase_2)
-                comp = proof_from_false();
+                comp = state.linearization_queue.extract_read_completion(
+                    token,
+                    max_ts,
+                    watermark,
+                    commitment.duplicate(),
+                );
 
                 // XXX: load bearing
                 assert(state.linearization_queue.known_timestamps() == old_known);
@@ -570,8 +598,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             // XXX: debug assert
             assert(state.inv());
         });
-        let (max_val, max_ts) = wb_replies.max_resp().clone().into_inner();
-        return Ok((max_val, max_ts, Tracked(comp)));
+        return Ok((value, max_ts, Tracked(comp)));
     }
 
     fn write(&mut self, value: Option<u64>, Tracked(lin): Tracked<ML>) -> (r: Result<
@@ -783,11 +810,19 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             assert(state.inv());
         });
 
+        let tracked server_lbs;
+        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            proof {
+                server_lbs = state.servers.extract_lbs();
+            }
+        });
+
         {
             let req_inner = RequestInner::new_write(
                 value,
                 exec_ts,
                 Tracked(commitment.duplicate()),
+                Tracked(server_lbs),
             );
             let tracked request_proof;
             let request_id;

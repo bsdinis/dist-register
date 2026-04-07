@@ -16,10 +16,9 @@ pub struct WriteRequest {
     value: Option<u64>,
     timestamp: Timestamp,
     #[allow(unused)]
-    commitment: Tracked<
-        WriteCommitment,
-    >,
-    // TODO(qed/read/proto): add lower bound to write request
+    commitment: Tracked<WriteCommitment>,
+    #[allow(unused)]
+    servers: Tracked<ServerUniverse>,
 }
 
 #[allow(unused)]
@@ -28,8 +27,6 @@ pub struct WriteResponse {
     lb: Tracked<MonotonicTimestampResource>,
     #[allow(unused)]
     server_token: Tracked<ServerToken>,
-    // TODO(qed/read/phase_2):
-    //  - return the ghost request that was sent in the request to tie down the lb here
 }
 
 #[allow(unused)]
@@ -38,22 +35,80 @@ impl WriteRequest {
         value: Option<u64>,
         timestamp: Timestamp,
         commitment: Tracked<WriteCommitment>,
+        servers: Tracked<ServerUniverse>,
     ) -> (r: Self)
         requires
             commitment@.key() == timestamp,
             commitment@.value() == value,
+            servers@.inv(),
+            servers@.is_lb(),
         ensures
             r.spec_timestamp() == timestamp,
             r.spec_value() == value,
             r.commitment_id() == commitment@.id(),
+            r.servers() == servers@,
     {
-        WriteRequest { value, timestamp, commitment }
+        WriteRequest { value, timestamp, commitment, servers }
     }
 
     #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
         &&& self.commitment@.key() == self.timestamp
         &&& self.commitment@.value() == self.value
+        &&& self.servers@.inv()
+        &&& self.servers@.is_lb()
+    }
+
+    pub closed spec fn servers(self) -> ServerUniverse {
+        self.servers@
+    }
+
+    pub fn server_lower_bound(&mut self, server_id: Ghost<u64>) -> (r: Tracked<
+        MonotonicTimestampResource,
+    >)
+        requires
+            old(self).servers().contains_key(server_id@),
+        ensures
+            self.servers().locs() == old(self).servers().locs(),
+            self.servers().spec_eq(old(self).servers()),
+            r@.loc() == self.servers()[server_id@]@.loc(),
+            r@@.timestamp() == self.servers()[server_id@]@@.timestamp(),
+            r@@ is LowerBound,
+    {
+        let tracked new_lb;
+        proof {
+            use_type_invariant(&*self);
+
+            let ghost old_servers = self.servers@;
+
+            let tracked lb = self.servers.borrow_mut().tracked_remove_lb(server_id@);
+            let ghost unchanged_servers = self.servers@;
+
+            new_lb = lb.extract_lower_bound();
+            self.servers.borrow_mut().tracked_insert_lb(server_id@, lb);
+
+            assert forall|id| #[trigger] self.servers@.contains_key(id) implies {
+                &&& self.servers@[id]@.loc() == old_servers[id]@.loc()
+                &&& self.servers@[id]@@.timestamp() == old_servers[id]@@.timestamp()
+            } by {
+                if id != server_id@ {
+                    assert(unchanged_servers.contains_key(id));  // XXX: trigger
+                }
+            }
+
+            assert forall|id| #[trigger] old_servers.contains_key(id) implies {
+                &&& self.servers@[id]@.loc() == old_servers[id]@.loc()
+                &&& self.servers@[id]@@.timestamp() == old_servers[id]@@.timestamp()
+            } by {
+                if id != server_id@ {
+                    assert(unchanged_servers.contains_key(id));  // XXX: trigger
+                }
+            }
+
+            assert(self.servers@.locs() == old_servers.locs());  // XXX: trigger
+        }
+
+        Tracked(new_lb)
     }
 
     pub closed spec fn commitment_id(self) -> Loc {
@@ -68,19 +123,32 @@ impl WriteRequest {
         self.value
     }
 
-    pub fn destruct(self) -> (r: (Option<u64>, Timestamp, Tracked<WriteCommitment>))
+    pub fn destruct(self, server_id: u64) -> (r: (
+        Option<u64>,
+        Timestamp,
+        Tracked<WriteCommitment>,
+        Tracked<MonotonicTimestampResource>,
+    ))
+        requires
+            self.servers().contains_key(server_id),
         ensures
             r.0 == self.spec_value(),
             r.1 == self.spec_timestamp(),
             r.2@.key() == self.spec_timestamp(),
             r.2@.value() == self.spec_value(),
             r.2@.id() == self.commitment_id(),
+            r.3@.loc() == self.servers()[server_id]@.loc(),
+            r.3@@ == self.servers()[server_id]@@,
+            r.3@@ is LowerBound,
     {
+        let mut self_mut = self;
+        let tracked lb;
         proof {
-            use_type_invariant(&self);
+            use_type_invariant(&self_mut);
+            lb = self_mut.servers.borrow_mut().tracked_remove_lb(server_id);
         }
 
-        (self.value, self.timestamp, self.commitment)
+        (self_mut.value, self_mut.timestamp, self_mut.commitment, Tracked(lb))
     }
 
     pub closed spec fn spec_eq(self, other: Self) -> bool {
@@ -88,12 +156,15 @@ impl WriteRequest {
         &&& self.timestamp == other.timestamp
         &&& self.commitment@.id() == other.commitment@.id()
         &&& self.commitment@@ == other.commitment@@
+        &&& self.servers@.eq(other.servers@)
     }
 
     pub broadcast proof fn spec_eq_refl(a: Self)
         ensures
             #[trigger] a.spec_eq(a),
     {
+        assume(a.servers@.inv());  // TODO(verus): type invariants on spec items
+        ServerUniverse::lemma_eq_refl(a.servers@)
     }
 
     pub broadcast proof fn spec_eq_symm(a: Self, b: Self)
@@ -110,6 +181,21 @@ impl WriteRequest {
             #[trigger] b.spec_eq(c),
         ensures
             a.spec_eq(c),
+    {
+        assume(a.servers@.inv());  // TODO(verus): type invariants on spec items
+        assume(b.servers@.inv());  // TODO(verus): type invariants on spec items
+        assume(c.servers@.inv());  // TODO(verus): type invariants on spec items
+        ServerUniverse::lemma_eq_trans(a.servers@, b.servers@, c.servers@)
+    }
+
+    pub broadcast proof fn lemma_spec_eq(a: Self, b: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+        ensures
+            a.servers().eq(b.servers()),
+            a.spec_value() == b.spec_value(),
+            a.spec_timestamp() == b.spec_timestamp(),
+            a.commitment_id() == b.commitment_id(),
     {
     }
 }
@@ -164,10 +250,9 @@ impl WriteResponse {
 
     pub closed spec fn spec_eq(self, other: Self) -> bool {
         &&& self.lb@.loc() == other.lb@.loc()
-        &&& self.lb@@.timestamp()
-            == other.lb@@.timestamp()
-        // TODO server token
-
+        &&& self.lb@@.timestamp() == other.lb@@.timestamp()
+        &&& self.server_token@.id() == other.server_token@.id()
+        &&& self.server_token@@ == other.server_token@@
     }
 
     pub broadcast proof fn spec_eq_refl(a: Self)
@@ -191,6 +276,62 @@ impl WriteResponse {
         ensures
             a.spec_eq(c),
     {
+    }
+
+    pub broadcast proof fn lemma_spec_eq(a: Self, b: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+        ensures
+            a.lb().loc() == b.lb().loc(),
+            a.lb()@.timestamp() == b.lb()@.timestamp(),
+            a.spec_server_token().id() == b.spec_server_token().id(),
+            a.spec_server_token()@ == b.spec_server_token()@,
+            a.server_token_id() == b.server_token_id(),
+            a.spec_timestamp() == b.spec_timestamp(),
+            a.server_id() == b.server_id(),
+    {
+    }
+
+    pub fn duplicate_lb(&self) -> (r: Tracked<MonotonicTimestampResource>)
+        ensures
+            r@.loc() == self.lb().loc(),
+            r@@.timestamp() == self.lb()@.timestamp(),
+            r@@ is LowerBound,
+        no_unwind
+    {
+        let tracked lb;
+        proof {
+            use_type_invariant(self);
+            lb = self.lb.borrow().extract_lower_bound();
+        }
+        Tracked(lb)
+    }
+
+    pub fn lemma_token_agree(&self, server_tokens: &mut Tracked<GhostPersistentSubmap<u64, Loc>>)
+        requires
+            self.server_token_id() == old(server_tokens)@.id(),
+        ensures
+            server_tokens@.id() == old(server_tokens)@.id(),
+            server_tokens@@ == old(server_tokens)@@,
+            server_tokens@@.contains_key(self.server_id()) ==> server_tokens@@[self.server_id()]
+                == self.loc(),
+        no_unwind
+    {
+        proof {
+            use_type_invariant(self);
+            server_tokens.borrow_mut().intersection_agrees_points_to(self.server_token.borrow());
+        }
+    }
+
+    pub fn lemma_write_response(&self)
+        ensures
+            self.lb()@ is LowerBound,
+            self.spec_timestamp() == self.lb()@.timestamp(),
+        no_unwind
+    {
+        proof {
+            use_type_invariant(self);
+        }
     }
 }
 
@@ -218,14 +359,18 @@ impl Clone for WriteRequest {
             r.spec_eq(*self),
     {
         let tracked new_commitment;
+        let tracked new_servers;
         proof {
             use_type_invariant(self);
-            new_commitment = self.commitment.borrow().duplicate()
+            new_commitment = self.commitment.borrow().duplicate();
+            new_servers = self.servers.borrow().extract_lbs();
+            ServerUniverse::lemma_eq_timestamp_lb_is_eq(new_servers, self.servers@);
         }
         WriteRequest {
             value: self.value.clone(),
             timestamp: self.timestamp.clone(),
             commitment: Tracked(new_commitment),
+            servers: Tracked(new_servers),
         }
     }
 }

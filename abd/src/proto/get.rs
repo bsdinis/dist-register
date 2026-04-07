@@ -24,10 +24,7 @@ pub struct GetResponse {
     #[allow(unused)]
     commitment: Tracked<WriteCommitment>,
     #[allow(unused)]
-    server_token: Tracked<
-        ServerToken,
-    >,
-    // TODO(qed/read/phase_1): return the lower bound that originated from it
+    server_token: Tracked<ServerToken>,
 }
 
 #[allow(unused)]

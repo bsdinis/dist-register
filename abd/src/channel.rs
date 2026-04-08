@@ -43,6 +43,10 @@ pub open spec fn chan_request_inv(
         let get_req = r.get();
         &&& k.server_locs == get_req.servers().locs()
     }
+    &&& r.req_type() is GetTimestamp ==> {
+        let get_ts_req = r.get_timestamp();
+        &&& k.server_locs == get_ts_req.servers().locs()
+    }
     &&& r.req_type() is Write ==> {
         let write_req = r.write();
         &&& k.server_locs == write_req.servers().locs()
@@ -65,6 +69,12 @@ pub open spec fn chan_response_inv(
         &&& get_resp.server_token_id() == k.server_tokens_id
         &&& k.server_locs.contains_key(get_resp.server_id())
         &&& k.server_locs[get_resp.server_id()] == get_resp.loc()
+    }
+    &&& r.req_type() is GetTimestamp ==> {
+        let get_ts_resp = r.get_timestamp();
+        &&& get_ts_resp.server_token_id() == k.server_tokens_id
+        &&& k.server_locs.contains_key(get_ts_resp.server_id())
+        &&& k.server_locs[get_ts_resp.server_id()] == get_ts_resp.loc()
     }
     &&& r.req_type() is Write ==> {
         let write_resp = r.write();

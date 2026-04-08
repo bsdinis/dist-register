@@ -682,6 +682,34 @@ impl ServerUniverse {
         }
     }
 
+    pub proof fn lemma_leq_quorum_timestamp(self, other: ServerUniverse, q: Quorum)
+        requires
+            self.inv(),
+            other.inv(),
+            self.locs() == other.locs(),
+            self.leq(other),
+            self.valid_quorum(q),
+        ensures
+            other.valid_quorum(q),
+            self.quorum_timestamp(q) <= other.quorum_timestamp(q),
+    {
+        self.lemma_leq_implies_validity(other, q);
+        assert(other.valid_quorum(q));
+        assert(self.valid_quorum(q));
+
+        let witness_idx = self.lemma_quorum_timestamp_witness(q);
+        assert(self.contains_key(witness_idx));
+
+        assert(forall|idx: u64| #[trigger]
+            self.contains_key(idx) ==> other[idx]@@.timestamp() >= self[idx]@@.timestamp());
+        assert(other[witness_idx]@@.timestamp() >= self[witness_idx]@@.timestamp());
+
+        assert(exists|idx: u64| #[trigger]
+            q@.contains(idx) ==> other[idx]@@.timestamp() >= self.quorum_timestamp(q));
+        other.lemma_quorum_witness_implies_lb(q, witness_idx);
+        assert(other.quorum_timestamp(q) >= self.quorum_timestamp(q));
+    }
+
     pub proof fn lemma_leq_quorums(self, other: ServerUniverse, min: Timestamp)
         requires
             self.inv(),

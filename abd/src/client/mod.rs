@@ -628,6 +628,9 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let proph_seqno = Prophecy::<u64>::new();
         let tracked token_res;
         let client_ctr;
+        let tracked server_lbs;
+        let tracked server_tokens_lb;
+        let ghost state_constant = self.state_inv@.constant();
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             let tracked mut perm;
             proof {
@@ -639,6 +642,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             let ghost proph_ts = Timestamp { seqno: proph_seqno@, client_id: self.client_id(), client_ctr };
 
             proof {
+                broadcast use vstd::map_lib::lemma_submap_of_trans;
+                server_lbs = state.servers.extract_lbs();
+                server_tokens_lb = state.server_tokens.lower_bound();
+                assert(server_tokens_lb@ == state.server_tokens@);
+                state.servers.lemma_leq_quorums(server_lbs, state.linearization_queue.watermark());
                 let ghost old_known = state.linearization_queue.known_timestamps();
 
                 let tracked allocation_opt = if proph_ts > state.linearization_queue.watermark() {
@@ -669,13 +677,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             client_ctr,
         };
 
-        let tracked server_lbs;
-        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
-            proof {
-                server_lbs = state.servers.extract_lbs();
-            }
-        });
-
         let req_inner = RequestInner::new_get_timestamp(Tracked(server_lbs.extract_lbs()));
         let tracked request_proof;
         let request_id;
@@ -699,17 +700,21 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         });
         let req = Request::new(self.id, request_id, req_inner, Tracked(request_proof.duplicate()));
 
-        let quorum = {
+        let bpool = BroadcastPool::new(&self.pool);
+        let get_ts_pred = Ghost(
+            GetTimestampPred::new(state_constant, bpool.spec_channels(), self.id, request_proof),
+        );
+        let get_ts_replies = {
             let ghost qsize = self.spec_quorum_size();
-            let bpool = BroadcastPool::new(&self.pool);
-            // TODO(obeys_cmp_spec): add this to verus
-            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
+            let accum = GetTimestampAccumulator::new(
+                Tracked(server_lbs),
+                Tracked(server_tokens_lb),
+                Tracked(request_proof),
+                get_ts_pred,
+            );
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast::<EmptyPred, _>(
-                req,
-                Ghost(EmptyPred),
-                GetTimestampAccumulator::new(Ghost(bpool.spec_channels()), request_id),
-            ).wait_for(
+            let quorum_res = bpool.broadcast(req, get_ts_pred, accum).wait_for(
                 (|s| -> (r: bool)
                     ensures
                         r ==> s.spec_len() >= qsize,
@@ -717,7 +722,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             );
 
             match quorum_res {
-                Ok(q) => q,
+                Ok(q) => q.into_accumulator(),
                 Err(e) => {
                     let tracked lincomp;
                     vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -748,7 +753,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
                     return Err(
                         error::WriteError::FailedFirstQuorum {
-                            obtained: e.into_accumulator().into().len(),
+                            obtained: e.into_accumulator().n_replies(),
                             required: self.quorum_size(),
                             lincomp: Tracked(lincomp),
                         },
@@ -757,14 +762,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             }
         };
 
-        let replies = quorum.into_accumulator().into();
-        proof {
-            self.lemma_quorum_nonzero();
-        }
-        let opt = max_from_get_ts_replies(&replies);
-        assert(opt is Some);
-        let max_resp = opt.expect("the quorum should never be empty");
+        assert(get_ts_replies.constant() == get_ts_pred@);
+        let max_resp = get_ts_replies.max_resp();
         let max_ts = max_resp.timestamp();
+        get_ts_replies.lemma_quorum();
+        get_ts_replies.lemma_max_timestamp();
 
         // XXX: timestamp recycling would be interesting
         assume(max_ts.seqno < u64::MAX - 1);  // XXX: integer overflow
@@ -775,40 +777,47 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
         let tracked token;
         let tracked mut commitment;
-        vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
-            proof {
-                let ghost old_servers = state.servers;
-                let ghost old_unclaimed = state.unclaimed_servers();
-                let ghost old_server_tokens = state.server_tokens@;
-                assert(old_servers.locs().dom() == old_servers.dom());
+        {
+            let Tracked(replies_servers) = get_ts_replies.servers_lb();  // needed to have an owned instance
+            vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+                proof {
+                    state.servers.lemma_locs();
+                    replies_servers.lemma_locs();
 
-                let tracked quorum = axiom_get_ts_replies(&replies, &mut state.servers, max_ts);
-                assert(state.unclaimed_servers() == old_unclaimed);
-                assert(state.server_tokens@ == old_server_tokens);
-                assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
-                    assert(old_servers.contains_key(id));
+                    // NOTE: this is an annoying thing from the way that equality works for
+                    // ServerUniverse. Even though replies_server does not change, it is not `==`
+                    let ghost old_replies_servers = replies_servers;
+                    let ghost quorum = get_ts_replies.quorum();
+                    replies_servers.lemma_lb(&state.servers);
+                    old_replies_servers.lemma_eq(replies_servers);
+                    assert(old_replies_servers.valid_quorum(quorum));
+
+                    assert(replies_servers.quorum_timestamp(quorum) == max_ts);
+                    replies_servers.lemma_leq_quorum_timestamp(state.servers, quorum);
+                    assert(max_ts < proph_ts);
+                    // TODO(watermark): this is wrong
+                    // - by now, the watermark may be above the token location
+                    // - the point is that when it was inserted it was below
+                    // - this means the get_ts_replies must remember what the watermark was and be
+                    // passed here
+                    assume(state.servers.quorum_timestamp(quorum) <= max_ts); // TODO(qed)
+                    let tracked mut tk = lemma_watermark_contradiction(
+                        token_res,
+                        proph_ts,
+                        lin,
+                        op,
+                        &state,
+                        quorum
+                    );
+
+                    commitment = state.linearization_queue.commit_value(&mut tk);
+                    token = tk;
                 }
-                assert forall |id: u64| #[trigger] state.server_tokens@.contains_key(id) implies state.servers[id]@@ is HalfRightToAdvance by {
-                    assert(old_servers.contains_key(id));
-                }
-                old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
 
-                let tracked mut tk = lemma_watermark_contradiction(
-                    token_res,
-                    proph_ts,
-                    lin,
-                    op,
-                    &state,
-                    quorum
-                );
-
-                commitment = state.linearization_queue.commit_value(&mut tk);
-                token = tk;
-            }
-
-            // XXX: debug assert
-            assert(state.inv());
-        });
+                // XXX: debug assert
+                assert(state.inv());
+            });
+        }
 
         let tracked server_lbs;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -949,13 +958,14 @@ pub proof fn lemma_inv<Pool, C, ML, RL>(c: AbdPool<Pool, ML, RL>) where
 {
 }
 
+// TODO: this needs to take a watermark, the request servers and the quorum
 pub proof fn lemma_watermark_contradiction<ML, RL>(
     tracked token_res: Result<LinWriteToken<ML>, InsertError<ML, RL>>,
     timestamp: Timestamp,
     lin: ML,
     op: RegisterWrite,
     tracked state: &invariants::State<ML, RL>,
-    tracked quorum: Quorum,
+    quorum: Quorum,
 ) -> (tracked tok: LinWriteToken<ML>) where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
@@ -993,8 +1003,6 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
         let tracked mut watermark_lb = err.lower_bound();
 
         // derive the contradiction
-        // NOTE: only the lemma invocation is needed but this is key part of the proof
-        // leaving the asserts helps document it
         //
         // proph_ts <= watermark_old
         assert(timestamp <= watermark_lb@.timestamp());

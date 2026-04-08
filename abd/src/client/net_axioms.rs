@@ -181,7 +181,7 @@ pub axiom fn axiom_get_ts_replies(
                     &&& !r@.contains(k.1)
                 }
             },
-        map.quorum_timestamp(r) == max_ts,
+        map.quorum_timestamp(r) == max_ts,  // !!! This seems the important bit
 ;
 
 pub axiom fn axiom_write_replies(

@@ -206,25 +206,41 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
     }
 
     #[allow(unused_variables)]
-    pub fn read_timestamp(&self, req: GetTimestampRequest) -> (r: GetTimestampResponse)
+    pub fn read_timestamp(&self, mut req: GetTimestampRequest) -> (r: GetTimestampResponse)
         requires
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
+            req.servers().locs().contains_key(self.id()),
+            req.servers().locs()[self.id()] == self.resource_loc(),
         ensures
-            r.server_id() == self.id(),
             r.spec_timestamp() == self.timestamp,
+            r.server_token_id() == self.server_token_id(),
             r.loc() == self.resource_loc(),
+            r.server_id() == self.id(),
+            req.servers().contains_key(r.server_id()),
+            req.servers()[r.server_id()]@@.timestamp() <= r.spec_timestamp(),
     {
-        let tracked r = self.resource.borrow();
-        let tracked lb = r.extract_lower_bound();
-        let tracked server_token;
+        let lb = req.server_lower_bound(Ghost(self.id()));
 
+        let tracked r = self.resource.borrow();
+
+        let tracked new_lb;
+        let tracked server_token;
         proof {
+            let tracked Tracked(mut lb) = lb;
             lb.lemma_lower_bound(r);
+
+            new_lb = r.extract_lower_bound();
             server_token = self.server_token.borrow().duplicate();
+
+            assert(new_lb@.timestamp() >= lb@.timestamp());
+            assert(new_lb@.timestamp() == self.timestamp);
         }
 
-        GetTimestampResponse::new(self.timestamp.clone(), Tracked(lb), Tracked(server_token))
+        assert(req.servers()[self.id()]@@.timestamp() == lb@@.timestamp());
+        assert(req.servers()[self.id()]@@.timestamp() <= r@.timestamp());
+        assert(req.servers()[self.id()]@@.timestamp() <= new_lb@.timestamp());
+        GetTimestampResponse::new(self.timestamp.clone(), Tracked(new_lb), Tracked(server_token))
     }
 
     pub fn write(self, mut req: WriteRequest) -> (r: Self)
@@ -396,9 +412,15 @@ impl<ML, RL> MonotonicRegister<ML, RL> where
     }
 
     pub fn read_timestamp(&self, req: GetTimestampRequest) -> (r: GetTimestampResponse)
+        requires
+            req.servers().locs().contains_key(self.id()),
+            req.servers().locs()[self.id()] == self.resource_loc(),
         ensures
             r.loc() == self.resource_loc(),
             r.server_id() == self.id(),
+            r.server_token_id() == self.server_token_id(),
+            req.servers().contains_key(r.server_id()),
+            req.servers()[r.server_id()]@@.timestamp() <= r.spec_timestamp(),
     {
         let handle = self.inner.acquire_read();
         let inner = handle.borrow();

@@ -52,6 +52,13 @@ impl Response {
                 &&& get_req.servers()[get_resp.server_id()]@@.timestamp()
                     <= get_resp.spec_timestamp()
             },
+            request@.value().req_type() is GetTimestamp ==> {
+                let get_ts_req = request@.value()->GetTimestamp_0;
+                let get_ts_resp = inner->GetTimestamp_0;
+                &&& get_ts_req.servers().contains_key(get_ts_resp.server_id())
+                &&& get_ts_req.servers()[get_ts_resp.server_id()]@@.timestamp()
+                    <= get_ts_resp.spec_timestamp()
+            },
             request@.value().req_type() is Write ==> {
                 let write_req = request@.value()->Write_0;
                 let write_resp = inner->Write_0;
@@ -90,6 +97,13 @@ impl Response {
             let get_resp = self.get();
             &&& get_req.servers().contains_key(get_resp.server_id())
             &&& get_req.servers()[get_resp.server_id()]@@.timestamp() <= get_resp.spec_timestamp()
+        }
+        &&& self.req_type() is GetTimestamp ==> {
+            let get_ts_req = self.request()->GetTimestamp_0;
+            let get_ts_resp = self.get_timestamp();
+            &&& get_ts_req.servers().contains_key(get_ts_resp.server_id())
+            &&& get_ts_req.servers()[get_ts_resp.server_id()]@@.timestamp()
+                <= get_ts_resp.spec_timestamp()
         }
         &&& self.req_type() is Write ==> {
             let write_req = self.request()->Write_0;
@@ -176,11 +190,18 @@ impl Response {
         }
     }
 
-    pub fn destruct_get_timestamp(self) -> GetTimestampResponse
+    pub fn destruct_get_timestamp(self) -> (r: GetTimestampResponse)
         requires
             self.req_type() is GetTimestamp,
-        returns
-            self.get_timestamp(),
+        ensures
+            r == self.get_timestamp(),
+            ({
+                let get_ts_req = self.request()->GetTimestamp_0;
+                let get_ts_resp = self.get_timestamp();
+                &&& get_ts_req.servers().contains_key(get_ts_resp.server_id())
+                &&& get_ts_req.servers()[get_ts_resp.server_id()]@@.timestamp()
+                    <= get_ts_resp.spec_timestamp()
+            }),
         no_unwind
     {
         proof {
@@ -394,6 +415,12 @@ impl Clone for Response {
         proof {
             if inner is Get {
                 GetResponse::lemma_spec_eq(self.inner->Get_0, inner->Get_0);
+            }
+            if inner is GetTimestamp {
+                GetTimestampResponse::lemma_spec_eq(
+                    self.inner->GetTimestamp_0,
+                    inner->GetTimestamp_0,
+                );
             }
             if inner is Write {
                 WriteResponse::lemma_spec_eq(self.inner->Write_0, inner->Write_0);

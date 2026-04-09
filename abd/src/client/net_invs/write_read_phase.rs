@@ -17,10 +17,10 @@ use crate::timestamp::Timestamp;
 use verdist::network::channel::Channel;
 #[cfg(verus_only)]
 use verdist::network::channel::ChannelInvariant;
-use verdist::rpc::replies::ReplyAccumulator;
-
 #[cfg(verus_only)]
 use verdist::rpc::proto::TaggedMessage;
+use verdist::rpc::replies::ReplyAccumulator;
+
 use vstd::invariant::InvariantPredicate;
 #[cfg(verus_only)]
 use vstd::map_lib::lemma_values_finite;

@@ -18,12 +18,9 @@ use crate::invariants::requests::ClientReqCtrToken;
 #[cfg(verus_only)]
 use crate::invariants::RegisterView;
 use crate::invariants::StateInvariant;
-use crate::proto::GetRequest;
-use crate::proto::GetTimestampRequest;
 use crate::proto::Request;
 use crate::proto::RequestInner;
 use crate::proto::Response;
-use crate::proto::WriteRequest;
 use crate::timestamp::Timestamp;
 
 use verdist::network::channel::Channel;
@@ -362,8 +359,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 request_proof = state.request_map.issue_request_proof(
                     self.request_id_ctr_token.borrow_mut(),
                     request_id,
-                    req_inner,
-                    perm
+                    req_inner, perm
                 );
             }
             // XXX: debug assert
@@ -820,9 +816,11 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         }
 
         let tracked server_lbs;
+        let tracked server_tokens_lb;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             proof {
                 server_lbs = state.servers.extract_lbs();
+                server_tokens_lb = state.server_tokens.lower_bound();
             }
         });
 
@@ -831,7 +829,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 value,
                 exec_ts,
                 Tracked(commitment.duplicate()),
-                Tracked(server_lbs),
+                Tracked(server_lbs.extract_lbs()),
             );
             let tracked request_proof;
             let request_id;
@@ -862,27 +860,41 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             );
 
             let bpool = BroadcastPool::new(&self.pool);
+            let write_pred = Ghost(
+                WritePred::new(state_constant, bpool.spec_channels(), self.id, request_proof),
+            );
+            let tracked server_lbs_cpy;
+            proof {
+                server_lbs_cpy = server_lbs.extract_lbs();
+                ServerUniverse::lemma_eq_timestamp_trans(
+                    request_proof.value()->Write_0.servers(),
+                    server_lbs,
+                    server_lbs_cpy,
+                );
+            }
+            let accum = WriteAccumulator::new(
+                Tracked(server_lbs_cpy),
+                Tracked(server_tokens_lb),
+                Tracked(request_proof),
+                write_pred,
+            );
             let ghost qsize = self.spec_quorum_size();
             // TODO(obeys_cmp_spec): add this to verus
             assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
             #[allow(unused_parens)]
-            let quorum_res = bpool.broadcast::<EmptyPred, _>(
-                req,
-                Ghost(EmptyPred),
-                WriteAccumulator::new(Ghost(bpool.spec_channels()), request_id),
-            ).wait_for(
+            let quorum_res = bpool.broadcast(req, write_pred, accum).wait_for(
                 (|s| -> (r: bool)
                     ensures
                         r ==> s.spec_len() >= qsize,
                     { s.len() >= self.quorum_size() }),
             );
 
-            let quorum = match quorum_res {
-                Ok(q) => q,
+            let write_replies = match quorum_res {
+                Ok(q) => q.into_accumulator(),
                 Err(e) => {
                     return Err(
                         error::WriteError::FailedSecondQuorum {
-                            obtained: e.into_accumulator().into().len(),
+                            obtained: e.into_accumulator().n_replies(),
                             required: self.quorum_size(),
                             timestamp: exec_ts,
                             token: Tracked(token),
@@ -891,33 +903,30 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     );
                 },
             };
-            #[allow(unused_variables)]
-            let replies = quorum.into_accumulator().into();
 
             let exec_comp;
+            write_replies.lemma_quorum();
+            write_replies.lemma_timestamp();
+            let Tracked(replies_servers) = write_replies.servers_lb();  // needed to have an owned instance
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 let tracked comp;
                 proof {
                     let ghost old_known = state.linearization_queue.known_timestamps();
                     let ghost old_watermark = state.linearization_queue.watermark();
-                    let ghost old_servers = state.servers;
-                    let ghost old_unclaimed = state.unclaimed_servers();
-                    let ghost old_server_tokens = state.server_tokens@;
-                    assert(old_servers.locs().dom() == old_servers.dom());
 
+                    state.servers.lemma_locs();
+                    replies_servers.lemma_locs();
+
+                    // NOTE: this is an annoying thing from the way that equality works for
+                    // ServerUniverse. Even though replies_server does not change, it is not `==`
+                    let ghost old_replies_servers = replies_servers;
+                    let ghost quorum = write_replies.quorum();
+                    replies_servers.lemma_lb(&state.servers);
+                    old_replies_servers.lemma_eq(replies_servers);
+                    assert(old_replies_servers.valid_quorum(quorum));
+
+                    replies_servers.lemma_leq_retains_unanimity(state.servers, quorum, exec_ts);
                     state.linearization_queue.lemma_write_token(&token);
-
-                    let tracked quorum = axiom_write_replies(&replies, &mut state.servers, exec_ts);
-                    assert(state.unclaimed_servers() == old_unclaimed);
-                    assert(state.server_tokens@ == old_server_tokens);
-                    assert forall |id: u64| #[trigger] state.unclaimed_servers().contains(id) implies state.servers[id]@@ is FullRightToAdvance by {
-                        assert(old_servers.contains_key(id));
-                    }
-                    assert forall |id: u64| #[trigger] state.server_tokens@.contains_key(id) implies state.servers[id]@@ is HalfRightToAdvance by {
-                        assert(old_servers.contains_key(id));
-                    }
-                    old_servers.lemma_leq_quorums(state.servers, state.linearization_queue.watermark());
-
                     state.commitments.agree_commitment(&commitment);
 
                     let tracked (mut register, _view) = GhostVarAuth::<Option<u64>>::new(None);

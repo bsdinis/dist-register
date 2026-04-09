@@ -7,7 +7,7 @@ use verdist::rpc::proto::TaggedMessage;
 
 use vstd::pervasive::unreached;
 use vstd::prelude::*;
-use vstd::resource::map::{GhostPersistentPointsTo, GhostPersistentSubmap};
+use vstd::resource::map::GhostPersistentSubmap;
 use vstd::resource::Loc;
 
 verus! {

@@ -491,7 +491,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             //      - fq ⋲ s ==> s.ts(fq) >= min ==> ∃ y ⋲ fq. s[y] >= min
             //          - let y be that one, min <= s[y] <= MAX
 
-            assume(self.spec_max_timestamp() >= self.spec_min_timestamp()); // TODO(qed)
+            assume(self.spec_max_timestamp() >= self.spec_min_timestamp());  // TODO(qed)
         }
     }
 

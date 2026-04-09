@@ -552,6 +552,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                 &&& *old(self) == *self
                 &&& err is WriteWatermarkContradiction
                 &&& err->w_lin == lin
+                &&& watermark_lb@.timestamp() == self.watermark()
                 &&& watermark_lb@.timestamp() >= timestamp
                 &&& watermark_lb.loc() == self.watermark_id()
                 &&& watermark_lb@ is LowerBound

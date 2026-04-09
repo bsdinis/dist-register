@@ -621,6 +621,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let tracked server_lbs;
         let tracked server_tokens_lb;
         let ghost state_constant = self.state_inv@.constant();
+        let ghost old_watermark;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             let tracked mut perm;
             proof {
@@ -655,6 +656,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
                 token_res = state.linearization_queue.insert_write_linearizer(lin, op, proph_ts, allocation_opt);
 
+                old_watermark = state.linearization_queue.watermark();
+
                 // XXX: load bearing
                 assert(token_res is Ok ==> state.linearization_queue.known_timestamps() == old_known.insert(proph_ts));
             }
@@ -684,10 +687,12 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     req_inner,
                     perm
                 );
+                request_proof.value()->GetTimestamp_0.servers().lemma_eq(server_lbs);
             }
             // XXX: debug assert
             assert(state.inv());
         });
+
         let req = Request::new(self.id, request_id, req_inner, Tracked(request_proof.duplicate()));
 
         let bpool = BroadcastPool::new(&self.pool);
@@ -769,6 +774,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let tracked mut commitment;
         {
             let Tracked(replies_servers) = get_ts_replies.servers_lb();  // needed to have an owned instance
+            let ghost replies_orig_servers = get_ts_replies.orig_servers();
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 proof {
                     state.servers.lemma_locs();
@@ -778,25 +784,21 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     // ServerUniverse. Even though replies_server does not change, it is not `==`
                     let ghost old_replies_servers = replies_servers;
                     let ghost quorum = get_ts_replies.quorum();
-                    replies_servers.lemma_lb(&state.servers);
                     old_replies_servers.lemma_eq(replies_servers);
                     assert(old_replies_servers.valid_quorum(quorum));
 
-                    assert(replies_servers.quorum_timestamp(quorum) == max_ts);
-                    replies_servers.lemma_leq_quorum_timestamp(state.servers, quorum);
-                    assert(max_ts < proph_ts);
-                    // TODO(watermark): this is wrong
-                    // - by now, the watermark may be above the token location
-                    // - the point is that when it was inserted it was below
-                    // - this means the get_ts_replies must remember what the watermark was and be
-                    // passed here
-                    assume(state.servers.quorum_timestamp(quorum) <= max_ts); // TODO(qed)
+                    ServerUniverse::lemma_leq_trans(replies_orig_servers, old_replies_servers, replies_servers);
+                    replies_orig_servers.lemma_leq_implies_validity(replies_servers, quorum);
+
                     let tracked mut tk = lemma_watermark_contradiction(
                         token_res,
                         proph_ts,
+                        old_watermark,
                         lin,
                         op,
-                        &state,
+                        replies_orig_servers,
+                        replies_servers,
+                        state.linearization_queue.write_token_id(),
                         quorum
                     );
 
@@ -961,43 +963,52 @@ pub proof fn lemma_inv<Pool, C, ML, RL>(c: AbdPool<Pool, ML, RL>) where
 {
 }
 
-// TODO: this needs to take a watermark, the request servers and the quorum
 pub proof fn lemma_watermark_contradiction<ML, RL>(
     tracked token_res: Result<LinWriteToken<ML>, InsertError<ML, RL>>,
     timestamp: Timestamp,
+    old_watermark: Timestamp,
     lin: ML,
     op: RegisterWrite,
-    tracked state: &invariants::State<ML, RL>,
+    orig_servers: ServerUniverse,
+    servers: ServerUniverse,
+    write_token_id: Loc,
     quorum: Quorum,
 ) -> (tracked tok: LinWriteToken<ML>) where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
 
     requires
-        state.inv(),
-        state.servers.valid_quorum(quorum),
-        state.servers.quorum_timestamp(quorum) < timestamp,
+        orig_servers.inv(),
+        orig_servers.is_lb(),
+        servers.inv(),
+        servers.is_lb(),
+        servers.valid_quorum(quorum),
+        orig_servers.leq(servers),
+        orig_servers.valid_quorum(quorum),
+        servers.valid_quorum(quorum),
+        old_watermark <= orig_servers.quorum_timestamp(quorum),
+        servers.quorum_timestamp(quorum) < timestamp,
         token_res is Ok ==> {
             let tok = token_res->Ok_0;
             &&& tok.key() == timestamp
             &&& tok.value().lin == lin
             &&& tok.value().op == op
-            &&& tok.id() == state.linearization_queue.write_token_id()
+            &&& tok.id() == write_token_id
         },
         token_res is Err ==> ({
             let err = token_res->Err_0;
             let watermark_lb = token_res->Err_0->w_watermark_lb;
             &&& err is WriteWatermarkContradiction
             &&& timestamp <= watermark_lb@.timestamp()
-            &&& watermark_lb.loc() == state.linearization_queue.watermark_id()
             &&& watermark_lb@ is LowerBound
+            &&& watermark_lb@.timestamp() == old_watermark
         }),
     ensures
         tok == token_res->Ok_0,
         tok.key() == timestamp,
         tok.value().lin == lin,
         tok.value().op == op,
-        tok.id() == state.linearization_queue.write_token_id(),
+        tok.id() == write_token_id,
         token_res is Ok,
 {
     if &token_res is Err {
@@ -1009,13 +1020,14 @@ pub proof fn lemma_watermark_contradiction<ML, RL>(
         //
         // proph_ts <= watermark_old
         assert(timestamp <= watermark_lb@.timestamp());
-        // watermark_old <= curr_watermark
-        state.linearization_queue.lemma_watermark_lb(&mut watermark_lb);
-        assert(watermark_lb@.timestamp() <= state.linearization_queue.watermark());
-        // curr_watermark <= quorum.timestamp() (forall valid quorums)
-        assert(state.linearization_queue.watermark() <= state.servers.quorum_timestamp(quorum));
+        assert(watermark_lb@.timestamp() == old_watermark);
+        // old_watermark <= quorum.timestamp() (forall valid quorums in orig_servers)
+        assert(old_watermark <= orig_servers.quorum_timestamp(quorum));
+        // orig_servers <= servers ==> orig_servers.quorum_timestamp(quorum) <= server.quorum_timestamp(quorum)
+        orig_servers.lemma_leq_quorum_timestamp(servers, quorum);
+        assert(orig_servers.quorum_timestamp(quorum) <= servers.quorum_timestamp(quorum));
         // quorum.timestamp() < proph_ts (by construction)
-        assert(state.servers.quorum_timestamp(quorum) < timestamp);
+        assert(servers.quorum_timestamp(quorum) < timestamp);
         // CONTRADICTION
         assert(timestamp < timestamp);
         proof_from_false()

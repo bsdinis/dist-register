@@ -459,12 +459,12 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
             self.server_locs() == r@.locs(),
             self.servers().leq(r@),
             self.servers().inv(),
-            r@.leq(self.servers()),
             r@.inv(),
             r@.is_lb(),
             r@.valid_quorum(self.quorum()) ==> r@.quorum_timestamp(self.quorum())
                 == self.spec_max_timestamp(),
             self.servers().eq_timestamp(r@),
+            self.orig_servers().leq(r@),
     {
         self.lemma_max_timestamp();
         let tracked lbs;
@@ -473,6 +473,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
             lbs = self.servers.borrow().extract_lbs();
             lbs.lemma_locs();
             lbs.lemma_eq(self.servers());
+            ServerUniverse::lemma_leq_trans(self.orig_servers(), self.servers(), lbs);
         }
         Tracked(lbs)
     }

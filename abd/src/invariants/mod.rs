@@ -86,6 +86,10 @@ impl<ML, RL> State<ML, RL> where
         &&& self.servers.is_auth()
         &&& self.commitments.is_full()
         &&& self.request_map.is_full()
+        // client ids
+        &&& self.commitments.client_map().dom() == self.request_map.request_ctr_map().dom().insert(
+            0,
+        )
         // server claims
         &&& self.unclaimed_servers().finite()
         &&& self.server_tokens@.dom().finite()

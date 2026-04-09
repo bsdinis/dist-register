@@ -234,6 +234,7 @@ impl Commitments {
             self.missing_perm() == (client_token.key(), r.id()),
             self.allocated() == old(self).allocated(),
             self.client_map() == old(self).client_map(),
+            old(self).client_map().contains_key(client_token.key()),
             self.client_perm() == old(self).client_perm().remove(client_token.key()),
             r == old(self).client_perm()[client_token.key()],
             r.id() == client_token.value().1,
@@ -289,6 +290,7 @@ impl Commitments {
             self.ids() == old(self).ids(),
             !old(self).allocated().contains_key(timestamp),
             self.allocated() == old(self).allocated().insert(timestamp, value),
+            old(self).client_map().contains_key(client_token.key()),
             self.client_map() == old(self).client_map().insert(
                 timestamp.client_id,
                 (client_perm.value(), client_perm.id()),
@@ -409,6 +411,7 @@ impl Commitments {
             self.is_full(),
             self.ids() == old(self).ids(),
             self.allocated() == old(self).allocated(),
+            old(self).client_map().contains_key(client_token.key()),
             self.client_map() == old(self).client_map().insert(
                 client_token.key(),
                 (client_perm.value(), client_perm.id()),
@@ -535,6 +538,8 @@ impl Commitments {
             self.is_full(),
             self.ids() == old(self).ids(),
             self.allocated() == old(self).allocated().remove(allocation.key()),
+            self.client_map() == old(self).client_map(),
+            old(self).client_map().contains_key(client_ctr_token.key()),
     {
         use_type_invariant(&*self);
         client_ctr_token.agree(&self.client_ctr_auth);

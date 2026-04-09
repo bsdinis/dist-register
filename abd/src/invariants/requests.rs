@@ -217,6 +217,7 @@ impl RequestMap {
             self.missing_perm() == (client_token.key(), r.id()),
             self.issued() == old(self).issued(),
             self.request_ctr_map() == old(self).request_ctr_map(),
+            old(self).request_ctr_map().contains_key(client_token.key()),
             self.request_perm() == old(self).request_perm().remove(client_token.key()),
             r == old(self).request_perm()[client_token.key()],
             r.id() == client_token.value().1,
@@ -269,6 +270,7 @@ impl RequestMap {
             self.ids() == old(self).ids(),
             !old(self).issued().contains_key((client_token.key(), request_id)),
             self.issued() == old(self).issued().insert((client_token.key(), request_id), request),
+            old(self).request_ctr_map().contains_key(client_token.key()),
             self.request_ctr_map() == old(self).request_ctr_map().insert(
                 client_token.key(),
                 (client_perm.value(), client_perm.id()),

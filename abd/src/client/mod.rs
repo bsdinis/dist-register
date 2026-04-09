@@ -343,6 +343,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let tracked request_proof;
         let request_id;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            let ghost old_dom = state.request_map.request_ctr_map().dom();
             let tracked mut perm;
             proof {
                 perm = state.request_map.take_permission(self.request_ctr_token.borrow());
@@ -355,6 +356,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     request_id,
                     req_inner, perm
                 );
+                assert(state.request_map.request_ctr_map().dom() == old_dom);
             }
             // XXX: debug assert
             assert(state.inv());
@@ -504,6 +506,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let tracked request_proof;
         let request_id;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            let ghost old_dom = state.request_map.request_ctr_map().dom();
             let tracked mut perm;
             proof {
                 perm = state.request_map.take_permission(self.request_ctr_token.borrow());
@@ -517,6 +520,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     req_inner,
                     perm
                 );
+                assert(state.request_map.request_ctr_map().dom() == old_dom);
             }
             // XXX: debug assert
             assert(state.inv());
@@ -644,6 +648,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let ghost state_constant = self.state_inv@.constant();
         let ghost old_watermark;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            let ghost old_dom = state.commitments.client_map().dom();
             let tracked mut perm;
             proof {
                 perm = state.commitments.take_permission(self.client_ctr_token.borrow());
@@ -674,6 +679,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     state.commitments.return_permission(self.client_ctr_token.borrow_mut(), perm);
                     None
                 };
+                assert(state.commitments.client_map().dom() == old_dom);
 
                 token_res = state.linearization_queue.insert_write_linearizer(lin, op, proph_ts, allocation_opt);
 
@@ -695,6 +701,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let tracked request_proof;
         let request_id;
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+            let ghost old_dom = state.request_map.request_ctr_map().dom();
             let tracked mut perm;
             proof {
                 perm = state.request_map.take_permission(self.request_ctr_token.borrow());
@@ -709,6 +716,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                     perm
                 );
                 request_proof.value()->GetTimestamp_0.servers().lemma_eq(server_lbs);
+                assert(state.request_map.request_ctr_map().dom() == old_dom);
             }
             // XXX: debug assert
             assert(state.inv());
@@ -742,6 +750,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 Err(e) => {
                     let tracked lincomp;
                     vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+                        let ghost old_dom = state.commitments.client_map().dom();
                         proof {
                             if &token_res is Ok {
                                 let tracked token = token_res.tracked_unwrap();
@@ -754,6 +763,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                                     let tracked allocation = allocation_opt.tracked_unwrap();
                                     state.commitments.remove_allocation(allocation, self.client_ctr_token.borrow());
                                     // XXX: load bearing
+                                    assert(state.commitments.client_map().dom() == old_dom);
                                     assert(state.linearization_queue.known_timestamps() == state.commitments.allocated().dom());
                                 }
                                 lincomp = lc;
@@ -851,6 +861,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             let tracked request_proof;
             let request_id;
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+                let ghost old_dom = state.request_map.request_ctr_map().dom();
                 let tracked mut perm;
                 proof {
                     perm = state.request_map.take_permission(self.request_ctr_token.borrow());
@@ -864,6 +875,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                         req_inner,
                         perm
                     );
+                    assert(state.request_map.request_ctr_map().dom() == old_dom);
                 }
                 // XXX: debug assert
                 assert(state.inv());

@@ -442,7 +442,7 @@ impl ServerUniverse {
             q@.contains(idx) ==> ts_leq(self[idx]@@.timestamp(), ts));
     }
 
-    proof fn lemma_quorum_timestamp_witness(self, q: Quorum) -> (idx: u64)
+    pub proof fn lemma_quorum_timestamp_witness(self, q: Quorum) -> (idx: u64)
         requires
             self.inv(),
             self.valid_quorum(q),

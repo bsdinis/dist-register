@@ -427,6 +427,27 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         let Tracked(commitment) = max_resp.commitment();
         proph_val.resolve(&value);
 
+        replies.lemma_first_quorum();
+        // check the size of the servers
+        {
+            let Tracked(replies_servers) = replies.servers_lb();  // needed to have an owned instance
+            vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
+                proof {
+                    state.servers.lemma_locs();
+                    replies_servers.lemma_locs();
+
+                    // NOTE: this is an annoying thing from the way that equality works for
+                    // ServerUniverse. Even though replies_server does not change, it is not `==`
+                    let ghost old_replies_servers = replies_servers;
+                    replies_servers.lemma_lb(&state.servers);
+                    old_replies_servers.lemma_eq(replies_servers);
+                    assert(old_replies_servers.valid_quorum(replies.first_quorum()));
+                    replies_servers.lemma_leq_implies_validity(state.servers, replies.first_quorum());
+                }
+            });
+        }
+        replies.lemma_max_min();
+        assert(replies.spec_min_timestamp() <= replies.spec_max_timestamp());
         // check early return
         if replies.agree_with_max().len() >= self.quorum_size() {
             replies.lemma_quorum();

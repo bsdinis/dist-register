@@ -31,9 +31,7 @@ use verdist::rpc::proto::TaggedMessage;
 use verdist::rpc::replies::ReplyAccumulator;
 
 pub mod error;
-mod net_axioms;
 mod net_invs;
-mod utils;
 
 use net_invs::*;
 
@@ -50,10 +48,6 @@ use vstd::resource::Loc;
 
 use std::hash::Hash;
 use std::sync::Arc;
-
-#[cfg(verus_only)]
-use net_axioms::*;
-use utils::*;
 
 verus! {
 

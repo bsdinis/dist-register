@@ -27,7 +27,7 @@ pub(crate) fn get_invariant_state<Pool, C, ML, RL>(
     Tracked<ClientCtrToken>,
     Tracked<RequestCtrToken>,
     Tracked<Arc<StateInvariant<ML, RL>>>,
-    Tracked<RegisterView>,
+    Arc<Tracked<RegisterView>>,
 )) where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = abd::proto::Response, S = abd::proto::Request, Id = (u64, u64)>,
@@ -74,24 +74,25 @@ pub(crate) fn get_invariant_state<Pool, C, ML, RL>(
     let tracked mut request_ctr_token;
     vstd::open_atomic_invariant!(&state_inv => state => {
         proof {
-            let tracked Tracked(client_p) = client_perm;
             // XXX(assume/client_disjoint): client_id uniqueness: could be resolved by a client id service
             assume(!state.commitments.client_map().contains_key(client_id));
+
+            let tracked Tracked(client_p) = client_perm;
             client_ctr_token = state.commitments.login(client_id, client_p);
             state.commitments.agree_client_token(&client_ctr_token);
 
             let tracked Tracked(request_p) = request_perm;
-            // XXX(assume/client_disjoint): client_id uniqueness: could be resolved by a client id service
-            assume(!state.request_map.request_ctr_map().contains_key(client_id));
-            request_ctr_token = state.commitments.login(client_id, request_p);
+            request_ctr_token = state.request_map.login(client_id, request_p);
             state.request_map.agree_client_token(&request_ctr_token);
+
+            assert(state.commitments.client_map().dom() == state.request_map.request_ctr_map().dom().insert(0));
         }
 
         // XXX: not load bearing but good for debugging
         assert(<abd::invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(state_inv.constant(), state));
     });
 
-    (Tracked(client_ctr_token), Tracked(request_ctr_token), Tracked(state_inv), Tracked(view))
+    (Tracked(client_ctr_token), Tracked(request_ctr_token), Tracked(state_inv), Arc::new(Tracked(view)))
 }
 
 } // verus!

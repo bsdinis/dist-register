@@ -49,6 +49,7 @@ where
             Error::Connection(e) => Some(e),
             Error::AbdRead(e) => Some(e),
             Error::AbdWrite(e) => Some(e),
+            _ => None,
         }
     }
 }
@@ -63,6 +64,7 @@ where
             Error::Connection(e) => e.fmt(f),
             Error::AbdRead(e) => e.fmt(f),
             Error::AbdWrite(e) => e.fmt(f),
+            _ => Ok(()),
         }
     }
 }
@@ -77,6 +79,7 @@ where
             Error::Connection(e) => e.fmt(f),
             Error::AbdRead(e) => e.fmt(f),
             Error::AbdWrite(e) => e.fmt(f),
+            _ => Ok(()),
         }
     }
 }
@@ -84,6 +87,7 @@ where
 verus! {
 
 pub(crate) enum Error<ML, MC, RL, RC> {
+    Empty,
     Connection(ConnectError),
     AbdRead(abd::client::error::ReadError<RL, RC>),
     AbdWrite(abd::client::error::WriteError<ML, MC>),

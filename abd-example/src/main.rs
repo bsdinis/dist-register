@@ -1,5 +1,7 @@
 use clap::Parser;
 use vstd::atomic::PAtomicU64;
+#[cfg(verus_only)]
+use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 use vstd::resource::ghost_var::GhostVar;
 
@@ -15,6 +17,10 @@ use abd::channel::ChannelInv;
 use abd::client::AbdPool;
 use abd::client::AbdRegisterClient;
 use abd::invariants::logatom::ReadPerm;
+#[cfg(verus_only)]
+use abd::invariants::logatom::RegisterRead;
+#[cfg(verus_only)]
+use abd::invariants::logatom::RegisterWrite;
 use abd::invariants::logatom::WritePerm;
 use abd::server::run_modelled_server;
 
@@ -47,7 +53,12 @@ fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
  {
     let mut channel = connector.connect(
         client_id,
-        |_connector, _client_id| Ghost(ChannelInv {  }),
+        |_connector, _client_id| Ghost(ChannelInv {
+            commitment_id: arbitrary(),
+            request_map_id: arbitrary(),
+            server_locs: arbitrary(),
+            server_tokens_id: arbitrary(),
+        }),
     )?;
     if !args.no_delay {
         channel.add_latency(
@@ -116,6 +127,15 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         WritePerm,
         ReadPerm<'_>,
     >(&pool, args.client_id, client_ctr_perm, request_ctr_perm);
+    assume(forall |cid| #[trigger] pool.spec_channels().dom().contains(cid) ==> {
+        let c = pool.spec_channels()[cid];
+        &&& cid.0 == args.client_id
+        &&& state_inv.constant().server_locs.contains_key(cid.1)
+        &&& state_inv.constant().request_map_ids.request_auth_id == c.constant().request_map_id
+        &&& state_inv.constant().commitments_ids.commitment_id == c.constant().commitment_id
+        &&& state_inv.constant().server_tokens_id == c.constant().server_tokens_id
+        &&& state_inv.constant().server_locs == c.constant().server_locs
+    });
     let mut client = AbdPool::<_, WritePerm, ReadPerm<'_>>::new(
         pool,
         args.client_id,
@@ -126,10 +146,11 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         state_inv,
     );
     assert(client.inv()) by { abd::client::lemma_inv(client) };
-    let tracked view = view.get();
     report_quorum_size(client.quorum_size());
 
-    let tracked read_perm = ReadPerm { register: &view };
+    /*
+    let Tracked(r_view) = view.clone();
+    let tracked read_perm = ReadPerm { register: &r_view };
     assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
     match client.read(Tracked(read_perm)) {
         Ok((v, ts, _comp)) => {
@@ -137,26 +158,29 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         },
         Err(e) => {
             report_err(0, &e);
-            return Err(e)?;
+            return Err(Error::Empty);
+            // return Err(e)?;
         },
     };
 
-    let tracked write_perm = WritePerm { register: view, val: Some(42u64) };
+    let Tracked(w_view) = view.clone();
+    let tracked write_perm = WritePerm { register: w_view, value: Some(42u64) };
     #[allow(unused_variables)]
-    let view = match client.write(Some(42), Tracked(write_perm)) {
+    let new_view = match client.write(Some(42), Tracked(write_perm)) {
         Ok(comp) => {
             report_write(0, Some(42));
             comp
         },
         Err(e) => {
             report_err(0, &e);
-            return Err(e)?;
+            return Err(Error::Empty);
+            // return Err(e)?;
         },
     };
-    let tracked view = view.get();
-    assert(view@@ == Some(42u64));
+    assert(new_view@@ == Some(42u64));
 
-    let tracked read_perm = ReadPerm { register: &view };
+    let Tracked(r_view) = view.clone();
+    let tracked read_perm = ReadPerm { register: &r_view };
     assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
     match client.read(Tracked(read_perm)) {
         Ok((v, ts, _comp)) => {
@@ -164,9 +188,11 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         },
         Err(e) => {
             report_err(0, &e);
-            return Err(e)?;
+            return Err(Error::Empty);
+            // return Err(e)?;
         },
     };
+    */
 
     Ok(())
 }

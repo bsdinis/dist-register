@@ -134,7 +134,8 @@ impl<C, Pred, A> Replies<C, Pred, A> where
     }
 
     pub fn accumulator(&self) -> &A
-        returns self.spec_accumulator()
+        returns
+            self.spec_accumulator(),
     {
         &self.accum
     }

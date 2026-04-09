@@ -13,7 +13,6 @@ use verdist::pool::FlawlessPool;
 
 use abd::channel::ChannelInv;
 use abd::client::AbdPool;
-#[cfg(verus_only)]
 use abd::client::AbdRegisterClient;
 use abd::invariants::logatom::ReadPerm;
 use abd::invariants::logatom::WritePerm;
@@ -108,61 +107,66 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     assert(pool.spec_len() == connectors.len());
 
     let (client_ctr, client_ctr_perm) = PAtomicU64::new(0);
+    let (request_ctr, request_ctr_perm) = PAtomicU64::new(0);
 
     #[allow(unused)]
-    let (client_ctr_token, state_inv, view) = get_invariant_state::<_, _, WritePerm, ReadPerm<'_>>(
-        &pool,
-        args.client_id,
-        client_ctr_perm,
-    );
-    let client = AbdPool::<_, WritePerm, ReadPerm<'_>>::new(
+    let (client_ctr_token, request_ctr_token, state_inv, view) = get_invariant_state::<
+        _,
+        _,
+        WritePerm,
+        ReadPerm<'_>,
+    >(&pool, args.client_id, client_ctr_perm, request_ctr_perm);
+    let mut client = AbdPool::<_, WritePerm, ReadPerm<'_>>::new(
         pool,
         args.client_id,
         client_ctr,
         client_ctr_token,
+        request_ctr,
+        request_ctr_token,
         state_inv,
     );
     assert(client.inv()) by { abd::client::lemma_inv(client) };
     let tracked view = view.get();
     report_quorum_size(client.quorum_size());
 
-    // let tracked read_perm = ReadPerm { register: &view };
-    // assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
-    // match client.read(Tracked(read_perm)) {
-    //     Ok((v, ts, _comp)) => {
-    //         report_read(0, (v, ts));
-    //     },
-    //     Err(e) => {
-    //         report_err(0, &e);
-    //         return Err(e)?;
-    //     }
-    // };
-    //
-    // let tracked write_perm = WritePerm { register: view, val: Some(42u64) };
-    // let view = match client.write(Some(42), Tracked(write_perm)) {
-    //     Ok(comp) => {
-    //         report_write(0, Some(42));
-    //         comp
-    //     },
-    //     Err(e) => {
-    //         report_err(0, &e);
-    //         return Err(e)?;
-    //     }
-    // };
-    // let tracked view = view.get();
-    // assert(view@@ == Some(42u64));
-    //
-    // let tracked read_perm = ReadPerm { register: &view };
-    // assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
-    // match client.read(Tracked(read_perm)) {
-    //     Ok((v, ts, _comp)) => {
-    //         report_read(0, (v, ts));
-    //     },
-    //     Err(e) => {
-    //         report_err(0, &e);
-    //         return Err(e)?;
-    //     }
-    // };
+    let tracked read_perm = ReadPerm { register: &view };
+    assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+    match client.read(Tracked(read_perm)) {
+        Ok((v, ts, _comp)) => {
+            report_read(0, (v, ts));
+        },
+        Err(e) => {
+            report_err(0, &e);
+            return Err(e)?;
+        },
+    };
+
+    let tracked write_perm = WritePerm { register: view, val: Some(42u64) };
+    #[allow(unused_variables)]
+    let view = match client.write(Some(42), Tracked(write_perm)) {
+        Ok(comp) => {
+            report_write(0, Some(42));
+            comp
+        },
+        Err(e) => {
+            report_err(0, &e);
+            return Err(e)?;
+        },
+    };
+    let tracked view = view.get();
+    assert(view@@ == Some(42u64));
+
+    let tracked read_perm = ReadPerm { register: &view };
+    assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+    match client.read(Tracked(read_perm)) {
+        Ok((v, ts, _comp)) => {
+            report_read(0, (v, ts));
+        },
+        Err(e) => {
+            report_err(0, &e);
+            return Err(e)?;
+        },
+    };
 
     Ok(())
 }

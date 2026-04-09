@@ -14,7 +14,7 @@ use crate::invariants::logatom::RegisterWrite;
 use crate::invariants::quorum::Quorum;
 #[cfg(verus_only)]
 use crate::invariants::quorum::ServerUniverse;
-use crate::invariants::requests::ClientReqCtrToken;
+use crate::invariants::requests::RequestCtrToken;
 #[cfg(verus_only)]
 use crate::invariants::RegisterView;
 use crate::invariants::StateInvariant;
@@ -154,8 +154,8 @@ pub struct AbdPool<Pool, ML, RL> where
     state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     client_ctr_token: Tracked<ClientCtrToken>,
     client_ctr: PAtomicU64,
-    request_id_ctr_token: Tracked<ClientReqCtrToken>,
-    request_id_ctr: PAtomicU64,
+    request_ctr_token: Tracked<RequestCtrToken>,
+    request_ctr: PAtomicU64,
 }
 
 impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
@@ -169,8 +169,8 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         id: u64,
         client_ctr: PAtomicU64,
         client_ctr_token: Tracked<ClientCtrToken>,
-        request_id_ctr: PAtomicU64,
-        request_id_ctr_token: Tracked<ClientReqCtrToken>,
+        request_ctr: PAtomicU64,
+        request_ctr_token: Tracked<RequestCtrToken>,
         state_inv: Tracked<Arc<StateInvariant<ML, RL>>>,
     ) -> (r: Self)
         requires
@@ -190,14 +190,14 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
                 },
             state_inv@.namespace() == invariants::state_inv_id(),
             state_inv@.constant().commitments_ids.client_ctr_id == client_ctr_token@.id(),
-            state_inv@.constant().request_map_ids.client_req_ctr_id == request_id_ctr_token@.id(),
+            state_inv@.constant().request_map_ids.request_ctr_id == request_ctr_token@.id(),
             state_inv@.constant().server_locs.len() == pool.spec_len(),
             client_ctr_token@.key() == id,
             client_ctr_token@.value().0 == 0,
             client_ctr_token@.value().1 == client_ctr.id(),
-            request_id_ctr_token@.key() == id,
-            request_id_ctr_token@.value().0 == 0,
-            request_id_ctr_token@.value().1 == request_id_ctr.id(),
+            request_ctr_token@.key() == id,
+            request_ctr_token@.value().0 == 0,
+            request_ctr_token@.value().1 == request_ctr.id(),
         ensures
             r._inv(),
     {
@@ -208,8 +208,8 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
             register_id: Ghost(state_inv@.constant().register_id),
             client_ctr_token,
             client_ctr,
-            request_id_ctr_token,
-            request_id_ctr,
+            request_ctr_token,
+            request_ctr,
         }
     }
 
@@ -226,12 +226,12 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
         &&& self.state_inv@.namespace() == invariants::state_inv_id()
         &&& self.state_inv@.constant().register_id == self.register_id
         &&& self.state_inv@.constant().commitments_ids.client_ctr_id == self.client_ctr_token@.id()
-        &&& self.state_inv@.constant().request_map_ids.client_req_ctr_id
-            == self.request_id_ctr_token@.id()
+        &&& self.state_inv@.constant().request_map_ids.request_ctr_id
+            == self.request_ctr_token@.id()
         &&& self.client_ctr_token@.key() == self.id()
         &&& self.client_ctr_token@.value().1 == self.client_ctr.id()
-        &&& self.request_id_ctr_token@.key() == self.id()
-        &&& self.request_id_ctr_token@.value().1 == self.request_id_ctr.id()
+        &&& self.request_ctr_token@.key() == self.id()
+        &&& self.request_ctr_token@.value().1 == self.request_ctr.id()
         &&& self.pool.spec_len() == self.state_inv@.constant().server_locs.len()
         &&& forall|c_id| #[trigger]
             self.pool.spec_channels().contains_key(c_id) ==> {
@@ -274,8 +274,8 @@ pub struct AbdRegisterLocs {
     pub state_inv_namespace: int,
     pub client_ctr_perm: int,
     pub client_ctr_token_id: Loc,
-    pub request_id_ctr_perm: int,
-    pub request_id_ctr_token_id: Loc,
+    pub request_ctr_perm: int,
+    pub request_ctr_token_id: Loc,
 }
 
 impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> where
@@ -301,8 +301,8 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             state_inv_namespace: self.state_inv@.namespace(),
             client_ctr_perm: self.client_ctr_token@.value().1,
             client_ctr_token_id: self.client_ctr_token@.id(),
-            request_id_ctr_perm: self.request_id_ctr_token@.value().1,
-            request_id_ctr_token_id: self.request_id_ctr_token@.id(),
+            request_ctr_perm: self.request_ctr_token@.value().1,
+            request_ctr_token_id: self.request_ctr_token@.id(),
         }
     }
 
@@ -345,13 +345,13 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             let tracked mut perm;
             proof {
-                perm = state.request_map.take_permission(self.request_id_ctr_token.borrow());
+                perm = state.request_map.take_permission(self.request_ctr_token.borrow());
             }
             assume(perm.value() < u64::MAX); // XXX: integer overflow
-            request_id = self.request_id_ctr.fetch_add(Tracked(&mut perm), 1);
+            request_id = self.request_ctr.fetch_add(Tracked(&mut perm), 1);
             proof {
                 request_proof = state.request_map.issue_request_proof(
-                    self.request_id_ctr_token.borrow_mut(),
+                    self.request_ctr_token.borrow_mut(),
                     request_id,
                     req_inner, perm
                 );
@@ -506,13 +506,13 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             let tracked mut perm;
             proof {
-                perm = state.request_map.take_permission(self.request_id_ctr_token.borrow());
+                perm = state.request_map.take_permission(self.request_ctr_token.borrow());
             }
             assume(perm.value() < u64::MAX); // XXX: integer overflow
-            request_id = self.request_id_ctr.fetch_add(Tracked(&mut perm), 1);
+            request_id = self.request_ctr.fetch_add(Tracked(&mut perm), 1);
             proof {
                 request_proof = state.request_map.issue_request_proof(
-                    self.request_id_ctr_token.borrow_mut(),
+                    self.request_ctr_token.borrow_mut(),
                     request_id,
                     req_inner,
                     perm
@@ -697,13 +697,13 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
             let tracked mut perm;
             proof {
-                perm = state.request_map.take_permission(self.request_id_ctr_token.borrow());
+                perm = state.request_map.take_permission(self.request_ctr_token.borrow());
             }
             assume(perm.value() < u64::MAX); // XXX: integer overflow
-            request_id = self.request_id_ctr.fetch_add(Tracked(&mut perm), 1);
+            request_id = self.request_ctr.fetch_add(Tracked(&mut perm), 1);
             proof {
                 request_proof = state.request_map.issue_request_proof(
-                    self.request_id_ctr_token.borrow_mut(),
+                    self.request_ctr_token.borrow_mut(),
                     request_id,
                     req_inner,
                     perm
@@ -853,13 +853,13 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
                 let tracked mut perm;
                 proof {
-                    perm = state.request_map.take_permission(self.request_id_ctr_token.borrow());
+                    perm = state.request_map.take_permission(self.request_ctr_token.borrow());
                 }
                 assume(perm.value() < u64::MAX); // XXX: integer overflow
-                request_id = self.request_id_ctr.fetch_add(Tracked(&mut perm), 1);
+                request_id = self.request_ctr.fetch_add(Tracked(&mut perm), 1);
                 proof {
                     request_proof = state.request_map.issue_request_proof(
-                        self.request_id_ctr_token.borrow_mut(),
+                        self.request_ctr_token.borrow_mut(),
                         request_id,
                         req_inner,
                         perm

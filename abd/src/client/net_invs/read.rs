@@ -1338,34 +1338,11 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
             use_type_invariant(&*self);
             use_type_invariant(&self.inner);
 
-            // assert(ReadPred::inv(pred@, *self));
-            // assert(self.constant() == pred@);
-            assert(self.channels().contains_key(id));
-            let chan = self.channels()[id];
-            // assert(chan.constant().commitment_id == self.inner.commitment_id@);
-            // assert(chan.constant().request_map_id == self.inner.request_map_id());
-            // assert(chan.spec_id() == id);
-
-            assume(C::K::recv_inv(chan.constant(), id, reply));  // TODO(verus): this is a verus problem
-
-            // assert(self.inner.request_map_id() == reply.request_id());
+            assume(C::K::recv_inv(self.channels()[id].constant(), id, reply));  // TODO(verus): this is a verus problem
         }
 
         reply.agree_request(&mut self.inner.get_request);
         reply.lemma_inv();
-
-        /*
-        proof {
-            assert(reply.spec_tag() == pred@.get_request_id);
-            assert(reply.spec_tag() == reply.request_key().1);
-            assert(id.0 == reply.request_key().0);
-            assert(reply.request_key().1 == self.inner.get_request@.key().1);
-            assert(reply.request_key() == self.inner.get_request@.key());
-            assert(reply.request() == self.inner.get_request@.value());
-            assert(reply.req_type() == self.inner.get_request@.value().req_type());
-            assert(reply.req_type() is Get);
-        }
-        */
 
         self.inner.insert_get(id, reply);
     }
@@ -1498,34 +1475,12 @@ impl<C> ReplyAccumulator<C, ReadWbPred<C>> for ReadAccumWbPhase<C> where
             use_type_invariant(&*self);
             use_type_invariant(&self.inner);
 
-            assert(ReadWbPred::inv(pred@, *self));
-            assert(self.constant() == pred@.read_pred);
-            assert(self.channels().contains_key(id));
-            let ghost chan = self.channels()[id];
-            assert(chan.constant().commitment_id == self.inner.commitment_id@);
-            assert(chan.constant().request_map_id == self.inner.request_map_id());
-            assert(chan.spec_id() == id);
-
-            assume(C::K::recv_inv(chan.constant(), id, reply));  // TODO(verus): this is a verus problem
-
-            assert(self.inner.request_map_id() == reply.request_id());
+            assume(C::K::recv_inv(self.channels()[id].constant(), id, reply));  // TODO(verus): this is a verus problem
         }
+
         reply.agree_request_opt(&mut self.inner.wb_request);
         reply.lemma_inv();
 
-        proof {
-            assert(reply.spec_tag() == pred@.read_pred.wb_request_id->Some_0);
-            assert(reply.spec_tag() == reply.request_key().1);
-            assert(id.0 == reply.request_key().0);
-            let ghost wb_req = self.inner.wb_request@->Some_0;
-            assert(reply.request_key().1 == wb_req.key().1);
-            assert(reply.request_key() == wb_req.key());
-            assert(reply.request() == wb_req.value());
-            assert(reply.req_type() == wb_req.value().req_type());
-            assert(reply.req_type() is Write);
-        }
-        assert(reply.req_type() is Write);
-        assert(reply.request() == self.inner.wb_request@->Some_0.value());
         self.inner.insert_write(id, reply);
     }
 

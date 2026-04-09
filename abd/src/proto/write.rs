@@ -3,9 +3,7 @@ use crate::invariants::quorum::ServerUniverse;
 use crate::invariants::ServerToken;
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::timestamp::Timestamp;
-use verdist::rpc::proto::TaggedMessage;
 
-use vstd::pervasive::unreached;
 use vstd::prelude::*;
 use vstd::resource::map::GhostPersistentSubmap;
 use vstd::resource::Loc;

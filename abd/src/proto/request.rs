@@ -14,11 +14,7 @@ use vstd::prelude::*;
 #[cfg(verus_only)]
 use vstd::resource::Loc;
 
-use std::sync::atomic::AtomicU64;
-
 verus! {
-
-exec static REQUEST_TAG: AtomicU64 = AtomicU64::new(0);
 
 pub struct Request {
     request_id: u64,
@@ -217,6 +213,7 @@ impl Request {
     }
 
     pub fn new(
+        #[allow(unused_variables)]
         client_id: u64,
         request_id: u64,
         request_inner: RequestInner,

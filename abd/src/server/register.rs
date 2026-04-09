@@ -20,7 +20,6 @@ use crate::proto::WriteResponse;
 use crate::proto::{GetResponse, GetTimestampResponse};
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::timestamp::Timestamp;
-use verdist::rpc::proto::TaggedMessage;
 
 verus! {
 
@@ -243,7 +242,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
         GetTimestampResponse::new(self.timestamp.clone(), Tracked(new_lb), Tracked(server_token))
     }
 
-    pub fn write(self, mut req: WriteRequest) -> (r: Self)
+    pub fn write(self, req: WriteRequest) -> (r: Self)
         requires
             self.resource@@ is HalfRightToAdvance,
             self.inv(),
@@ -263,7 +262,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             req.spec_timestamp() <= r.timestamp,
     {
         #[allow(unused_variables)]
-        let (value, timestamp, commitment, mut lb) = req.destruct(self.id);
+        let (value, timestamp, commitment, lb) = req.destruct(self.id);
         let ret = if timestamp > self.timestamp {
             let tracked mut r = self.resource.get();
             vstd::open_atomic_invariant!(&self.state_inv.borrow() => state => {
@@ -320,6 +319,7 @@ impl<ML, RL> MonotonicRegisterInner<ML, RL> where
             self
         };
 
+        let Tracked(mut lb) = lb;
         proof {
             lb.lemma_lower_bound(ret.resource.borrow());
         }

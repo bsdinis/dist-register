@@ -733,32 +733,12 @@ impl<C> ReplyAccumulator<C, GetTimestampPred<C>> for GetTimestampAccumulator<C> 
         proof {
             use_type_invariant(&*self);
 
-            assert(GetTimestampPred::inv(pred@, *self));
-            assert(self.constant() == pred@);
-            assert(self.channels().contains_key(id));
-            let ghost chan = self.channels()[id];
-            assert(chan.constant().request_map_id == self.request_map_id());
-            assert(chan.spec_id() == id);
-
-            assume(C::K::recv_inv(chan.constant(), id, reply));  // TODO(verus): this is a verus problem
-
-            assert(self.request_map_id() == reply.request_id());
+            assume(C::K::recv_inv(self.channels()[id].constant(), id, reply));  // TODO(verus): this is a verus problem
         }
+
         reply.agree_request(&mut self.request);
         reply.lemma_inv();
 
-        proof {
-            assert(reply.spec_tag() == pred@.request_id);
-            assert(reply.spec_tag() == reply.request_key().1);
-            assert(id.0 == reply.request_key().0);
-            assert(reply.request_key().1 == self.request@.key().1);
-            assert(reply.request_key() == self.request@.key());
-            assert(reply.request() == self.request@.value());
-            assert(reply.req_type() == self.request@.value().req_type());
-            assert(reply.req_type() is GetTimestamp);
-        }
-        assert(reply.req_type() is GetTimestamp);
-        assert(reply.request() == self.request@.value());
         self.insert_get_timestamp(id, reply);
     }
 

@@ -19,6 +19,7 @@ verus! {
 pub struct Response {
     request_id: u64,
     inner: ResponseInner,
+    #[allow(unused)]
     request: Tracked<RequestProof>,
 }
 
@@ -292,7 +293,11 @@ impl Response {
     {
     }
 
-    pub fn agree_request(&self, request_proof: &mut Tracked<RequestProof>)
+    pub fn agree_request(
+        &self,
+        #[allow(unused_variables)]
+        request_proof: &mut Tracked<RequestProof>,
+    )
         requires
             self.request_id() == old(request_proof)@.id(),
         ensures
@@ -304,7 +309,11 @@ impl Response {
         proof { request_proof.borrow_mut().intersection_agrees(self.request.borrow()) }
     }
 
-    pub fn agree_request_opt(&self, request_proof: &mut Tracked<Option<RequestProof>>)
+    pub fn agree_request_opt(
+        &self,
+        #[allow(unused_variables)]
+        request_proof: &mut Tracked<Option<RequestProof>>,
+    )
         requires
             old(request_proof)@ is Some,
             self.request_id() == old(request_proof)@->Some_0.id(),

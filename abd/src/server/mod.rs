@@ -32,6 +32,7 @@ use verdist::network::channel::Listener;
 use verdist::network::modelled::ModelledConnector;
 #[cfg(verus_only)]
 use verdist::network::modelled::ModelledListener;
+#[cfg(verus_only)]
 use verdist::rpc::proto::TaggedMessage;
 
 use std::collections::HashSet;
@@ -223,7 +224,12 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         ResponseInner::Write(self.register.write(req))
     }
 
-    fn handle(&self, request: Request, client_id: u64) -> (r: Response)
+    fn handle(
+        &self,
+        request: Request,
+        #[allow(unused_variables)]
+        client_id: u64,
+    ) -> (r: Response)
         requires
             request.request_key() == (client_id, request.spec_tag()),
             request.req_type() is Get ==> {

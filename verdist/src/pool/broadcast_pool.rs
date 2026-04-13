@@ -1,6 +1,5 @@
-#![allow(unused)]
-
 use crate::network::channel::Channel;
+#[cfg(verus_only)]
 use crate::network::channel::ChannelInvariant;
 #[cfg(verus_only)]
 use crate::pool::connection_pool::channel_seq_to_map;
@@ -10,10 +9,8 @@ use crate::pool::ChannelId;
 use crate::pool::ChannelResp;
 use crate::pool::ConnectionPool;
 use crate::pool::PoolChannel;
-use crate::rpc::proto::Tagged;
 use crate::rpc::proto::TaggedMessage;
 use crate::rpc::replies::ReplyAccumulator;
-use crate::rpc::Replies;
 use crate::rpc::RequestContext;
 
 use vstd::invariant::InvariantPredicate;

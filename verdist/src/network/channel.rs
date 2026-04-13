@@ -265,8 +265,8 @@ impl<C> Channel for BufChannel<C> where C: Channel, C::R: TaggedMessage {
 
     fn add_latency(&mut self, avg: Duration, stddev: Duration) {
         proof {
-            admit();
-        }  // TODO: this is weird, the constant should be the same
+            use_type_invariant(&*self);
+        }
         self.channel.add_latency(avg, stddev);
     }
 }

@@ -46,6 +46,7 @@ pub struct ModelledConnector<R, S> {
     connection_rx: Receiver<(u64, Sender<S>, Receiver<R>)>,
 }
 
+/// Channel TO Client
 #[verifier::external_body]
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(R)]
@@ -62,6 +63,7 @@ pub struct ClientChannel<K, R, S> {
     stddev_latency: std::time::Duration,
 }
 
+/// Channel TO Server
 #[verifier::external_body]
 #[verifier::reject_recursive_types(K)]
 #[verifier::reject_recursive_types(R)]
@@ -155,7 +157,8 @@ impl<K, R, S> Channel for ClientChannel<K, R, S> where
     fn try_recv(&self) -> Result<R, crate::network::error::TryRecvError> {
         if !self.faulty.load(std::sync::atomic::Ordering::SeqCst) {
             self.wait();
-            self.rx.try_recv().map_err(|e| e.into())
+            let r = self.rx.try_recv()?;
+            Ok(r)
         } else {
             Err(crate::network::error::TryRecvError::Empty)
         }
@@ -172,12 +175,12 @@ impl<K, R, S> Channel for ClientChannel<K, R, S> where
 
     #[verifier::external_body]
     fn id(&self) -> Self::Id {
-        (self.client_id, self.server_id)
+        (self.server_id, self.client_id)
     }
 
     #[verifier::external_body]
     closed spec fn spec_id(self) -> Self::Id {
-        (self.client_id, self.server_id)
+        (self.server_id, self.client_id)
     }
 
     #[verifier::external_body]
@@ -230,7 +233,7 @@ impl<K, R, S> Channel for ServerChannel<K, R, S> where
 
     #[verifier::external_body]
     fn id(&self) -> Self::Id {
-        (self.server_id, self.client_id)
+        (self.client_id, self.server_id)
     }
 
     #[verifier::external_body]
@@ -250,22 +253,6 @@ impl<K, R, S> Channel for ServerChannel<K, R, S> where
     }
 }
 
-#[verifier::external_body]
-#[allow(unused)]
-fn report_accept(server_id: u64, client_id: u64) {
-    eprintln!(
-        "[server|{server_id:>3}]: accepting a connection from client {client_id}",
-    );
-}
-
-#[verifier::external_body]
-#[allow(unused)]
-fn report_connect(client_id: u64) {
-    eprintln!(
-        "[server|{client_id:>3}]: connecting from client"
-    );
-}
-
 // TODO: this is where we create the ghost map and the channel invariant
 impl<K, R, S> Listener<ClientChannel<K, R, S>> for ModelledListener<R, S> where
     K: ChannelInvariant<K, (u64, u64), R, S>,
@@ -278,7 +265,9 @@ impl<K, R, S> Listener<ClientChannel<K, R, S>> for ModelledListener<R, S> where
         TryListenError,
     >) {
         let client_id = self.registering_rx.try_recv()?;
-        report_accept(self.id, client_id);
+        vlib::veprintln!(
+            "[server|{:>3}]: accepting a connection from client {client_id}", self.id
+        );
 
         let (resp_tx, resp_rx) = unbounded();
         let (req_tx, req_rx) = unbounded();
@@ -289,7 +278,11 @@ impl<K, R, S> Listener<ClientChannel<K, R, S>> for ModelledListener<R, S> where
 
         let pred = Ghost(gen_pred@(self));
 
-        Ok(ClientChannel::new(client_id, self.id, pred, resp_tx, req_rx))
+        let chan = ClientChannel::new(client_id, self.id, pred, resp_tx, req_rx);
+
+        vlib::veprintln!("[server|{:>3}]: accepted connection from client {client_id} (channel_id: {:?})", self.id, chan.id());
+
+        Ok(chan)
     }
 }
 
@@ -302,11 +295,17 @@ impl<K, R, S> Connector<ServerChannel<K, R, S>> for ModelledConnector<R, S> wher
         ServerChannel<K, R, S>,
         ConnectError,
     > where F: FnOnce(&Self, u64) -> Ghost<K> {
-        report_connect(local_id);
+        vlib::veprintln!(
+            "[client|{:>3}]: connecting to server", local_id,
+        );
         self.registering_tx.send(local_id).map_err(|_e| ConnectError)?;
         let (server_id, tx, rx) = self.connection_rx.recv().map_err(|_e| ConnectError)?;
         let pred = gen_pred(self, local_id);
-        Ok(ServerChannel::new(server_id, local_id, pred, tx, rx))
+        let chan = ServerChannel::new(server_id, local_id, pred, tx, rx);
+        vlib::veprintln!(
+            "[client|{:>3}]: connected to server {server_id}  (channel_id: {:?})", local_id, chan.id()
+        );
+        Ok(chan)
     }
 }
 

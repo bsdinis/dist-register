@@ -13,7 +13,6 @@ use verdist::network::error::ConnectError;
 use verdist::pool::ConnectionPool;
 use verdist::pool::FlawlessPool;
 
-#[cfg(verus_only)]
 use specs::abd::AbdRegisterClient;
 use specs::abd::ReadPerm;
 #[cfg(verus_only)]
@@ -29,13 +28,11 @@ use abd::server::run_modelled_server;
 mod cli;
 mod error;
 mod invariant;
-mod print;
 mod trace;
 
 use cli::Args;
 use error::Error;
 use invariant::get_invariant_state;
-use print::*;
 
 verus! {
 
@@ -152,23 +149,22 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         state_inv,
     );
     assert(client.inv()) by { abd::client::lemma_inv(client) };
-    report_quorum_size(client.quorum_size());
 
-    /*
     let Tracked(r_view) = view.clone();
     let tracked read_perm = ReadPerm { register: &r_view };
     assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
     match client.read(Tracked(read_perm)) {
         Ok((v, ts, _comp)) => {
-            report_read(0, (v, ts));
+            vlib::veprintln!("[client|{:>3}]: read completed: {:?} @ {:?}", args.client_id, v, ts);
         },
         Err(e) => {
-            report_err(0, &e);
+            vlib::veprintln!("[client|{:>3}]: read error: {}", args.client_id, e);
             return Err(Error::Empty);
             // return Err(e)?;
         },
     };
 
+    /*
     let Tracked(w_view) = view.clone();
     let tracked write_perm = WritePerm { register: w_view, value: Some(42u64) };
     #[allow(unused_variables)]

@@ -26,6 +26,7 @@ pub struct BroadcastPool<'a, Pool> {
 impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
     Pool: ConnectionPool,
     ChannelResp<Pool>: TaggedMessage,
+    ChannelId<Pool>: std::fmt::Debug,
     Pool::C: Channel<S = Request>,
     ChannelResp<Pool>: TaggedMessage + std::fmt::Debug,
     Request: TaggedMessage + Clone + std::fmt::Debug,

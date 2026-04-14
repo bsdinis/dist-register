@@ -283,6 +283,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                 &&& write_req.servers()[resp.server_id()]@@.timestamp() <= resp.spec_timestamp()
             }),
     {
+        vlib::veprintln!("[server|{:>3}]: received req: {:?}", self.id, request);
         let (request_id, request_inner, request_proof) = request.destruct();
         let resp_inner = match request_inner {
             RequestInner::Get(req) => self.handle_get(req),
@@ -324,6 +325,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         proof {
             RequestInner::spec_eq_refl(r.request());
         }
+        vlib::veprintln!("[server|{:>3}]: sending resp: {:?}", self.id, r);
         r
     }
 
@@ -362,6 +364,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
         let iterator = connected.iter();
         #[allow(unused_variables)]
         let mut idx = 0usize;
+        #[allow(unused_assignments)]
         for channel in it: iterator
             invariant
                 self.connected.pred() == connected_pred,

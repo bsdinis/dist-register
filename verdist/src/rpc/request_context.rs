@@ -2,7 +2,6 @@
 use crate::network::channel::Channel;
 #[cfg(verus_only)]
 use crate::network::channel::ChannelInvariant;
-#[cfg(verus_only)]
 use crate::pool::ChannelId;
 use crate::pool::ChannelResp;
 use crate::pool::ConnectionPool;
@@ -34,6 +33,20 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
     Pred: InvariantPredicate<Pred, A>,
     A: ReplyAccumulator<PoolChannel<Pool>, Pred>,
  {
+    #[verifier::type_invariant]
+    closed spec fn inv(self) -> bool {
+        &&& self.pool.spec_channels() == self.replies.channels()
+        &&& self.request_tag == self.replies.request_tag()
+    }
+}
+
+impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
+    Pool: ConnectionPool,
+    ChannelId<Pool>: std::fmt::Debug,
+    ChannelResp<Pool>: TaggedMessage,
+    Pred: InvariantPredicate<Pred, A>,
+    A: ReplyAccumulator<PoolChannel<Pool>, Pred>,
+ {
     pub fn new(pool: &'a Pool, request_tag: u64, pred: Ghost<Pred>, accum: A) -> (r: Self)
         requires
             Pred::inv(pred@, accum),
@@ -46,12 +59,6 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
             r.channels() == pool.spec_channels(),
     {
         RequestContext { pool, request_tag, replies: Replies::new(pred, accum) }
-    }
-
-    #[verifier::type_invariant]
-    closed spec fn inv(self) -> bool {
-        &&& self.pool.spec_channels() == self.replies.channels()
-        &&& self.request_tag == self.replies.request_tag()
     }
 
     pub fn tag(&self) -> u64 {
@@ -108,6 +115,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
                 self_mut.replies.request_tag() == request_tag,
         {
             if termination_cond(&self_mut.replies) {
+                vlib::veprintln!("termination condition triggered");
                 self_mut.replies.lemma_pred();
                 assert(Pred::inv(self_mut.replies.pred(), self_mut.replies.spec_accumulator()));
                 assert(self_mut.replies.pred() == pred);
@@ -116,6 +124,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
             // TODO: we can try to figure out a better "give up" condition
 
             if self_mut.replies.n_received() >= self_mut.n_nodes() {
+                vlib::veprintln!("failsafe give up triggered");
                 let replies = self_mut.replies;
                 replies.lemma_pred();
 

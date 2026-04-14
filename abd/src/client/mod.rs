@@ -21,6 +21,7 @@ use crate::proto::RequestInner;
 use crate::proto::Response;
 use crate::timestamp::Timestamp;
 
+#[cfg(verus_only)]
 use specs::abd::AbdError;
 use specs::abd::AbdRegisterClient;
 use specs::abd::RegisterRead;
@@ -377,8 +378,10 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         }
         replies.lemma_max_min();
         assert(replies.spec_min_timestamp() <= replies.spec_max_timestamp());
+        vlib::veprintln!("[client|{:>3}]: got first round reads quorum_size: {} agree_with_max: {:?}", self.id, self.quorum_size(), replies.agree_with_max());
         // check early return
         if replies.agree_with_max().len() >= self.quorum_size() {
+            vlib::veprintln!("[client|{:>3}]: first round is unanimous", self.id);
             replies.lemma_quorum();
             replies.lemma_max_timestamp();
             let Tracked(replies_servers) = replies.servers_lb();  // needed to have an owned instance

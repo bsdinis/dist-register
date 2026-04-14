@@ -8,8 +8,6 @@ use crate::invariants::lin_queue::InsertError;
 use crate::invariants::lin_queue::LinWriteToken;
 #[cfg(verus_only)]
 use crate::invariants::lin_queue::MaybeWriteLinearized;
-use crate::invariants::logatom::RegisterRead;
-use crate::invariants::logatom::RegisterWrite;
 #[cfg(verus_only)]
 use crate::invariants::quorum::Quorum;
 #[cfg(verus_only)]
@@ -22,6 +20,11 @@ use crate::proto::Request;
 use crate::proto::RequestInner;
 use crate::proto::Response;
 use crate::timestamp::Timestamp;
+
+use specs::abd::AbdError;
+use specs::abd::AbdRegisterClient;
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
 
 use verdist::network::channel::Channel;
 use verdist::pool::BroadcastPool;
@@ -50,98 +53,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 verus! {
-
-// NOTE: LIMITATION
-// - The MutLinearizer should be specified in the method
-// - Type problem: the linearization queue is parametrized by the linearizer type
-// - Polymorphism is hard
-#[allow(dead_code)]
-pub trait AbdRegisterClient<C, ML, RL> where
-    ML: MutLinearizer<RegisterWrite>,
-    RL: ReadLinearizer<RegisterRead>,
- {
-    type Locs;
-
-    spec fn register_loc(self) -> Loc;
-
-    spec fn client_id(self) -> u64;
-
-    spec fn named_locs(self) -> Self::Locs;
-
-    spec fn inv(self) -> bool;
-
-    fn read(&mut self, lin: Tracked<RL>) -> (r: Result<
-        (Option<u64>, Timestamp, Tracked<RL::Completion>),
-        error::ReadError<RL, RL::Completion>,
-    >)
-        requires
-            lin@.pre(RegisterRead { id: Ghost(old(self).register_loc()) }),
-            !lin@.namespaces().contains(invariants::state_inv_id()),
-            lin@.namespaces().finite(),
-            old(self).inv(),
-        ensures
-            self.inv(),
-            self.named_locs() == old(self).named_locs(),
-            r is Ok ==> ({
-                let (val, ts, compl) = r->Ok_0;
-                lin@.post(RegisterRead { id: Ghost(self.register_loc()) }, val, compl@)
-            }),
-            r is Err ==> ({
-                let err = r->Err_0;
-                let op = RegisterRead { id: Ghost(self.register_loc()) };
-                &&& err is FailedFirstQuorum ==> ({
-                    &&& err->FailedFirstQuorum_lincomp@.lin() == lin
-                    &&& err->FailedFirstQuorum_lincomp@.op() == op
-                })
-                &&& err is FailedSecondQuorum ==> ({
-                    &&& err->FailedSecondQuorum_lincomp@.lin() == lin
-                    &&& err->FailedSecondQuorum_lincomp@.op() == op
-                })
-            }),
-    ;
-
-    // TODO(writes): make writes behind a shared ref.
-    // Problem: there is only a single tracked ClientCtrToken which cannot be shared between
-    // threads
-    fn write(&mut self, value: Option<u64>, lin: Tracked<ML>) -> (r: Result<
-        Tracked<ML::Completion>,
-        error::WriteError<ML, ML::Completion>,
-    >)
-        requires
-            old(self).inv(),
-            lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: value }),
-            !lin@.namespaces().contains(invariants::state_inv_id()),
-            lin@.namespaces().finite(),
-        ensures
-            self.inv(),
-            self.named_locs() == old(self).named_locs(),
-            r is Ok ==> ({
-                let comp = r->Ok_0;
-                &&& lin@.post(
-                    RegisterWrite { id: Ghost(self.register_loc()), new_value: value },
-                    (),
-                    comp@,
-                )
-            }),
-            r is Err ==> ({
-                let err = r->Err_0;
-                &&& err is FailedFirstQuorum ==> ({
-                    &&& err.inv()
-                    &&& err->lincomp@.lin() == lin
-                    &&& err->lincomp@.op() == RegisterWrite {
-                        id: Ghost(self.register_loc()),
-                        new_value: value,
-                    }
-                })
-                &&& err is FailedSecondQuorum ==> ({
-                    let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: value };
-                    &&& err.inv()
-                    &&& err->token@.value().lin == lin@
-                    &&& err->token@.value().op == op
-                })
-            }),
-    ;
-}
 
 #[allow(dead_code)]
 pub struct AbdPool<Pool, ML, RL> where
@@ -286,6 +197,22 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
     RL: ReadLinearizer<RegisterRead>,
  {
     type Locs = AbdRegisterLocs;
+
+    type ReadErr = error::ReadError<RL, RL::Completion>;
+
+    type WriteErr = error::WriteError<ML, ML::Completion>;
+
+    type Timestamp = Timestamp;
+
+    open spec fn read_lin_requires(lin: RL) -> bool {
+        &&& !lin.namespaces().contains(invariants::state_inv_id())
+        &&& lin.namespaces().finite()
+    }
+
+    open spec fn write_lin_requires(lin: ML) -> bool {
+        &&& !lin.namespaces().contains(invariants::state_inv_id())
+        &&& lin.namespaces().finite()
+    }
 
     closed spec fn client_id(self) -> u64 {
         self.id()

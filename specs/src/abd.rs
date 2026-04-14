@@ -2,13 +2,97 @@ use vstd::logatom::MutLinearizer;
 use vstd::logatom::MutOperation;
 use vstd::logatom::ReadLinearizer;
 use vstd::logatom::ReadOperation;
+use vstd::prelude::*;
 use vstd::resource::ghost_var::GhostVar;
 use vstd::resource::ghost_var::GhostVarAuth;
-
-use vstd::prelude::*;
 use vstd::resource::Loc;
 
 verus! {
+
+pub trait AbdError<L, Op> {
+    spec fn err_ensures(self, op: Op, lin: L) -> bool;
+}
+
+// NOTE: LIMITATION
+// - The MutLinearizer should be specified in the method
+// - Type problem: the linearization queue is parametrized by the linearizer type
+// - Polymorphism is hard
+#[allow(dead_code)]
+pub trait AbdRegisterClient<C, ML, RL> where
+    ML: MutLinearizer<RegisterWrite>,
+    RL: ReadLinearizer<RegisterRead>,
+ {
+    type Locs;
+
+    type ReadErr: AbdError<RL, RegisterRead>;
+
+    type WriteErr: AbdError<ML, RegisterWrite>;
+
+    type Timestamp;
+
+    spec fn read_lin_requires(lin: RL) -> bool;
+
+    spec fn write_lin_requires(lin: ML) -> bool;
+
+    spec fn register_loc(self) -> Loc;
+
+    spec fn client_id(self) -> u64;
+
+    spec fn named_locs(self) -> Self::Locs;
+
+    spec fn inv(self) -> bool;
+
+    fn read(&mut self, lin: Tracked<RL>) -> (r: Result<
+        (Option<u64>, Self::Timestamp, Tracked<RL::Completion>),
+        Self::ReadErr,
+    >)
+        requires
+            lin@.pre(RegisterRead { id: Ghost(old(self).register_loc()) }),
+            Self::read_lin_requires(lin@),
+            old(self).inv(),
+        ensures
+            self.inv(),
+            self.named_locs() == old(self).named_locs(),
+            r is Ok ==> ({
+                let (val, ts, compl) = r->Ok_0;
+                lin@.post(RegisterRead { id: Ghost(self.register_loc()) }, val, compl@)
+            }),
+            r is Err ==> ({
+                let err = r->Err_0;
+                let op = RegisterRead { id: Ghost(self.register_loc()) };
+                err.err_ensures(op, lin@)
+            }),
+    ;
+
+    // TODO(writes): make writes behind a shared ref.
+    // Problem: there is only a single tracked ClientCtrToken which cannot be shared between
+    // threads
+    fn write(&mut self, value: Option<u64>, lin: Tracked<ML>) -> (r: Result<
+        Tracked<ML::Completion>,
+        Self::WriteErr,
+    >)
+        requires
+            old(self).inv(),
+            lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: value }),
+            Self::write_lin_requires(lin@),
+        ensures
+            self.inv(),
+            self.named_locs() == old(self).named_locs(),
+            r is Ok ==> ({
+                let comp = r->Ok_0;
+                &&& lin@.post(
+                    RegisterWrite { id: Ghost(self.register_loc()), new_value: value },
+                    (),
+                    comp@,
+                )
+            }),
+            r is Err ==> ({
+                let err = r->Err_0;
+                let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: value };
+                err.err_ensures(op, lin@)
+            }),
+    ;
+}
 
 pub struct RegisterRead {
     /// resource location

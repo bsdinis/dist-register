@@ -1,9 +1,10 @@
-use crate::invariants::logatom::{RegisterRead, RegisterWrite};
 use crate::timestamp::Timestamp;
 
-use vstd::prelude::*;
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
 
 use vstd::logatom::{MutLinearizer, ReadLinearizer};
+use vstd::prelude::*;
 #[allow(unused_imports)]
 use vstd::resource::ghost_var::GhostVarAuth;
 

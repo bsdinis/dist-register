@@ -8,18 +8,18 @@ use crate::invariants::lin_queue::CompletedWrite;
 use crate::invariants::lin_queue::MaybeReadLinearized;
 #[cfg(verus_only)]
 use crate::invariants::lin_queue::MaybeWriteLinearized;
-use crate::invariants::logatom::RegisterRead;
-use crate::invariants::logatom::RegisterWrite;
 use crate::timestamp::Timestamp;
 
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
+
+use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 #[cfg(verus_only)]
-use vstd::resource::Loc;
-
-use vstd::logatom::MutLinearizer;
-#[cfg(verus_only)]
 use vstd::resource::ghost_var::GhostVarAuth;
+#[cfg(verus_only)]
+use vstd::resource::Loc;
 
 verus! {
 

@@ -2,13 +2,14 @@
 use crate::invariants::committed_to::WriteAllocation;
 #[cfg(verus_only)]
 use crate::invariants::committed_to::WriteCommitment;
-use crate::invariants::logatom::RegisterRead;
-use crate::invariants::logatom::RegisterWrite;
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::timestamp::Timestamp;
 
+#[cfg(verus_only)]
+use vstd::assert_by_contradiction;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
+use vstd::prelude::*;
 #[cfg(verus_only)]
 use vstd::resource::ghost_var::GhostVarAuth;
 use vstd::resource::map::GhostMapAuth;
@@ -18,9 +19,8 @@ use vstd::resource::Loc;
 #[cfg(verus_only)]
 use vstd::set_lib::*;
 
-#[cfg(verus_only)]
-use vstd::assert_by_contradiction;
-use vstd::prelude::*;
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
 
 mod completed;
 mod maybe_lin;

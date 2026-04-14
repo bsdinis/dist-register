@@ -1,16 +1,6 @@
-use std::sync::Arc;
-
-use vstd::logatom::MutLinearizer;
-use vstd::logatom::ReadLinearizer;
-use vstd::prelude::*;
-use vstd::resource::Loc;
-use vstd::rwlock::RwLock;
-
 #[cfg(verus_only)]
 use crate::invariants;
 use crate::invariants::committed_to::WriteCommitment;
-use crate::invariants::logatom::RegisterRead;
-use crate::invariants::logatom::RegisterWrite;
 use crate::invariants::ServerToken;
 use crate::invariants::StateInvariant;
 use crate::proto::GetRequest;
@@ -20,6 +10,17 @@ use crate::proto::WriteResponse;
 use crate::proto::{GetResponse, GetTimestampResponse};
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::timestamp::Timestamp;
+
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
+
+use std::sync::Arc;
+
+use vstd::logatom::MutLinearizer;
+use vstd::logatom::ReadLinearizer;
+use vstd::prelude::*;
+use vstd::resource::Loc;
+use vstd::rwlock::RwLock;
 
 verus! {
 

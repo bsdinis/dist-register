@@ -2,10 +2,14 @@ use crate::invariants::committed_to::WriteCommitment;
 use crate::invariants::lin_queue::LinWriteToken;
 use crate::invariants::lin_queue::MaybeReadLinearized;
 use crate::invariants::lin_queue::MaybeWriteLinearized;
-use crate::invariants::logatom::RegisterWrite;
 use crate::timestamp::Timestamp;
 
+use specs::abd::AbdError;
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
+
 use vstd::logatom::MutLinearizer;
+use vstd::logatom::ReadLinearizer;
 use vstd::prelude::*;
 
 verus! {
@@ -73,6 +77,37 @@ impl<RL, RC> std::error::Error for ReadError<RL, RC> {
 
 impl<ML, MC> std::error::Error for WriteError<ML, MC> {
 
+}
+
+impl<RL> AbdError<RL, RegisterRead> for ReadError<RL, RL::Completion> where
+    RL: ReadLinearizer<RegisterRead>,
+ {
+    open spec fn err_ensures(self, op: RegisterRead, lin: RL) -> bool {
+        &&& self is FailedFirstQuorum ==> ({
+            &&& self->FailedFirstQuorum_lincomp@.lin() == lin
+            &&& self->FailedFirstQuorum_lincomp@.op() == op
+        })
+        &&& self is FailedSecondQuorum ==> ({
+            &&& self->FailedSecondQuorum_lincomp@.lin() == lin
+            &&& self->FailedSecondQuorum_lincomp@.op() == op
+        })
+    }
+}
+
+impl<ML> AbdError<ML, RegisterWrite> for WriteError<ML, ML::Completion> where
+    ML: MutLinearizer<RegisterWrite>,
+ {
+    open spec fn err_ensures(self, op: RegisterWrite, lin: ML) -> bool {
+        &&& self.inv()
+        &&& self is FailedFirstQuorum ==> ({
+            &&& self->lincomp@.lin() == lin
+            &&& self->lincomp@.op() == op
+        })
+        &&& self is FailedSecondQuorum ==> ({
+            &&& self->token@.value().lin == lin
+            &&& self->token@.value().op == op
+        })
+    }
 }
 
 } // verus!

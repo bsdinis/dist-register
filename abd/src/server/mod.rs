@@ -3,10 +3,6 @@ use crate::channel::ChannelInv;
 use crate::invariants;
 #[cfg(verus_only)]
 use crate::invariants::committed_to::WriteCommitment;
-use crate::invariants::logatom::ReadPerm;
-use crate::invariants::logatom::RegisterRead;
-use crate::invariants::logatom::RegisterWrite;
-use crate::invariants::logatom::WritePerm;
 #[cfg(verus_only)]
 use crate::invariants::quorum::ServerUniverse;
 use crate::invariants::StateInvariant;
@@ -25,6 +21,12 @@ use crate::server::register::MonotonicRegister;
 use crate::server::register::MonotonicRegisterInner;
 #[cfg(verus_only)]
 use crate::timestamp::Timestamp;
+
+use specs::abd::ReadPerm;
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
+use specs::abd::WritePerm;
+
 use verdist::network::channel::Channel;
 #[cfg(verus_only)]
 use verdist::network::channel::ChannelInvariant;

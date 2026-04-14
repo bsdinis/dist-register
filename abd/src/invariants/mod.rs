@@ -15,6 +15,9 @@ use vstd::resource::map::GhostPersistentPointsTo;
 use vstd::resource::map::GhostPointsTo;
 use vstd::resource::Loc;
 
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
+
 #[allow(unused_imports)]
 use crate::timestamp::Timestamp;
 
@@ -23,13 +26,11 @@ use std::sync::Arc;
 
 pub mod committed_to;
 pub mod lin_queue;
-pub mod logatom;
 pub mod quorum;
 pub mod requests;
 
 use committed_to::*;
 use lin_queue::*;
-use logatom::*;
 use quorum::*;
 use requests::*;
 

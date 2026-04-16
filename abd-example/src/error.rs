@@ -4,8 +4,8 @@ use vstd::prelude::*;
 
 use verdist::network::error::ConnectError;
 
-use abd::invariants::logatom::RegisterRead;
-use abd::invariants::logatom::RegisterWrite;
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
 
 impl<ML, RL> From<ConnectError> for Error<ML, ML::Completion, RL, RL::Completion>
 where

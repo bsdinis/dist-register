@@ -13,15 +13,17 @@ use verdist::network::error::ConnectError;
 use verdist::pool::ConnectionPool;
 use verdist::pool::FlawlessPool;
 
+#[cfg(verus_only)]
+use specs::abd::AbdRegisterClient;
+use specs::abd::ReadPerm;
+#[cfg(verus_only)]
+use specs::abd::RegisterRead;
+#[cfg(verus_only)]
+use specs::abd::RegisterWrite;
+use specs::abd::WritePerm;
+
 use abd::channel::ChannelInv;
 use abd::client::AbdPool;
-use abd::client::AbdRegisterClient;
-use abd::invariants::logatom::ReadPerm;
-#[cfg(verus_only)]
-use abd::invariants::logatom::RegisterRead;
-#[cfg(verus_only)]
-use abd::invariants::logatom::RegisterWrite;
-use abd::invariants::logatom::WritePerm;
 use abd::server::run_modelled_server;
 
 mod cli;
@@ -53,12 +55,15 @@ fn connect<C, Conn>(args: &Args, connector: &Conn, client_id: u64) -> Result<
  {
     let mut channel = connector.connect(
         client_id,
-        |_connector, _client_id| Ghost(ChannelInv {
-            commitment_id: arbitrary(),
-            request_map_id: arbitrary(),
-            server_locs: arbitrary(),
-            server_tokens_id: arbitrary(),
-        }),
+        |_connector, _client_id|
+            Ghost(
+                ChannelInv {
+                    commitment_id: arbitrary(),
+                    request_map_id: arbitrary(),
+                    server_locs: arbitrary(),
+                    server_tokens_id: arbitrary(),
+                },
+            ),
     )?;
     if !args.no_delay {
         channel.add_latency(
@@ -127,15 +132,16 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         WritePerm,
         ReadPerm<'_>,
     >(&pool, args.client_id, client_ctr_perm, request_ctr_perm);
-    assume(forall |cid| #[trigger] pool.spec_channels().dom().contains(cid) ==> {
-        let c = pool.spec_channels()[cid];
-        &&& cid.0 == args.client_id
-        &&& state_inv.constant().server_locs.contains_key(cid.1)
-        &&& state_inv.constant().request_map_ids.request_auth_id == c.constant().request_map_id
-        &&& state_inv.constant().commitments_ids.commitment_id == c.constant().commitment_id
-        &&& state_inv.constant().server_tokens_id == c.constant().server_tokens_id
-        &&& state_inv.constant().server_locs == c.constant().server_locs
-    });
+    assume(forall|cid| #[trigger]
+        pool.spec_channels().dom().contains(cid) ==> {
+            let c = pool.spec_channels()[cid];
+            &&& cid.0 == args.client_id
+            &&& state_inv.constant().server_locs.contains_key(cid.1)
+            &&& state_inv.constant().request_map_ids.request_auth_id == c.constant().request_map_id
+            &&& state_inv.constant().commitments_ids.commitment_id == c.constant().commitment_id
+            &&& state_inv.constant().server_tokens_id == c.constant().server_tokens_id
+            &&& state_inv.constant().server_locs == c.constant().server_locs
+        });
     let mut client = AbdPool::<_, WritePerm, ReadPerm<'_>>::new(
         pool,
         args.client_id,

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use abd::invariants::requests::RequestCtrToken;
 use vstd::atomic::PermissionU64;
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
@@ -9,9 +8,11 @@ use vstd::prelude::*;
 use verdist::network::channel::Channel;
 use verdist::pool::ConnectionPool;
 
+use specs::abd::RegisterRead;
+use specs::abd::RegisterWrite;
+
 use abd::invariants::committed_to::ClientCtrToken;
-use abd::invariants::logatom::RegisterRead;
-use abd::invariants::logatom::RegisterWrite;
+use abd::invariants::requests::RequestCtrToken;
 use abd::invariants::RegisterView;
 use abd::invariants::StateInvariant;
 
@@ -92,7 +93,12 @@ pub(crate) fn get_invariant_state<Pool, C, ML, RL>(
         assert(<abd::invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(state_inv.constant(), state));
     });
 
-    (Tracked(client_ctr_token), Tracked(request_ctr_token), Tracked(state_inv), Arc::new(Tracked(view)))
+    (
+        Tracked(client_ctr_token),
+        Tracked(request_ctr_token),
+        Tracked(state_inv),
+        Arc::new(Tracked(view)),
+    )
 }
 
 } // verus!

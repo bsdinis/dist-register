@@ -149,52 +149,58 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         state_inv,
     );
     assert(client.inv()) by { abd::client::lemma_inv(client) };
+    assume(client.register_loc() == view.id());
 
-    let Tracked(r_view) = view.clone();
-    let tracked read_perm = ReadPerm { register: &r_view };
-    assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
-    match client.read(Tracked(read_perm)) {
-        Ok((v, ts, _comp)) => {
+    #[allow(unused)]
+    let r_view = view.clone();
+    let tracked read_perm = ReadPerm { register: r_view.borrow() };
+    assert(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+    let (v, ts, comp) = match client.read(Tracked(read_perm)) {
+        Ok((v, ts, comp)) => {
             vlib::veprintln!("[client|{:>3}]: read completed: {:?} @ {:?}", args.client_id, v, ts);
+            (v, ts, comp)
         },
         Err(e) => {
             vlib::veprintln!("[client|{:>3}]: read error: {}", args.client_id, e);
             return Err(Error::Empty);
-            // return Err(e)?;
         },
     };
+    assert(comp@@ == v);
 
     /*
-    let Tracked(w_view) = view.clone();
+    #[allow(unused)]
+    let w_view = view.clone();
+    let value = Some(42u64);
     let tracked write_perm = WritePerm { register: w_view, value: Some(42u64) };
     #[allow(unused_variables)]
     let new_view = match client.write(Some(42), Tracked(write_perm)) {
         Ok(comp) => {
-            report_write(0, Some(42));
+            vlib::veprintln!("[client|{:>3}]: write completed: {:?}", args.client_id, value);
             comp
         },
         Err(e) => {
-            report_err(0, &e);
+            vlib::veprintln!("[client|{:>3}]: write error: {}", args.client_id, e);
             return Err(Error::Empty);
-            // return Err(e)?;
         },
     };
     assert(new_view@@ == Some(42u64));
+    */
 
-    let Tracked(r_view) = view.clone();
-    let tracked read_perm = ReadPerm { register: &r_view };
-    assume(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
-    match client.read(Tracked(read_perm)) {
-        Ok((v, ts, _comp)) => {
-            report_read(0, (v, ts));
+    #[allow(unused)]
+    let r_view = view.clone();
+    let tracked read_perm = ReadPerm { register: r_view.borrow() };
+    assert(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+    let (v, ts, comp) = match client.read(Tracked(read_perm)) {
+        Ok((v, ts, comp)) => {
+            vlib::veprintln!("[client|{:>3}]: read completed: {:?} @ {:?}", args.client_id, v, ts);
+            (v, ts, comp)
         },
         Err(e) => {
-            report_err(0, &e);
+            vlib::veprintln!("[client|{:>3}]: read error: {}", args.client_id, e);
             return Err(Error::Empty);
-            // return Err(e)?;
         },
     };
-    */
+    assert(comp@@ == v);
 
     Ok(())
 }

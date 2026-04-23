@@ -149,12 +149,11 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
         state_inv,
     );
     assert(client.inv()) by { abd::client::lemma_inv(client) };
-    assume(client.register_loc() == view.id());
 
     #[allow(unused)]
     let r_view = view.clone();
     let tracked read_perm = ReadPerm { register: r_view.borrow() };
-    assert(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+    #[allow(unused)]
     let (v, ts, comp) = match client.read(Tracked(read_perm)) {
         Ok((v, ts, comp)) => {
             vlib::veprintln!("[client|{:>3}]: read completed: {:?} @ {:?}", args.client_id, v, ts);
@@ -189,7 +188,7 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     #[allow(unused)]
     let r_view = view.clone();
     let tracked read_perm = ReadPerm { register: r_view.borrow() };
-    assert(read_perm.pre(RegisterRead { id: Ghost(client.register_loc()) }));
+    #[allow(unused)]
     let (v, ts, comp) = match client.read(Tracked(read_perm)) {
         Ok((v, ts, comp)) => {
             vlib::veprintln!("[client|{:>3}]: read completed: {:?} @ {:?}", args.client_id, v, ts);

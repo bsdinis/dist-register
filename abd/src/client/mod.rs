@@ -112,6 +112,7 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
             request_ctr_token@.value().1 == request_ctr.id(),
         ensures
             r._inv(),
+            r.register_loc() == state_inv@.constant().register_id
     {
         AbdPool {
             pool,

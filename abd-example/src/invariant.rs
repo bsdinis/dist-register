@@ -59,6 +59,7 @@ pub(crate) fn get_invariant_state<Pool, C, ML, RL>(
             r.2@.constant().server_locs.contains_key(server_id) ==> {
                 pool.spec_channels().contains_key((client_id, server_id))
             },
+        r.2@.constant().register_id == r.3@.id(),
         pool.spec_len() == r.2@.constant().server_locs.len(),  // TODO: superfluous
 {
     let ghost server_ids = pool.spec_channels().dom().map(|id: (u64, u64)| id.1);

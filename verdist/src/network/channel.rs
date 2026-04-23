@@ -187,7 +187,7 @@ impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
     }
 }
 
-impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
+impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage, C::Id: std::fmt::Debug {
     pub fn try_recv_tag(&self, tag: u64) -> (r: Result<Option<C::R>, TryRecvError>)
         ensures
             r is Ok && r->Ok_0 is Some ==> {
@@ -206,13 +206,16 @@ impl<C> BufChannel<C> where C: Channel, C::R: TaggedMessage {
         }
         handle.release_write(guard);
 
+        //vlib::veprintln!("[client]: polling on channel {:?}", self.id());
         match self.channel.try_recv() {
             Ok(r) if r.tag() == tag => {
+                // vlib::veprintln!("[client]: received correct message on channel {:?}", self.id());
                 assert(r.spec_tag() == tag);
                 assert(C::K::recv_inv(self.constant(), self.spec_id(), r));
                 Ok(Some(r))
             },
             Ok(r) => {
+                // vlib::veprintln!("[client]: received message on channel {:?} (wrong tag)", self.id());
                 let (mut guard, handle) = self.buffered.acquire_write();
                 guard.insert(r.tag(), r);
                 handle.release_write(guard);

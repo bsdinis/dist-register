@@ -22,10 +22,10 @@ use crate::server::register::MonotonicRegisterInner;
 #[cfg(verus_only)]
 use crate::timestamp::Timestamp;
 
-use specs::abd::ReadPerm;
+use specs::abd::OwnedReadPerm;
+use specs::abd::OwnedWritePerm;
 use specs::abd::RegisterRead;
 use specs::abd::RegisterWrite;
-use specs::abd::WritePerm;
 
 use verdist::network::channel::Channel;
 #[cfg(verus_only)]
@@ -442,7 +442,7 @@ pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Response, Reques
 {
     let (listener, connector) = verdist::network::modelled::listen_channel(server_id);
     std::thread::spawn(move || {
-        let server = Arc::new(create_server::<_, _, WritePerm, ReadPerm<'_>>(
+        let server = Arc::new(create_server::<_, _, OwnedWritePerm, OwnedReadPerm>(
             server_id, listener,
         ));
         tracing::info!("starting server {}", server.id);

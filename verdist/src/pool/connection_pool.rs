@@ -199,7 +199,12 @@ impl<C> FlawlessPool<C> where C: Channel {
     }
 }
 
-impl<C> FlawlessPool<BufChannel<C>> where C: Channel, C::S: TaggedMessage, C::R: TaggedMessage {
+impl<C> FlawlessPool<BufChannel<C>> where
+    C: Channel,
+    C::Id: std::fmt::Debug,
+    C::S: TaggedMessage,
+    C::R: TaggedMessage,
+ {
     pub fn new(pool: Vec<BufChannel<C>>) -> (r: Self)
         requires
             pool@.map_values(|c: BufChannel<C>| c.spec_id()).no_duplicates(),
@@ -213,6 +218,7 @@ impl<C> FlawlessPool<BufChannel<C>> where C: Channel, C::S: TaggedMessage, C::R:
 
 impl<C> ConnectionPool for FlawlessPool<BufChannel<C>> where
     C: Channel,
+    C::Id: std::fmt::Debug,
     C::S: TaggedMessage,
     C::R: TaggedMessage,
  {

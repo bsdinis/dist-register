@@ -15,7 +15,12 @@ pub struct RpcChannel<C> where C: Channel, C::R: TaggedMessage, C::S: TaggedMess
     channel: BufChannel<C>,
 }
 
-impl<C> RpcChannel<C> where C: Channel, C::R: TaggedMessage, C::S: TaggedMessage {
+impl<C> RpcChannel<C> where
+    C: Channel,
+    C::Id: std::fmt::Debug,
+    C::R: TaggedMessage,
+    C::S: TaggedMessage,
+ {
     pub fn new(channel: BufChannel<C>) -> (r: Self)
         ensures
             r.channel() == channel,
@@ -62,7 +67,12 @@ pub struct RpcContext<'a, C> where C: Channel, C::R: TaggedMessage, C::S: Tagged
     tag: u64,
 }
 
-impl<'a, C> RpcContext<'a, C> where C: Channel, C::R: TaggedMessage, C::S: TaggedMessage {
+impl<'a, C> RpcContext<'a, C> where
+    C: Channel,
+    C::Id: std::fmt::Debug,
+    C::R: TaggedMessage,
+    C::S: TaggedMessage,
+ {
     pub closed spec fn spec_tag(self) -> u64 {
         self.tag
     }

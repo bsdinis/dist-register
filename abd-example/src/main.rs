@@ -14,12 +14,12 @@ use verdist::pool::ConnectionPool;
 use verdist::pool::FlawlessPool;
 
 use specs::abd::AbdRegisterClient;
-use specs::abd::ReadPerm;
+use specs::abd::OwnedReadPerm;
+use specs::abd::OwnedWritePerm;
 #[cfg(verus_only)]
 use specs::abd::RegisterRead;
 #[cfg(verus_only)]
 use specs::abd::RegisterWrite;
-use specs::abd::WritePerm;
 
 use abd::channel::ChannelInv;
 use abd::client::AbdPool;
@@ -101,7 +101,7 @@ fn connect_all<C, Conn>(args: &Args, connectors: &[Conn], client_id: u64) -> (r:
 
 fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     (),
-    Error<WritePerm, GhostVar<Option<u64>>, ReadPerm<'a>, &'a GhostVar<Option<u64>>>,
+    Error<OwnedWritePerm, GhostVar<Option<u64>>, OwnedReadPerm, GhostVar<Option<u64>>>,
 > where
     Conn: Connector<C> + Send + Sync,
     C: Channel<
@@ -126,8 +126,8 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     let (client_ctr_token, request_ctr_token, state_inv, view) = get_invariant_state::<
         _,
         _,
-        WritePerm,
-        ReadPerm<'_>,
+        OwnedWritePerm,
+        OwnedReadPerm,
     >(&pool, args.client_id, client_ctr_perm, request_ctr_perm);
     assume(forall|cid| #[trigger]
         pool.spec_channels().dom().contains(cid) ==> {
@@ -139,7 +139,7 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
             &&& state_inv.constant().server_tokens_id == c.constant().server_tokens_id
             &&& state_inv.constant().server_locs == c.constant().server_locs
         });
-    let mut client = AbdPool::<_, WritePerm, ReadPerm<'_>>::new(
+    let mut client = AbdPool::<_, OwnedWritePerm, OwnedReadPerm>::new(
         pool,
         args.client_id,
         client_ctr,
@@ -151,28 +151,25 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
     assert(client.inv()) by { abd::client::lemma_inv(client) };
 
     #[allow(unused)]
-    let r_view = view.clone();
-    let tracked read_perm = ReadPerm { register: r_view.borrow() };
+    let tracked read_perm = OwnedReadPerm { register: view.get() };
     #[allow(unused)]
-    let (v, ts, comp) = match client.read(Tracked(read_perm)) {
-        Ok((v, ts, comp)) => {
+    let (v, ts, view2) = match client.read(Tracked(read_perm)) {
+        Ok((v, ts, view)) => {
             vlib::veprintln!("[client|{:>3}]: read completed: {:?} @ {:?}", args.client_id, v, ts);
-            (v, ts, comp)
+            (v, ts, view)
         },
         Err(e) => {
             vlib::veprintln!("[client|{:>3}]: read error: {}", args.client_id, e);
             return Err(Error::Empty);
         },
     };
-    assert(comp@@ == v);
+    assert(view2@@ == v);
 
-    /*
     #[allow(unused)]
-    let w_view = view.clone();
     let value = Some(42u64);
-    let tracked write_perm = WritePerm { register: w_view, value: Some(42u64) };
+    let tracked write_perm = OwnedWritePerm { register: view2.get(), value };
     #[allow(unused_variables)]
-    let new_view = match client.write(Some(42), Tracked(write_perm)) {
+    let view3 = match client.write(Some(42), Tracked(write_perm)) {
         Ok(comp) => {
             vlib::veprintln!("[client|{:>3}]: write completed: {:?}", args.client_id, value);
             comp
@@ -182,14 +179,11 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
             return Err(Error::Empty);
         },
     };
-    assert(new_view@@ == Some(42u64));
-    */
+    assert(view3@@ == Some(42u64));
 
+    let tracked read_perm = OwnedReadPerm { register: view3.get() };
     #[allow(unused)]
-    let r_view = view.clone();
-    let tracked read_perm = ReadPerm { register: r_view.borrow() };
-    #[allow(unused)]
-    let (v, ts, comp) = match client.read(Tracked(read_perm)) {
+    let (v, ts, view4) = match client.read(Tracked(read_perm)) {
         Ok((v, ts, comp)) => {
             vlib::veprintln!("[client|{:>3}]: read completed: {:?} @ {:?}", args.client_id, v, ts);
             (v, ts, comp)
@@ -199,7 +193,7 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
             return Err(Error::Empty);
         },
     };
-    assert(comp@@ == v);
+    assert(view4@@ == v);
 
     Ok(())
 }

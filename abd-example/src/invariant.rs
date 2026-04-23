@@ -28,7 +28,7 @@ pub(crate) fn get_invariant_state<Pool, C, ML, RL>(
     Tracked<ClientCtrToken>,
     Tracked<RequestCtrToken>,
     Tracked<Arc<StateInvariant<ML, RL>>>,
-    Arc<Tracked<RegisterView>>,
+    Tracked<RegisterView>,
 )) where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = abd::proto::Response, S = abd::proto::Request, Id = (u64, u64)>,
@@ -94,12 +94,7 @@ pub(crate) fn get_invariant_state<Pool, C, ML, RL>(
         assert(<abd::invariants::StatePredicate as vstd::invariant::InvariantPredicate<_, _>>::inv(state_inv.constant(), state));
     });
 
-    (
-        Tracked(client_ctr_token),
-        Tracked(request_ctr_token),
-        Tracked(state_inv),
-        Arc::new(Tracked(view)),
-    )
+    (Tracked(client_ctr_token), Tracked(request_ctr_token), Tracked(state_inv), Tracked(view))
 }
 
 } // verus!

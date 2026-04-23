@@ -112,12 +112,12 @@ impl ReadOperation for RegisterRead {
     }
 }
 
-pub struct ReadPerm<'a> {
-    pub tracked register: &'a GhostVar<Option<u64>>,
+pub struct OwnedReadPerm {
+    pub tracked register: GhostVar<Option<u64>>,
 }
 
-impl<'a> ReadLinearizer<RegisterRead> for ReadPerm<'a> {
-    type Completion = &'a GhostVar<Option<u64>>;
+impl ReadLinearizer<RegisterRead> for OwnedReadPerm {
+    type Completion = GhostVar<Option<u64>>;
 
     open spec fn namespaces(self) -> Set<int> {
         Set::empty()
@@ -145,7 +145,7 @@ impl<'a> ReadLinearizer<RegisterRead> for ReadPerm<'a> {
         tracked resource: &GhostVarAuth<Option<u64>>,
         exec_res: &Option<u64>,
     ) -> (tracked result: Self::Completion) {
-        resource.agree(self.register);
+        resource.agree(&self.register);
         self.register
     }
 
@@ -180,12 +180,12 @@ impl MutOperation for RegisterWrite {
     }
 }
 
-pub struct WritePerm {
+pub struct OwnedWritePerm {
     pub value: Option<u64>,
     pub tracked register: GhostVar<Option<u64>>,
 }
 
-impl MutLinearizer<RegisterWrite> for WritePerm {
+impl MutLinearizer<RegisterWrite> for OwnedWritePerm {
     type Completion = GhostVar<Option<u64>>;
 
     open spec fn namespaces(self) -> Set<int> {
@@ -209,7 +209,7 @@ impl MutLinearizer<RegisterWrite> for WritePerm {
         new_state: (),
         exec_res: &(),
     ) -> (tracked result: Self::Completion) {
-        let tracked WritePerm { value, mut register } = self;
+        let tracked OwnedWritePerm { value, mut register } = self;
 
         resource.update(&mut register, op.new_value);
         register

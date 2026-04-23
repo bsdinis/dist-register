@@ -22,8 +22,6 @@ pub trait AbdRegisterClient<C, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
-    type Locs;
-
     type ReadErr: AbdError<RL, RegisterRead>;
 
     type WriteErr: AbdError<ML, RegisterWrite>;
@@ -38,8 +36,6 @@ pub trait AbdRegisterClient<C, ML, RL> where
 
     spec fn client_id(self) -> u64;
 
-    spec fn named_locs(self) -> Self::Locs;
-
     spec fn inv(self) -> bool;
 
     fn read(&mut self, lin: Tracked<RL>) -> (r: Result<
@@ -52,7 +48,7 @@ pub trait AbdRegisterClient<C, ML, RL> where
             old(self).inv(),
         ensures
             self.inv(),
-            self.named_locs() == old(self).named_locs(),
+            self.register_loc() == old(self).register_loc(),
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
                 lin@.post(RegisterRead { id: Ghost(self.register_loc()) }, val, compl@)
@@ -77,7 +73,7 @@ pub trait AbdRegisterClient<C, ML, RL> where
             Self::write_lin_requires(lin@),
         ensures
             self.inv(),
-            self.named_locs() == old(self).named_locs(),
+            self.register_loc() == old(self).register_loc(),
             r is Ok ==> ({
                 let comp = r->Ok_0;
                 &&& lin@.post(

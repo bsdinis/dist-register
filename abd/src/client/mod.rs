@@ -181,16 +181,6 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
     }
 }
 
-#[allow(dead_code)]
-pub struct AbdRegisterLocs {
-    pub register_id: Loc,
-    pub state_inv_namespace: int,
-    pub client_ctr_perm: int,
-    pub client_ctr_token_id: Loc,
-    pub request_ctr_perm: int,
-    pub request_ctr_token_id: Loc,
-}
-
 impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Response, S = Request, Id = (u64, u64), K = ChannelInv>,
@@ -198,8 +188,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
-    type Locs = AbdRegisterLocs;
-
     type ReadErr = error::ReadError<RL, RL::Completion>;
 
     type WriteErr = error::WriteError<ML, ML::Completion>;
@@ -222,17 +210,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
 
     closed spec fn register_loc(self) -> Loc {
         self.register_id@
-    }
-
-    closed spec fn named_locs(self) -> AbdRegisterLocs {
-        AbdRegisterLocs {
-            register_id: self.register_id@,
-            state_inv_namespace: self.state_inv@.namespace(),
-            client_ctr_perm: self.client_ctr_token@.value().1,
-            client_ctr_token_id: self.client_ctr_token@.id(),
-            request_ctr_perm: self.request_ctr_token@.value().1,
-            request_ctr_token_id: self.request_ctr_token@.id(),
-        }
     }
 
     closed spec fn inv(self) -> bool {

@@ -1,0 +1,255 @@
+use crate::invariants::requests::RequestProof;
+use crate::proto::echo::EchoRequest;
+#[cfg(verus_only)]
+use crate::proto::ReqType;
+
+use verdist::rpc::proto::TaggedMessage;
+
+use vstd::prelude::*;
+#[cfg(verus_only)]
+use vstd::resource::Loc;
+
+verus! {
+
+pub struct Request {
+    request_id: u64,
+    inner: RequestInner,
+    request: Tracked<RequestProof>,
+}
+
+pub enum RequestInner {
+    Echo(EchoRequest),
+}
+
+impl TaggedMessage for Request {
+    fn tag(&self) -> u64 {
+        self.request_id
+    }
+
+    closed spec fn spec_tag(self) -> u64 {
+        self.request_id
+    }
+}
+
+impl RequestInner {
+    pub open spec fn req_type(self) -> ReqType {
+        match self {
+            RequestInner::Echo(_) => ReqType::Echo,
+        }
+    }
+
+    pub fn new_echo(message: String) -> (r: Self)
+        ensures
+            r.req_type() is Echo,
+            ({
+                let req = r->Echo_0;
+                req.spec_message() == message
+            }),
+    {
+        RequestInner::Echo(EchoRequest::new(message))
+    }
+
+    pub open spec fn spec_eq(self, other: Self) -> bool {
+        match (self, other) {
+            (RequestInner::Echo(a), RequestInner::Echo(b)) => a.spec_eq(b),
+        }
+    }
+
+    pub broadcast proof fn spec_eq_refl(a: Self)
+        ensures
+            #[trigger] a.spec_eq(a),
+    {
+        match a {
+            RequestInner::Echo(a) => { EchoRequest::spec_eq_refl(a) },
+        }
+    }
+
+    pub broadcast proof fn spec_eq_symm(a: Self, b: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+        ensures
+            b.spec_eq(a),
+    {
+        match (a, b) {
+            (RequestInner::Echo(a), RequestInner::Echo(b)) => EchoRequest::spec_eq_symm(a, b),
+        }
+    }
+
+    pub broadcast proof fn spec_eq_trans(a: Self, b: Self, c: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+            #[trigger] b.spec_eq(c),
+        ensures
+            a.spec_eq(c),
+    {
+        match (a, b, c) {
+            (
+                RequestInner::Echo(a),
+                RequestInner::Echo(b),
+                RequestInner::Echo(c),
+            ) => EchoRequest::spec_eq_trans(a, b, c),
+        }
+    }
+}
+
+impl Request {
+    pub closed spec fn request_id(self) -> Loc {
+        self.request.id()
+    }
+
+    pub closed spec fn request_key(self) -> (u64, u64) {
+        self.request@.key()
+    }
+
+    pub closed spec fn request(self) -> RequestInner {
+        self.request@.value()
+    }
+
+    pub closed spec fn req_type(self) -> ReqType {
+        self.inner.req_type()
+    }
+
+    pub closed spec fn echo(self) -> EchoRequest
+        recommends
+            self.req_type() is Echo,
+    {
+        self.inner->Echo_0
+    }
+
+    pub closed spec fn client_id(self) -> u64 {
+        self.request@.key().0
+    }
+
+    #[verifier::type_invariant]
+    spec fn inv(self) -> bool {
+        &&& self.request@.key().1 == self.request_id
+        &&& self.request@.value().spec_eq(self.inner)
+    }
+
+    pub fn new(
+        #[allow(unused_variables)]
+        client_id: u64,
+        request_id: u64,
+        request_inner: RequestInner,
+        request_proof: Tracked<RequestProof>,
+    ) -> (r: Self)
+        requires
+            request_proof@.key() == (client_id, request_id),
+            request_proof@.value().spec_eq(request_inner),
+        ensures
+            r.req_type() == request_inner.req_type(),
+            r.request_key() == (r.client_id(), r.spec_tag()),
+            r.request_id() == request_proof@.id(),
+            r.client_id() == client_id,
+            r.spec_tag() == request_id,
+            r.req_type() is Echo ==> r.echo() == request_inner->Echo_0,
+    {
+        Request { request_id, inner: request_inner, request: request_proof }
+    }
+
+    pub fn destruct(self) -> (r: (u64, RequestInner, Tracked<RequestProof>))
+        ensures
+            r.0 == self.spec_tag(),
+            r.2@.value().spec_eq(r.1),
+            r.2@.id() == self.request_id(),
+            r.2@.value() == self.request(),
+            r.2@.value().req_type() == self.req_type(),
+            r.2@.key() == self.request_key(),
+            r.2@.key() == (self.client_id(), self.spec_tag()),
+            r.2@.value().spec_eq(r.1),
+            r.1 is Echo <==> self.req_type() is Echo,
+            self.req_type() is Echo ==> r.1->Echo_0 == self.echo(),
+        no_unwind
+    {
+        proof {
+            use_type_invariant(&self);
+        }
+        (self.request_id, self.inner, self.request)
+    }
+
+    pub closed spec fn spec_eq(self, other: Self) -> bool {
+        &&& self.request_id == other.request_id
+        &&& self.inner.spec_eq(other.inner)
+        &&& self.request@.id() == other.request@.id()
+        &&& self.request@@ == other.request@@
+    }
+
+    pub broadcast proof fn spec_eq_refl(a: Self)
+        ensures
+            #[trigger] a.spec_eq(a),
+    {
+        RequestInner::spec_eq_refl(a.inner);
+    }
+
+    pub broadcast proof fn spec_eq_symm(a: Self, b: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+        ensures
+            b.spec_eq(a),
+    {
+        RequestInner::spec_eq_symm(a.inner, b.inner);
+    }
+
+    pub broadcast proof fn spec_eq_trans(a: Self, b: Self, c: Self)
+        requires
+            #[trigger] a.spec_eq(b),
+            #[trigger] b.spec_eq(c),
+        ensures
+            a.spec_eq(c),
+    {
+        RequestInner::spec_eq_trans(a.inner, b.inner, c.inner);
+    }
+}
+
+impl Clone for Request {
+    #[allow(unused_variables)]
+    fn clone(&self) -> (r: Self)
+        ensures
+            self.spec_eq(r),
+            r.spec_eq(*self),
+    {
+        broadcast use RequestInner::spec_eq_trans;
+        broadcast use RequestInner::spec_eq_symm;
+
+        proof {
+            use_type_invariant(self);
+        }
+        let inner = self.inner.clone();
+        assert(inner.spec_eq(self.inner));
+        assert(self.request@.value().spec_eq(self.inner));
+        assert(self.request@.value().spec_eq(inner));
+        let request = Tracked(self.request.borrow().duplicate());
+        Request { request_id: self.request_id, inner, request }
+    }
+}
+
+impl Clone for RequestInner {
+    #[allow(unused_variables)]
+    fn clone(&self) -> (r: Self)
+        ensures
+            self.spec_eq(r),
+            r.spec_eq(*self),
+    {
+        match self {
+            RequestInner::Echo(echo) => { RequestInner::Echo(echo.clone()) },
+        }
+    }
+}
+
+} // verus!
+impl std::fmt::Debug for RequestInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RequestInner::Echo(echo) => f.debug_tuple("Echo").field(&echo).finish(),
+        }
+    }
+}
+
+impl std::fmt::Debug for Request {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Request")
+            .field("request_id", &self.request_id)
+            .field("request", &self.inner)
+            .finish()
+    }
+}

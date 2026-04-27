@@ -1,5 +1,3 @@
-use specs::echo::EchoClient;
-
 use vstd::prelude::*;
 
 verus! {
@@ -9,12 +7,24 @@ pub struct TrivialEchoClient<V> {
     _marker: std::marker::PhantomData<V>,
 }
 
-impl<C, V> EchoClient<C> for TrivialEchoClient<V> {
+pub struct TrivialError<V> {
+    _marker: std::marker::PhantomData<V>,
+}
+
+impl<V> specs::echo::EchoError for TrivialError<V> {
     type Val = V;
 
-    type Error = ();
+    open spec fn err_ensures(self, val: Self::Val) -> bool {
+        true
+    }
+}
 
-    fn echo(&self, v: Self::Val) -> (r: Result<Self::Val, Self::Error>) {
+impl<C, V> specs::echo::EchoClient<C> for TrivialEchoClient<V> {
+    type Val = V;
+
+    type Error = TrivialError<V>;
+
+    fn echo(&mut self, v: Self::Val) -> (r: Result<Self::Val, Self::Error>) {
         Ok(v)
     }
 }

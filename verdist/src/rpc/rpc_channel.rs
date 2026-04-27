@@ -32,6 +32,14 @@ impl<C> RpcChannel<C> where
         self.channel
     }
 
+    pub open spec fn spec_id(self) -> C::Id {
+        self.channel().spec_id()
+    }
+
+    pub open spec fn constant(self) -> C::K {
+        self.channel().constant()
+    }
+
     pub fn async_invoke<'a>(&'a self, req: &C::S) -> (r: Result<RpcContext<'a, C>, SendError<C::S>>)
         requires
             C::K::send_inv(self.channel().constant(), self.channel().spec_id(), *req),

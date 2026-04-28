@@ -69,7 +69,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
         requires
             Pred::inv(pred@, accum),
             accum.spec_handled_replies().is_empty(),
-            vstd::laws_cmp::obeys_cmp_spec::<C::Id>(),
+            vstd::laws_cmp::obeys_cmp::<C::Id>(),
         ensures
             r.spec_len() == 0,
             r.pred() == pred@,
@@ -81,7 +81,7 @@ impl<C, Pred, A> Replies<C, Pred, A> where
 
     #[verifier::type_invariant]
     closed spec fn inv(self) -> bool {
-        &&& vstd::laws_cmp::obeys_cmp_spec::<C::Id>()
+        &&& vstd::laws_cmp::obeys_cmp::<C::Id>()
         &&& Pred::inv(self.pred(), self.accum)
     }
 

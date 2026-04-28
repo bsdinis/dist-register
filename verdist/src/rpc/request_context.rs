@@ -53,7 +53,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
             accum.request_tag() == request_tag,
             accum.spec_handled_replies().is_empty(),
             accum.channels() == pool.spec_channels(),
-            vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
+            vstd::laws_cmp::obeys_cmp::<ChannelId<Pool>>(),
         ensures
             r.pred() == pred@,
             r.channels() == pool.spec_channels(),

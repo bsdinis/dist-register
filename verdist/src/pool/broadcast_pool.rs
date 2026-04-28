@@ -58,7 +58,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
             accum.request_tag() == request.spec_tag(),
             accum.spec_handled_replies().is_empty(),
             accum.channels() == self.spec_channels(),
-            vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
+            vstd::laws_cmp::obeys_cmp::<ChannelId<Pool>>(),
             forall|id| #[trigger]
                 self.spec_channels().contains_key(id) ==> {
                     let chan = self.spec_channels()[id];
@@ -114,7 +114,7 @@ impl<'a, Pool, Request> BroadcastPool<'a, Pool> where
             accum.request_tag() == request.spec_tag(),
             accum.spec_handled_replies().is_empty(),
             accum.channels() == self.spec_channels(),
-            vstd::laws_cmp::obeys_cmp_spec::<ChannelId<Pool>>(),
+            vstd::laws_cmp::obeys_cmp::<ChannelId<Pool>>(),
             forall|id| #[trigger]
                 self.spec_channels().contains_key(id) ==> {
                     let chan = self.spec_channels()[id];

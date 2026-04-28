@@ -281,7 +281,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
                 request_proof,
             ),
         );
-        assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
+        assume(vstd::laws_cmp::obeys_cmp::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
         let tracked server_lbs_cpy;
         proof {
             server_lbs_cpy = server_lbs.extract_lbs();
@@ -640,7 +640,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
         );
         let get_ts_replies = {
             let ghost qsize = self.spec_quorum_size();
-            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
+            assume(vstd::laws_cmp::obeys_cmp::<(u64, u64)>());  // TODO(obeys_cmp_spec): add this to verus
             let accum = GetTimestampAccumulator::new(
                 Tracked(server_lbs),
                 Tracked(server_tokens_lb),
@@ -822,7 +822,7 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
             );
             let ghost qsize = self.spec_quorum_size();
             // TODO(obeys_cmp_spec): add this to verus
-            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+            assume(vstd::laws_cmp::obeys_cmp::<(u64, u64)>());
             #[allow(unused_parens)]
             let quorum_res = bpool.broadcast(req, write_pred, accum).wait_for(
                 (|s| -> (r: bool)

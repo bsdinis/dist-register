@@ -437,7 +437,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
     {
         proof {
             use_type_invariant(self);
-            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+            assume(vstd::laws_cmp::obeys_cmp::<(u64, u64)>());
         }
         self.replies.len()
     }
@@ -535,7 +535,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
             },
         no_unwind
     {
-        assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+        assume(vstd::laws_cmp::obeys_cmp::<(u64, u64)>());
 
         let mut new_val = None;
         if let Some(max_resp) = max_resp.as_ref() {
@@ -636,7 +636,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
         no_unwind
     {
         proof {
-            assume(vstd::laws_cmp::obeys_cmp_spec::<(u64, u64)>());
+            assume(vstd::laws_cmp::obeys_cmp::<(u64, u64)>());
         }
 
         if replies.contains(&id) {

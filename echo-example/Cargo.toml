@@ -1,0 +1,37 @@
+[package]
+name = "echo-example"
+
+edition = "2024"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/bsdinis/dist-register"
+rust-version = "1.94"
+version = "0.0.1"
+
+[dependencies]
+clap = { version = "4.4.12", features = ["derive"] }
+
+echo = { path = "../echo" }
+rand = "0.10.1"
+specs = { path = "../specs" }
+verdist = { path = "../verdist" }
+vlib = { path = "../../vlib" }
+vstd = { path = "../../verus/source/vstd" }
+
+[lints.clippy]
+explicit_iter_loop = "warn"
+flat_map_option = "warn"
+implicit_clone = "warn"
+needless_for_each = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+useless_conversion = "warn"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)', 'cfg(verus_keep_ghost)'] }
+
+[profile.release]
+strip = "debuginfo"
+
+[package.metadata.verus]
+verify = true

@@ -135,8 +135,11 @@ pub trait Listener<C> where C: Channel {
 }
 
 pub trait Connector<C> where C: Channel {
-    fn connect<F>(&self, local_id: u64, gen_pred: F) -> Result<C, ConnectError> where
+    fn connect<F>(&self, local_id: u64, gen_pred: F) -> (r: Result<C, ConnectError>) where
         F: FnOnce(&Self, u64) -> Ghost<C::K>,
+
+        ensures
+            r is Ok ==> gen_pred.ensures((self, local_id), Ghost(r->Ok_0.constant())),
     ;
 }
 

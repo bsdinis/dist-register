@@ -350,7 +350,6 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> WriteAccumulator<C> {
     {
         proof {
             use_type_invariant(self);
-            assume(vstd::laws_cmp::obeys_cmp::<(u64, u64)>());
         }
         self.replies.len()
     }
@@ -437,10 +436,6 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> WriteAccumulator<C> {
             Self::unchanged_inv(servers@, request@.value()->Write_0.servers(), replies@, id.0),
         no_unwind
     {
-        proof {
-            assume(vstd::laws_cmp::obeys_cmp::<(u64, u64)>());
-        }
-
         if replies.contains(&id) {
             return ;
         }

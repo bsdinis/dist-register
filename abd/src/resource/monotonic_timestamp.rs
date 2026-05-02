@@ -22,7 +22,7 @@ verus! {
 // `FullRightToAdvance{ value }` -- knowledge that the monotonic timestamp is
 // exactly `value` and the authority to advance it past that value
 #[allow(dead_code)]
-pub enum MonotonicTimestampResourceValue {
+pub tracked enum MonotonicTimestampResourceValue {
     LowerBound { lower_bound: Timestamp },
     FullRightToAdvance { value: Timestamp },
     HalfRightToAdvance { value: Timestamp },
@@ -203,8 +203,10 @@ impl MonotonicTimestampResource {
             old(self)@ is FullRightToAdvance,
             new_value > old(self)@.timestamp(),
         ensures
-            self.loc() == old(self).loc(),
-            self@ == (MonotonicTimestampResourceValue::FullRightToAdvance { value: new_value }),
+            final(self).loc() == old(self).loc(),
+            final(self)@ == (MonotonicTimestampResourceValue::FullRightToAdvance {
+                value: new_value,
+            }),
     {
         let r = MonotonicTimestampResourceValue::FullRightToAdvance { value: new_value };
         update_mut(&mut self.r, r);
@@ -219,12 +221,12 @@ impl MonotonicTimestampResource {
             old(other)@ is HalfRightToAdvance,
             new_value > old(self)@.timestamp(),
         ensures
-            self.loc() == old(self).loc(),
-            other.loc() == old(other).loc(),
-            self@.timestamp() == new_value,
-            other@.timestamp() == new_value,
-            self@ is HalfRightToAdvance,
-            other@ is HalfRightToAdvance,
+            final(self).loc() == old(self).loc(),
+            final(other).loc() == old(other).loc(),
+            final(self)@.timestamp() == new_value,
+            final(other)@.timestamp() == new_value,
+            final(self)@ is HalfRightToAdvance,
+            final(other)@ is HalfRightToAdvance,
     {
         self.r.validate_2(&other.r);
         let updated = MonotonicTimestampResourceValue::HalfRightToAdvance { value: new_value };
@@ -249,16 +251,16 @@ impl MonotonicTimestampResource {
         requires
             old(self).loc() == other.loc(),
         ensures
-            self@ == old(self)@,
-            self.loc() == old(self).loc(),
-            self@ is LowerBound && other@ is FullRightToAdvance ==> self@.timestamp()
+            final(self)@ == old(self)@,
+            final(self).loc() == old(self).loc(),
+            final(self)@ is LowerBound && other@ is FullRightToAdvance ==> final(self)@.timestamp()
                 <= other@.timestamp(),
-            other@ is LowerBound && self@ is FullRightToAdvance ==> other@.timestamp()
-                <= self@.timestamp(),
-            self@ is LowerBound && other@ is HalfRightToAdvance ==> self@.timestamp()
+            other@ is LowerBound && final(self)@ is FullRightToAdvance ==> other@.timestamp()
+                <= final(self)@.timestamp(),
+            final(self)@ is LowerBound && other@ is HalfRightToAdvance ==> final(self)@.timestamp()
                 <= other@.timestamp(),
-            other@ is LowerBound && self@ is HalfRightToAdvance ==> other@.timestamp()
-                <= self@.timestamp(),
+            other@ is LowerBound && final(self)@ is HalfRightToAdvance ==> other@.timestamp()
+                <= final(self)@.timestamp(),
     {
         self.r.validate_2(&other.r)
     }
@@ -269,9 +271,9 @@ impl MonotonicTimestampResource {
             old(self)@ is HalfRightToAdvance,
             other@ is HalfRightToAdvance,
         ensures
-            self.loc() == old(self).loc(),
-            self@ == old(self)@,
-            self@.timestamp() == other@.timestamp(),
+            final(self).loc() == old(self).loc(),
+            final(self)@ == old(self)@,
+            final(self)@.timestamp() == other@.timestamp(),
     {
         self.r.validate_2(&other.r)
     }

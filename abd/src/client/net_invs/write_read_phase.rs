@@ -401,21 +401,21 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
             lb@ is LowerBound,
             !agree_with_max.contains(server_id),
         ensures
-            Self::server_invs(*servers, req_servers, servers.locs()),
-            servers.dom() == old(servers).dom(),
-            servers.locs() == old(servers).locs(),
-            old(servers).leq(*servers),
+            Self::server_invs(*final(servers), req_servers, final(servers).locs()),
+            final(servers).dom() == old(servers).dom(),
+            final(servers).locs() == old(servers).locs(),
+            old(servers).leq(*final(servers)),
             forall|id| #[trigger]
-                servers.contains_key(id) ==> {
-                    &&& id != server_id ==> servers[id]@@.timestamp() == old(
+                final(servers).contains_key(id) ==> {
+                    &&& id != server_id ==> final(servers)[id]@@.timestamp() == old(
                         servers,
                     )[id]@@.timestamp()
-                    &&& id == server_id ==> servers[id]@@.timestamp() == lb@.timestamp()
+                    &&& id == server_id ==> final(servers)[id]@@.timestamp() == lb@.timestamp()
                 },
-            servers[server_id]@@.timestamp() == lb@.timestamp(),
+            final(servers)[server_id]@@.timestamp() == lb@.timestamp(),
             max_resp is Some ==> forall|id| #[trigger]
                 agree_with_max.contains(id) ==> {
-                    servers[id]@@.timestamp() >= max_resp->Some_0.spec_timestamp()
+                    final(servers)[id]@@.timestamp() >= max_resp->Some_0.spec_timestamp()
                 },
     {
         let ghost old_servers = *old(servers);
@@ -506,31 +506,31 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
             Self::agree_with_max_aux_inv(old(agree_with_max)@, old(replies)@, *old(max_resp)),
             servers@.contains_key(id.1),
         ensures
-            *max_resp is Some,
-            !agree_with_max@.is_empty(),
-            replies@ == old(replies)@.insert(id),
-            Self::replies_inv(replies@, servers@, id.0),
-            Self::agree_with_max_aux_inv(agree_with_max@, replies@, *max_resp),
+            *final(max_resp) is Some,
+            !final(agree_with_max)@.is_empty(),
+            final(replies)@ == old(replies)@.insert(id),
+            Self::replies_inv(final(replies)@, servers@, id.0),
+            Self::agree_with_max_aux_inv(final(agree_with_max)@, final(replies)@, *final(max_resp)),
             *old(max_resp) is Some ==> {
                 let old_max_ts = old(max_resp)->Some_0.spec_timestamp();
-                let new_max_ts = max_resp->Some_0.spec_timestamp();
+                let new_max_ts = final(max_resp)->Some_0.spec_timestamp();
                 &&& resp.spec_timestamp() > old_max_ts ==> {
-                    &&& *max_resp == Some(resp)
-                    &&& agree_with_max@ == set![id.1]
+                    &&& *final(max_resp) == Some(resp)
+                    &&& final(agree_with_max)@ == set![id.1]
                 }
                 &&& resp.spec_timestamp() == old_max_ts ==> {
-                    &&& *max_resp == *old(max_resp)
-                    &&& agree_with_max@ == old(agree_with_max)@.insert(id.1)
+                    &&& *final(max_resp) == *old(max_resp)
+                    &&& final(agree_with_max)@ == old(agree_with_max)@.insert(id.1)
                 }
                 &&& resp.spec_timestamp() < old_max_ts ==> {
-                    &&& *max_resp == *old(max_resp)
-                    &&& agree_with_max@ == old(agree_with_max)@
+                    &&& *final(max_resp) == *old(max_resp)
+                    &&& final(agree_with_max)@ == old(agree_with_max)@
                 }
                 &&& new_max_ts >= old_max_ts
             },
             *old(max_resp) is None ==> {
-                &&& *max_resp == Some(resp)
-                &&& agree_with_max@ == set![id.1]
+                &&& *final(max_resp) == Some(resp)
+                &&& final(agree_with_max)@ == set![id.1]
             },
         no_unwind
     {
@@ -605,35 +605,40 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
                 )
             },
         ensures
-            servers@.locs() == old(servers)@.locs(),
-            server_tokens@.id() == old(server_tokens)@.id(),
-            replies@ == old(replies)@.insert(id),
+            final(servers)@.locs() == old(servers)@.locs(),
+            final(server_tokens)@.id() == old(server_tokens)@.id(),
+            final(replies)@ == old(replies)@.insert(id),
             Self::server_invs(
-                servers@,
+                final(servers)@,
                 request@.value()->GetTimestamp_0.servers(),
-                server_tokens@@,
+                final(server_tokens)@@,
             ),
-            Self::replies_inv(replies@, servers@, id.0),
-            Self::agree_with_max_inv(agree_with_max@, replies@, servers@, *max_resp),
+            Self::replies_inv(final(replies)@, final(servers)@, id.0),
+            Self::agree_with_max_inv(
+                final(agree_with_max)@,
+                final(replies)@,
+                final(servers)@,
+                *final(max_resp),
+            ),
             Self::unchanged_inv(
-                servers@,
+                final(servers)@,
                 request@.value()->GetTimestamp_0.servers(),
-                replies@,
+                final(replies)@,
                 id.0,
             ),
-            *max_resp is Some ==> {
+            *final(max_resp) is Some ==> {
                 Self::max_resp_inv(
-                    max_resp->Some_0,
-                    servers@,
-                    agree_with_max@,
-                    replies@,
-                    server_tokens@.id(),
+                    final(max_resp)->Some_0,
+                    final(servers)@,
+                    final(agree_with_max)@,
+                    final(replies)@,
+                    final(server_tokens)@.id(),
                 )
             },
         no_unwind
     {
         if replies.contains(&id) {
-            return ;
+            return;
         }
         let r = resp.destruct_get_timestamp();
 
@@ -693,9 +698,9 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
             old(self).constant().server_locs.contains_key(resp.server_id()),
             old(self).constant().server_locs[resp.server_id()] == resp.get_timestamp().loc(),
         ensures
-            GetTimestampPred::inv(self.constant(), *self),
-            self.constant() == old(self).constant(),
-            self.replies() == old(self).replies().insert(id),
+            GetTimestampPred::inv(final(self).constant(), *final(self)),
+            final(self).constant() == old(self).constant(),
+            final(self).replies() == old(self).replies().insert(id),
         no_unwind
     {
         proof {
@@ -722,7 +727,7 @@ impl<C> ReplyAccumulator<C, GetTimestampPred<C>> for GetTimestampAccumulator<C> 
     #[verifier::exec_allows_no_decreases_clause]
     fn insert(&mut self, pred: Ghost<GetTimestampPred<C>>, id: (u64, u64), reply: Response)
         ensures
-            self.channels() == old(self).channels(),
+            final(self).channels() == old(self).channels(),
     {
         proof {
             use_type_invariant(&*self);

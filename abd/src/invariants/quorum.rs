@@ -146,22 +146,22 @@ impl ServerUniverse {
             old(self).contains_key(server_id),
             old(self)[server_id]@@ is FullRightToAdvance,
         ensures
-            self.dom() == old(self).dom(),
-            self.locs() == old(self).locs(),
+            final(self).dom() == old(self).dom(),
+            final(self).locs() == old(self).locs(),
             forall|id| #[trigger]
                 old(self).contains_key(id) ==> {
-                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
-                    &&& id == server_id ==> self[id]@@ is HalfRightToAdvance
+                    &&& old(self)[id]@@.timestamp() == final(self)[id]@@.timestamp()
+                    &&& id == server_id ==> final(self)[id]@@ is HalfRightToAdvance
                     &&& id != server_id ==> {
                         &&& old(self)[id]@@ is HalfRightToAdvance
-                            ==> self[id]@@ is HalfRightToAdvance
+                            ==> final(self)[id]@@ is HalfRightToAdvance
                         &&& old(self)[id]@@ is FullRightToAdvance
-                            ==> self[id]@@ is FullRightToAdvance
+                            ==> final(self)[id]@@ is FullRightToAdvance
                     }
                 },
-            self.inv(),
-            self.is_auth(),
-            r.loc() == self[server_id]@.loc(),
+            final(self).inv(),
+            final(self).is_auth(),
+            r.loc() == final(self)[server_id]@.loc(),
             r@ is HalfRightToAdvance,
             r@.timestamp() == Timestamp::spec_default(),
     {
@@ -185,16 +185,18 @@ impl ServerUniverse {
             old(self).contains_key(server_id),
             old(self)[server_id]@@ is HalfRightToAdvance,
         ensures
-            self.inv(),
-            self.is_auth(),
-            self.dom() == old(self).dom().remove(server_id),
-            self.locs() == old(self).locs().remove(server_id),
+            final(self).inv(),
+            final(self).is_auth(),
+            final(self).dom() == old(self).dom().remove(server_id),
+            final(self).locs() == old(self).locs().remove(server_id),
             forall|id| #[trigger]
-                self.contains_key(id) ==> {
-                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
-                    &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
-                    &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
-                    &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
+                final(self).contains_key(id) ==> {
+                    &&& old(self)[id]@@.timestamp() == final(self)[id]@@.timestamp()
+                    &&& old(self)[id]@@ is HalfRightToAdvance
+                        ==> final(self)[id]@@ is HalfRightToAdvance
+                    &&& old(self)[id]@@ is FullRightToAdvance
+                        ==> final(self)[id]@@ is FullRightToAdvance
+                    &&& old(self)[id]@@ is LowerBound ==> final(self)[id]@@ is LowerBound
                 },
             r.loc() == old(self)[server_id]@.loc(),
             r@.timestamp() == old(self)[server_id]@@.timestamp(),
@@ -222,20 +224,22 @@ impl ServerUniverse {
             !old(self).contains_key(server_id),
             r@ is HalfRightToAdvance,
         ensures
-            self.inv(),
-            self.is_auth(),
-            self.dom() == old(self).dom().insert(server_id),
-            self.locs() == old(self).locs().insert(server_id, r.loc()),
+            final(self).inv(),
+            final(self).is_auth(),
+            final(self).dom() == old(self).dom().insert(server_id),
+            final(self).locs() == old(self).locs().insert(server_id, r.loc()),
             forall|id| #[trigger]
                 old(self).contains_key(id) ==> {
-                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
-                    &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
-                    &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
-                    &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
+                    &&& old(self)[id]@@.timestamp() == final(self)[id]@@.timestamp()
+                    &&& old(self)[id]@@ is HalfRightToAdvance
+                        ==> final(self)[id]@@ is HalfRightToAdvance
+                    &&& old(self)[id]@@ is FullRightToAdvance
+                        ==> final(self)[id]@@ is FullRightToAdvance
+                    &&& old(self)[id]@@ is LowerBound ==> final(self)[id]@@ is LowerBound
                 },
-            self[server_id]@.loc() == r.loc(),
-            self[server_id]@@.timestamp() == r@.timestamp(),
-            self[server_id]@@ is HalfRightToAdvance,
+            final(self)[server_id]@.loc() == r.loc(),
+            final(self)[server_id]@@.timestamp() == r@.timestamp(),
+            final(self)[server_id]@@ is HalfRightToAdvance,
     {
         let old = *self;
         self.map.tracked_insert(server_id, Tracked(r));
@@ -255,17 +259,19 @@ impl ServerUniverse {
             old(self).contains_key(server_id),
             old(self)[server_id]@@ is LowerBound,
         ensures
-            self.inv(),
-            self.is_lb(),
-            self.dom() == old(self).dom().remove(server_id),
-            self.locs() == old(self).locs().remove(server_id),
+            final(self).inv(),
+            final(self).is_lb(),
+            final(self).dom() == old(self).dom().remove(server_id),
+            final(self).locs() == old(self).locs().remove(server_id),
             forall|id| #[trigger]
-                self.contains_key(id) ==> {
-                    &&& old(self)[id]@.loc() == self[id]@.loc()
-                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
-                    &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
-                    &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
-                    &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
+                final(self).contains_key(id) ==> {
+                    &&& old(self)[id]@.loc() == final(self)[id]@.loc()
+                    &&& old(self)[id]@@.timestamp() == final(self)[id]@@.timestamp()
+                    &&& old(self)[id]@@ is HalfRightToAdvance
+                        ==> final(self)[id]@@ is HalfRightToAdvance
+                    &&& old(self)[id]@@ is FullRightToAdvance
+                        ==> final(self)[id]@@ is FullRightToAdvance
+                    &&& old(self)[id]@@ is LowerBound ==> final(self)[id]@@ is LowerBound
                 },
             r.loc() == old(self)[server_id]@.loc(),
             r@.timestamp() == old(self)[server_id]@@.timestamp(),
@@ -293,21 +299,23 @@ impl ServerUniverse {
             !old(self).contains_key(server_id),
             r@ is LowerBound,
         ensures
-            self.inv(),
-            self.is_lb(),
-            self.dom() == old(self).dom().insert(server_id),
-            self.locs() == old(self).locs().insert(server_id, r.loc()),
+            final(self).inv(),
+            final(self).is_lb(),
+            final(self).dom() == old(self).dom().insert(server_id),
+            final(self).locs() == old(self).locs().insert(server_id, r.loc()),
             forall|id| #[trigger]
                 old(self).contains_key(id) ==> {
-                    &&& old(self)[id]@.loc() == self[id]@.loc()
-                    &&& old(self)[id]@@.timestamp() == self[id]@@.timestamp()
-                    &&& old(self)[id]@@ is HalfRightToAdvance ==> self[id]@@ is HalfRightToAdvance
-                    &&& old(self)[id]@@ is FullRightToAdvance ==> self[id]@@ is FullRightToAdvance
-                    &&& old(self)[id]@@ is LowerBound ==> self[id]@@ is LowerBound
+                    &&& old(self)[id]@.loc() == final(self)[id]@.loc()
+                    &&& old(self)[id]@@.timestamp() == final(self)[id]@@.timestamp()
+                    &&& old(self)[id]@@ is HalfRightToAdvance
+                        ==> final(self)[id]@@ is HalfRightToAdvance
+                    &&& old(self)[id]@@ is FullRightToAdvance
+                        ==> final(self)[id]@@ is FullRightToAdvance
+                    &&& old(self)[id]@@ is LowerBound ==> final(self)[id]@@ is LowerBound
                 },
-            self[server_id]@.loc() == r.loc(),
-            self[server_id]@@.timestamp() == r@.timestamp(),
-            self[server_id]@@ is LowerBound,
+            final(self)[server_id]@.loc() == r.loc(),
+            final(self)[server_id]@@.timestamp() == r@.timestamp(),
+            final(self)[server_id]@@ is LowerBound,
     {
         let old = *self;
         self.map.tracked_insert(server_id, Tracked(r));
@@ -332,17 +340,19 @@ impl ServerUniverse {
             old(self)[server_id]@.loc() == r.loc(),
             old(self)[server_id]@@.timestamp() <= r@.timestamp(),
         ensures
-            self.inv(),
-            self.is_lb(),
-            self.dom() == old(self).dom(),
-            self.locs() == old(self).locs(),
+            final(self).inv(),
+            final(self).is_lb(),
+            final(self).dom() == old(self).dom(),
+            final(self).locs() == old(self).locs(),
             forall|id| #[trigger]
-                self.contains_key(id) ==> {
-                    &&& id != server_id ==> self[id]@@.timestamp() == old(self)[id]@@.timestamp()
-                    &&& id == server_id ==> self[id]@@.timestamp() == r@.timestamp()
+                final(self).contains_key(id) ==> {
+                    &&& id != server_id ==> final(self)[id]@@.timestamp() == old(
+                        self,
+                    )[id]@@.timestamp()
+                    &&& id == server_id ==> final(self)[id]@@.timestamp() == r@.timestamp()
                 },
-            self[server_id]@@.timestamp() == r@.timestamp(),
-            old(self).leq(*self),
+            final(self)[server_id]@@.timestamp() == r@.timestamp(),
+            old(self).leq(*final(self)),
     {
         let ghost orig_map = *self;
 
@@ -873,10 +883,10 @@ impl ServerUniverse {
             other.is_auth(),
             old(self).locs() == other.locs(),
         ensures
-            self.inv(),
-            self.is_lb(),
-            self.eq(*old(self)),
-            self.leq(*other),
+            final(self).inv(),
+            final(self).is_lb(),
+            final(self).eq(*old(self)),
+            final(self).leq(*other),
     {
         self.prove_lower_bound(other, Set::empty());
     }
@@ -893,11 +903,11 @@ impl ServerUniverse {
             forall|id| #[trigger]
                 visited.contains(id) ==> old(self)[id]@@.timestamp() <= other[id]@@.timestamp(),
         ensures
-            self.inv(),
-            self.is_lb(),
-            self.locs() == old(self).locs(),
-            self.leq(*other),
-            self.eq(*old(self)),
+            final(self).inv(),
+            final(self).is_lb(),
+            final(self).locs() == old(self).locs(),
+            final(self).leq(*other),
+            final(self).eq(*old(self)),
         decreases other.dom().difference(visited).len(),
     {
         self.lemma_locs();
@@ -905,7 +915,7 @@ impl ServerUniverse {
         self.lemma_locs_eq(*other);
         if other.dom().difference(visited).is_empty() {
             vlib::set::lemma_different_sets_with_inclusion_have_difference(visited, other.dom());
-            return ;
+            return;
         }
         assert(exists|id| #[trigger] other.dom().contains(id) && !visited.contains(id));
         let server_id = choose|id| #[trigger] other.dom().contains(id) && !visited.contains(id);
@@ -1027,18 +1037,17 @@ impl ServerUniverse {
             old(other).map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc())
                 <= m.map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc()),
         ensures
-            other.dom().finite(),
-            other.dom() == m.dom(),
+            final(other).dom().finite(),
+            final(other).dom() == m.dom(),
             forall|k| #[trigger]
-                other.contains_key(k) ==> {
+                final(other).contains_key(k) ==> {
                     &&& m.contains_key(k)
-                    &&& other[k]@@ is LowerBound
-                    &&& other[k]@@.timestamp() == m[k]@@.timestamp()
-                    &&& other[k]@.loc() == m[k]@.loc()
+                    &&& final(other)[k]@@ is LowerBound
+                    &&& final(other)[k]@@.timestamp() == m[k]@@.timestamp()
+                    &&& final(other)[k]@.loc() == m[k]@.loc()
                 },
-            other.map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc()) == m.map_values(
-                |r: Tracked<MonotonicTimestampResource>| r@.loc(),
-            ),
+            final(other).map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc())
+                == m.map_values(|r: Tracked<MonotonicTimestampResource>| r@.loc()),
         decreases m.dom().difference(old(other).dom()).len(),
     {
         broadcast use vstd::set::Set::lemma_set_insert_diff_decreases;
@@ -1047,7 +1056,7 @@ impl ServerUniverse {
         if diff.len() == 0 {
             diff.lemma_len0_is_empty();
             vlib::set::lemma_different_sets_with_inclusion_have_difference(other.dom(), m.dom());
-            return ;
+            return;
         }
         vstd::assert_by_contradiction!(!diff.is_empty(), {
             diff.lemma_len0_is_empty();

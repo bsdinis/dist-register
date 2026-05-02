@@ -41,7 +41,7 @@ pub struct RequestMap {
     /// Map from client_id to permission id for the generator request_id (a AtomicU64)
     request_perm: Map<u64, PermissionU64>,
     /// Only one permission at a time may be missing from the map
-    ghost missing_perm: Option<(u64, int)>,
+    missing_perm: Ghost<Option<(u64, int)>>,
 }
 
 pub struct RequestMapIds {
@@ -49,28 +49,42 @@ pub struct RequestMapIds {
     pub request_ctr_id: Loc,
 }
 
+spec fn ctr_perm_agree(
+    request_ctr_auth: GhostMapAuth<u64, (u64, int)>,
+    request_perm: Map<u64, PermissionU64>,
+) -> bool {
+    forall|client_id: u64|
+        {
+            &&& #[trigger] request_ctr_auth@.contains_key(client_id)
+            &&& #[trigger] request_perm.contains_key(client_id)
+        } ==> {
+            &&& request_ctr_auth@[client_id].0 == request_perm[client_id].value()
+            &&& request_ctr_auth@[client_id].1 == request_perm[client_id].id()
+        }
+}
+
+spec fn request_auth_inv(
+    request_auth: RequestMapAuth,
+    request_ctr_auth: GhostMapAuth<u64, (u64, int)>,
+) -> bool {
+    forall|cid_rid: (u64, u64)| #[trigger]
+        request_auth@.contains_key(cid_rid) ==> {
+            &&& request_ctr_auth@.contains_key(cid_rid.0)
+            &&& cid_rid.1 < request_ctr_auth@[cid_rid.0].0
+        }
+}
+
 impl RequestMap {
     #[verifier::type_invariant]
     pub closed spec fn inv(self) -> bool {
-        &&& self.missing_perm is None ==> { self.request_ctr_auth@.dom() == self.request_perm.dom()
+        &&& *self.missing_perm is None ==> { self.request_ctr_auth@.dom() == self.request_perm.dom()
         }
-        &&& self.missing_perm is Some ==> {
+        &&& *self.missing_perm is Some ==> {
             let missing_client = self.missing_perm->Some_0.0;
             self.request_ctr_auth@.dom() == self.request_perm.dom().insert(missing_client)
         }
-        &&& forall|client_id: u64|
-            {
-                &&& #[trigger] self.request_ctr_auth@.contains_key(client_id)
-                &&& #[trigger] self.request_perm.contains_key(client_id)
-            } ==> {
-                &&& self.request_ctr_auth@[client_id].0 == self.request_perm[client_id].value()
-                &&& self.request_ctr_auth@[client_id].1 == self.request_perm[client_id].id()
-            }
-        &&& forall|cid_rid: (u64, u64)| #[trigger]
-            self.request_auth@.contains_key(cid_rid) ==> {
-                &&& self.request_ctr_auth@.contains_key(cid_rid.0)
-                &&& cid_rid.1 < self.request_ctr_auth@[cid_rid.0].0
-            }
+        &&& ctr_perm_agree(self.request_ctr_auth, self.request_perm)
+        &&& request_auth_inv(self.request_auth, self.request_ctr_auth)
     }
 
     pub open spec fn ids(self) -> RequestMapIds {
@@ -81,7 +95,7 @@ impl RequestMap {
     }
 
     pub closed spec fn is_full(self) -> bool {
-        self.missing_perm is None
+        *self.missing_perm is None
     }
 
     pub closed spec fn missing_perm(self) -> (u64, int)
@@ -128,7 +142,7 @@ impl RequestMap {
             request_auth,
             request_ctr_auth,
             request_perm,
-            missing_perm: None,
+            missing_perm: Ghost(None),
         };
         commitments
     }
@@ -143,15 +157,15 @@ impl RequestMap {
             !old(self).request_ctr_map().contains_key(client_id),
             request_perm.value() == 0,
         ensures
-            self.is_full(),
-            self.ids() == old(self).ids(),
-            self.issued() == old(self).issued(),
-            self.request_ctr_map() == old(self).request_ctr_map().insert(
+            final(self).is_full(),
+            final(self).ids() == old(self).ids(),
+            final(self).issued() == old(self).issued(),
+            final(self).request_ctr_map() == old(self).request_ctr_map().insert(
                 client_id,
                 (0, request_perm.id()),
             ),
-            self.request_perm() == old(self).request_perm().insert(client_id, request_perm),
-            r.id() == self.request_ctr_map_id(),
+            final(self).request_perm() == old(self).request_perm().insert(client_id, request_perm),
+            r.id() == final(self).request_ctr_map_id(),
             r.key() == client_id,
             r.value().0 == 0,
             r.value().1 == request_perm.id(),
@@ -172,32 +186,18 @@ impl RequestMap {
         tracked request_perm: PermissionU64,
     ) -> (tracked r: RequestCtrToken)
         requires
-            forall|client_id: u64|
-                {
-                    &&& #[trigger] old(ctr_auth)@.contains_key(client_id)
-                    &&& #[trigger] old(perm_map).contains_key(client_id)
-                } ==> {
-                    &&& old(ctr_auth)@[client_id].0 == old(perm_map)[client_id].value()
-                    &&& old(ctr_auth)@[client_id].1 == old(perm_map)[client_id].id()
-                },
+            ctr_perm_agree(*old(ctr_auth), *old(perm_map)),
             !old(ctr_auth)@.contains_key(client_id),
             request_perm.value() == 0,
         ensures
-            ctr_auth.id() == old(ctr_auth).id(),
-            forall|client_id: u64|
-                {
-                    &&& #[trigger] ctr_auth@.contains_key(client_id)
-                    &&& #[trigger] perm_map.contains_key(client_id)
-                } ==> {
-                    &&& ctr_auth@[client_id].0 == perm_map[client_id].value()
-                    &&& ctr_auth@[client_id].1 == perm_map[client_id].id()
-                },
-            r.id() == ctr_auth.id(),
+            final(ctr_auth).id() == old(ctr_auth).id(),
+            ctr_perm_agree(*final(ctr_auth), *final(perm_map)),
+            r.id() == final(ctr_auth).id(),
             r.key() == client_id,
             r.value().0 == 0,
             r.value().1 == request_perm.id(),
-            *perm_map == old(perm_map).insert(client_id, request_perm),
-            ctr_auth@ == old(ctr_auth)@.insert(client_id, (0, request_perm.id())),
+            *final(perm_map) == old(perm_map).insert(client_id, request_perm),
+            final(ctr_auth)@ == old(ctr_auth)@.insert(client_id, (0, request_perm.id())),
     {
         let ghost request_perm_id = request_perm.id();
         perm_map.tracked_insert(client_id, request_perm);
@@ -212,13 +212,13 @@ impl RequestMap {
             old(self).is_full(),
             client_token.id() == old(self).request_ctr_map_id(),
         ensures
-            !self.is_full(),
-            self.ids() == old(self).ids(),
-            self.missing_perm() == (client_token.key(), r.id()),
-            self.issued() == old(self).issued(),
-            self.request_ctr_map() == old(self).request_ctr_map(),
+            !final(self).is_full(),
+            final(self).ids() == old(self).ids(),
+            final(self).missing_perm() == (client_token.key(), r.id()),
+            final(self).issued() == old(self).issued(),
+            final(self).request_ctr_map() == old(self).request_ctr_map(),
             old(self).request_ctr_map().contains_key(client_token.key()),
-            self.request_perm() == old(self).request_perm().remove(client_token.key()),
+            final(self).request_perm() == old(self).request_perm().remove(client_token.key()),
             r == old(self).request_perm()[client_token.key()],
             r.id() == client_token.value().1,
             r.value() == client_token.value().0,
@@ -231,23 +231,25 @@ impl RequestMap {
 
     proof fn remove_permission(
         tracked perm_map: &mut Map<u64, PermissionU64>,
-        missing_perm: &mut Option<(u64, int)>,
+        tracked missing_perm: &mut Ghost<Option<(u64, int)>>,
         tracked client_token: &RequestCtrToken,
     ) -> (tracked r: PermissionU64)
         requires
-            *old(missing_perm) is None,
+            **old(missing_perm) is None,
             old(perm_map).contains_key(client_token.key()),
             old(perm_map)[client_token.key()].id() == client_token.value().1,
             old(perm_map)[client_token.key()].value() == client_token.value().0,
         ensures
-            *missing_perm == Some((client_token.key(), old(perm_map)[client_token.key()].id())),
-            *perm_map == old(perm_map).remove(client_token.key()),
+            **final(missing_perm) == Some(
+                (client_token.key(), old(perm_map)[client_token.key()].id()),
+            ),
+            *final(perm_map) == old(perm_map).remove(client_token.key()),
             r == old(perm_map)[client_token.key()],
             r.id() == client_token.value().1,
             r.value() == client_token.value().0,
     {
         let tracked r = perm_map.tracked_remove(client_token.key());
-        *missing_perm = Some((client_token.key(), r.id()));
+        *missing_perm = Ghost(Some((client_token.key(), r.id())));
         r
     }
 
@@ -266,24 +268,30 @@ impl RequestMap {
             request_id < client_perm.value(),
             client_perm.id() == old(client_token).value().1,
         ensures
-            self.is_full(),
-            self.ids() == old(self).ids(),
-            !old(self).issued().contains_key((client_token.key(), request_id)),
-            self.issued() == old(self).issued().insert((client_token.key(), request_id), request),
-            old(self).request_ctr_map().contains_key(client_token.key()),
-            self.request_ctr_map() == old(self).request_ctr_map().insert(
-                client_token.key(),
+            final(self).is_full(),
+            final(self).ids() == old(self).ids(),
+            !old(self).issued().contains_key((final(client_token).key(), request_id)),
+            final(self).issued() == old(self).issued().insert(
+                (final(client_token).key(), request_id),
+                request,
+            ),
+            old(self).request_ctr_map().contains_key(final(client_token).key()),
+            final(self).request_ctr_map() == old(self).request_ctr_map().insert(
+                final(client_token).key(),
                 (client_perm.value(), client_perm.id()),
             ),
-            self.request_perm() == old(self).request_perm().insert(client_token.key(), client_perm),
-            client_token.id() == old(client_token).id(),
-            client_token.key() == old(client_token).key(),
-            client_token.value().0 == client_perm.value(),
-            client_token.value().1 == client_perm.id(),
-            r.key() == (client_token.key(), request_id),
+            final(self).request_perm() == old(self).request_perm().insert(
+                final(client_token).key(),
+                client_perm,
+            ),
+            final(client_token).id() == old(client_token).id(),
+            final(client_token).key() == old(client_token).key(),
+            final(client_token).value().0 == client_perm.value(),
+            final(client_token).value().1 == client_perm.id(),
+            r.key() == (final(client_token).key(), request_id),
             r.value() == request,
             r.value().spec_eq(request),
-            r.id() == self.request_map_id(),
+            r.id() == final(self).request_map_id(),
     {
         use_type_invariant(&*self);
         let tracked proof = Self::alloc(
@@ -303,7 +311,7 @@ impl RequestMap {
     proof fn alloc(
         tracked perm_map: &mut Map<u64, PermissionU64>,
         tracked ctr_auth: &mut GhostMapAuth<u64, (u64, int)>,
-        missing_perm: &mut Option<(u64, int)>,
+        tracked missing_perm: &mut Ghost<Option<(u64, int)>>,
         tracked request_auth: &mut RequestMapAuth,
         tracked client_token: &mut RequestCtrToken,
         request_id: u64,
@@ -317,51 +325,32 @@ impl RequestMap {
             request_id == old(client_token).value().0,
             request_id < request_perm.value(),
             request_perm.id() == old(client_token).value().1,
-            forall|client_id: u64|
-                {
-                    &&& #[trigger] old(ctr_auth)@.contains_key(client_id)
-                    &&& #[trigger] old(perm_map).contains_key(client_id)
-                } ==> {
-                    &&& old(ctr_auth)@[client_id].0 == old(perm_map)[client_id].value()
-                    &&& old(ctr_auth)@[client_id].1 == old(perm_map)[client_id].id()
-                },
-            forall|cid_rid: (u64, u64)| #[trigger]
-                old(request_auth)@.contains_key(cid_rid) ==> {
-                    &&& old(ctr_auth)@.contains_key(cid_rid.0)
-                    &&& cid_rid.1 < old(ctr_auth)@[cid_rid.0].0
-                },
+            ctr_perm_agree(*old(ctr_auth), *old(perm_map)),
+            request_auth_inv(*old(request_auth), *old(ctr_auth)),
         ensures
-            *missing_perm is None,
-            ctr_auth.id() == old(ctr_auth).id(),
-            request_auth.id() == old(request_auth).id(),
-            client_token.id() == old(client_token).id(),
-            !old(request_auth)@.contains_key((client_token.key(), request_id)),
-            request_auth@ == old(request_auth)@.insert((client_token.key(), request_id), request),
-            ctr_auth@ == old(ctr_auth)@.insert(
-                client_token.key(),
+            ctr_perm_agree(*final(ctr_auth), *final(perm_map)),
+            request_auth_inv(*final(request_auth), *final(ctr_auth)),
+            **final(missing_perm) is None,
+            final(ctr_auth).id() == old(ctr_auth).id(),
+            final(request_auth).id() == old(request_auth).id(),
+            final(client_token).id() == old(client_token).id(),
+            !old(request_auth)@.contains_key((final(client_token).key(), request_id)),
+            final(request_auth)@ == old(request_auth)@.insert(
+                (final(client_token).key(), request_id),
+                request,
+            ),
+            final(ctr_auth)@ == old(ctr_auth)@.insert(
+                final(client_token).key(),
                 (request_perm.value(), request_perm.id()),
             ),
-            *perm_map == old(perm_map).insert(client_token.key(), request_perm),
-            ctr_auth@.dom() == perm_map.dom(),
-            forall|client_id: u64|
-                {
-                    &&& #[trigger] ctr_auth@.contains_key(client_id)
-                    &&& #[trigger] perm_map.contains_key(client_id)
-                } ==> {
-                    &&& ctr_auth@[client_id].0 == perm_map[client_id].value()
-                    &&& ctr_auth@[client_id].1 == perm_map[client_id].id()
-                },
-            forall|cid_rid: (u64, u64)| #[trigger]
-                request_auth@.contains_key(cid_rid) ==> {
-                    &&& ctr_auth@.contains_key(cid_rid.0)
-                    &&& cid_rid.1 < ctr_auth@[cid_rid.0].0
-                },
-            client_token.key() == old(client_token).key(),
-            client_token.value().0 == request_perm.value(),
-            client_token.value().1 == request_perm.id(),
-            r.key() == (client_token.key(), request_id),
+            *final(perm_map) == old(perm_map).insert(final(client_token).key(), request_perm),
+            final(ctr_auth)@.dom() == final(perm_map).dom(),
+            final(client_token).key() == old(client_token).key(),
+            final(client_token).value().0 == request_perm.value(),
+            final(client_token).value().1 == request_perm.id(),
+            r.key() == (final(client_token).key(), request_id),
             r.value() == request,
-            r.id() == request_auth.id(),
+            r.id() == final(request_auth).id(),
     {
         client_token.agree(&*ctr_auth);
         client_token.update(ctr_auth, (request_perm.value(), request_perm.id()));
@@ -370,7 +359,7 @@ impl RequestMap {
         assert(perm_map.dom().insert(missing_perm->Some_0.0) == ctr_auth@.dom());
 
         perm_map.tracked_insert(client_token.key(), request_perm);
-        *missing_perm = None;
+        *missing_perm = Ghost(None);
         request_auth.insert((client_token.key(), request_id), request).persist()
     }
 

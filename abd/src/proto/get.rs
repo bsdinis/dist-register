@@ -55,10 +55,10 @@ impl GetRequest {
         requires
             old(self).servers().contains_key(server_id@),
         ensures
-            self.servers().locs() == old(self).servers().locs(),
-            self.servers().spec_eq(old(self).servers()),
-            r@.loc() == self.servers()[server_id@]@.loc(),
-            r@@.timestamp() == self.servers()[server_id@]@@.timestamp(),
+            final(self).servers().locs() == old(self).servers().locs(),
+            final(self).servers().spec_eq(old(self).servers()),
+            r@.loc() == final(self).servers()[server_id@]@.loc(),
+            r@@.timestamp() == final(self).servers()[server_id@]@@.timestamp(),
             r@@ is LowerBound,
     {
         let tracked new_lb;
@@ -67,11 +67,16 @@ impl GetRequest {
 
             let ghost old_servers = self.servers@;
 
+            self.servers@.lemma_locs();  // TRIGGER
+            old_servers.lemma_locs();  // TRIGGER
+
             let tracked lb = self.servers.borrow_mut().tracked_remove_lb(server_id@);
             let ghost unchanged_servers = self.servers@;
 
             new_lb = lb.extract_lower_bound();
             self.servers.borrow_mut().tracked_insert_lb(server_id@, lb);
+
+            self.servers@.lemma_locs();  // TRIGGER
 
             assert forall|id| #[trigger] self.servers@.contains_key(id) implies {
                 &&& self.servers@[id]@.loc() == old_servers[id]@.loc()
@@ -276,10 +281,10 @@ impl GetResponse {
         requires
             self.server_token_id() == old(server_tokens)@.id(),
         ensures
-            server_tokens@.id() == old(server_tokens)@.id(),
-            server_tokens@@ == old(server_tokens)@@,
-            server_tokens@@.contains_key(self.server_id()) ==> server_tokens@@[self.server_id()]
-                == self.loc(),
+            final(server_tokens)@.id() == old(server_tokens)@.id(),
+            final(server_tokens)@@ == old(server_tokens)@@,
+            final(server_tokens)@@.contains_key(self.server_id())
+                ==> final(server_tokens)@@[self.server_id()] == self.loc(),
         no_unwind
     {
         proof {

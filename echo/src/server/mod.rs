@@ -171,7 +171,7 @@ impl<L, C> EchoServer<L, C> where
                     self.accept(channel)
                 },
                 Err(verdist::network::error::TryListenError::Empty) => {
-                    break ;
+                    break;
                 },
                 Err(verdist::network::error::TryListenError::Disconnected) => {
                     return false;

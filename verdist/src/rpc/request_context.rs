@@ -136,7 +136,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
             }
             let resps = self_mut.pool.poll(self_mut.request_tag);
             if resps.is_empty() {
-                continue ;
+                continue;
             }
             let mut idx = 0usize;
             for (id, r) in it: resps

@@ -347,7 +347,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                     self.accept(channel)
                 },
                 Err(verdist::network::error::TryListenError::Empty) => {
-                    break ;
+                    break;
                 },
                 Err(verdist::network::error::TryListenError::Disconnected) => {
                     return false;

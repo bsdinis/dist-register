@@ -46,10 +46,10 @@ impl GetTimestampRequest {
         requires
             old(self).servers().contains_key(server_id@),
         ensures
-            self.servers().locs() == old(self).servers().locs(),
-            self.servers().spec_eq(old(self).servers()),
-            r@.loc() == self.servers()[server_id@]@.loc(),
-            r@@.timestamp() == self.servers()[server_id@]@@.timestamp(),
+            final(self).servers().locs() == old(self).servers().locs(),
+            final(self).servers().spec_eq(old(self).servers()),
+            r@.loc() == final(self).servers()[server_id@]@.loc(),
+            r@@.timestamp() == final(self).servers()[server_id@]@@.timestamp(),
             r@@ is LowerBound,
     {
         let tracked new_lb;
@@ -223,10 +223,10 @@ impl GetTimestampResponse {
         requires
             self.server_token_id() == old(server_tokens)@.id(),
         ensures
-            server_tokens@.id() == old(server_tokens)@.id(),
-            server_tokens@@ == old(server_tokens)@@,
-            server_tokens@@.contains_key(self.server_id()) ==> server_tokens@@[self.server_id()]
-                == self.loc(),
+            final(server_tokens)@.id() == old(server_tokens)@.id(),
+            final(server_tokens)@@ == old(server_tokens)@@,
+            final(server_tokens)@@.contains_key(self.server_id())
+                ==> final(server_tokens)@@[self.server_id()] == self.loc(),
         no_unwind
     {
         proof {

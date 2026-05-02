@@ -47,15 +47,15 @@ pub trait AbdRegisterClient<C, ML, RL> where
             Self::read_lin_requires(lin@),
             old(self).inv(),
         ensures
-            self.inv(),
-            self.register_loc() == old(self).register_loc(),
+            final(self).inv(),
+            final(self).register_loc() == old(self).register_loc(),
             r is Ok ==> ({
                 let (val, ts, compl) = r->Ok_0;
-                lin@.post(RegisterRead { id: Ghost(self.register_loc()) }, val, compl@)
+                lin@.post(RegisterRead { id: Ghost(final(self).register_loc()) }, val, compl@)
             }),
             r is Err ==> ({
                 let err = r->Err_0;
-                let op = RegisterRead { id: Ghost(self.register_loc()) };
+                let op = RegisterRead { id: Ghost(final(self).register_loc()) };
                 err.err_ensures(op, lin@)
             }),
     ;
@@ -72,19 +72,19 @@ pub trait AbdRegisterClient<C, ML, RL> where
             lin@.pre(RegisterWrite { id: Ghost(old(self).register_loc()), new_value: value }),
             Self::write_lin_requires(lin@),
         ensures
-            self.inv(),
-            self.register_loc() == old(self).register_loc(),
+            final(self).inv(),
+            final(self).register_loc() == old(self).register_loc(),
             r is Ok ==> ({
                 let comp = r->Ok_0;
                 &&& lin@.post(
-                    RegisterWrite { id: Ghost(self.register_loc()), new_value: value },
+                    RegisterWrite { id: Ghost(final(self).register_loc()), new_value: value },
                     (),
                     comp@,
                 )
             }),
             r is Err ==> ({
                 let err = r->Err_0;
-                let op = RegisterWrite { id: Ghost(self.register_loc()), new_value: value };
+                let op = RegisterWrite { id: Ghost(final(self).register_loc()), new_value: value };
                 err.err_ensures(op, lin@)
             }),
     ;

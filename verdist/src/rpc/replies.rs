@@ -27,10 +27,10 @@ pub trait ReplyAccumulator<C, Pred>: Sized where
                 &&& C::K::recv_inv(chan.constant(), id, reply)
             }),
         ensures
-            Pred::inv(pred@, *self),
-            self.request_tag() == old(self).request_tag(),
-            self.spec_handled_replies() == old(self).spec_handled_replies().insert(id),
-            self.channels() == old(self).channels(),
+            Pred::inv(pred@, *final(self)),
+            final(self).request_tag() == old(self).request_tag(),
+            final(self).spec_handled_replies() == old(self).spec_handled_replies().insert(id),
+            final(self).channels() == old(self).channels(),
         no_unwind
     ;
 
@@ -176,11 +176,11 @@ impl<C, Pred, A> Replies<C, Pred, A> where
                 &&& C::K::recv_inv(chan.constant(), id, reply)
             }),
         ensures
-            self.request_tag() == old(self).request_tag(),
-            self.spec_handled_replies() == old(self).spec_handled_replies().insert(id),
-            self.spec_errors() == old(self).spec_errors(),
-            self.pred() == old(self).pred(),
-            self.channels() == old(self).channels(),
+            final(self).request_tag() == old(self).request_tag(),
+            final(self).spec_handled_replies() == old(self).spec_handled_replies().insert(id),
+            final(self).spec_errors() == old(self).spec_errors(),
+            final(self).pred() == old(self).pred(),
+            final(self).channels() == old(self).channels(),
         no_unwind
     {
         proof {
@@ -191,11 +191,11 @@ impl<C, Pred, A> Replies<C, Pred, A> where
 
     pub fn insert_error(&mut self, id: C::Id, err: TryRecvError)
         ensures
-            self.request_tag() == old(self).request_tag(),
-            self.spec_accumulator() == old(self).spec_accumulator(),
-            self.spec_errors() == old(self).spec_errors().insert(id, err),
-            self.pred() == old(self).pred(),
-            self.channels() == old(self).channels(),
+            final(self).request_tag() == old(self).request_tag(),
+            final(self).spec_accumulator() == old(self).spec_accumulator(),
+            final(self).spec_errors() == old(self).spec_errors().insert(id, err),
+            final(self).pred() == old(self).pred(),
+            final(self).channels() == old(self).channels(),
         no_unwind
     {
         proof {

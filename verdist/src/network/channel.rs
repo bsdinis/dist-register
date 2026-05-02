@@ -109,8 +109,8 @@ pub trait Channel {
 
     fn add_latency(&mut self, _avg: Duration, _stddev: Duration)
         ensures
-            self.spec_id() == old(self).spec_id(),
-            self.constant() == old(self).constant(),
+            final(self).spec_id() == old(self).spec_id(),
+            final(self).constant() == old(self).constant(),
         no_unwind
     {
     }

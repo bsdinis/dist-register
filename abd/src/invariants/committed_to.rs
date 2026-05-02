@@ -26,13 +26,13 @@ pub type CommitmentAuthMap = GhostMapAuth<Timestamp, Option<u64>>;
 pub type ClientCtrToken = GhostPointsTo<u64, (u64, int)>;
 
 #[allow(dead_code)]
-pub struct Commitments {
+pub tracked struct Commitments {
     commitment_auth: GhostMapAuth<Timestamp, Option<u64>>,
     zero_commitment: WriteCommitment,
     client_ctr_auth: GhostMapAuth<u64, (u64, int)>,
     client_perm: Map<u64, PermissionU64>,
     zero_client: ClientCtrToken,
-    ghost missing_perm: Option<(u64, int)>,
+    missing_perm: Ghost<Option<(u64, int)>>,
 }
 
 pub struct CommitmentIds {
@@ -47,8 +47,8 @@ impl Commitments {
         &&& self.zero_commitment.id() == self.commitment_auth.id()
         &&& self.zero_commitment.key() == Timestamp::spec_default()
         &&& self.zero_commitment.value() == None::<u64>
-        &&& self.missing_perm is None ==> { self.client_ctr_auth@.dom() == self.client_perm.dom() }
-        &&& self.missing_perm is Some ==> {
+        &&& *self.missing_perm is None ==> { self.client_ctr_auth@.dom() == self.client_perm.dom() }
+        &&& *self.missing_perm is Some ==> {
             let missing_client = self.missing_perm->Some_0.0;
             self.client_ctr_auth@.dom() == self.client_perm.dom().insert(missing_client)
         }
@@ -78,7 +78,7 @@ impl Commitments {
     }
 
     pub closed spec fn is_full(self) -> bool {
-        self.missing_perm is None
+        *self.missing_perm is None
     }
 
     pub closed spec fn missing_perm(self) -> (u64, int)
@@ -138,7 +138,7 @@ impl Commitments {
             client_ctr_auth,
             client_perm,
             zero_client,
-            missing_perm: None,
+            missing_perm: Ghost(None),
         };
         commitments
     }
@@ -163,12 +163,15 @@ impl Commitments {
             !old(self).client_map().contains_key(client_id),
             client_perm.value() == 0,
         ensures
-            self.is_full(),
-            self.ids() == old(self).ids(),
-            self.allocated() == old(self).allocated(),
-            self.client_map() == old(self).client_map().insert(client_id, (0, client_perm.id())),
-            self.client_perm() == old(self).client_perm().insert(client_id, client_perm),
-            r.id() == self.client_map_id(),
+            final(self).is_full(),
+            final(self).ids() == old(self).ids(),
+            final(self).allocated() == old(self).allocated(),
+            final(self).client_map() == old(self).client_map().insert(
+                client_id,
+                (0, client_perm.id()),
+            ),
+            final(self).client_perm() == old(self).client_perm().insert(client_id, client_perm),
+            r.id() == final(self).client_map_id(),
             r.key() == client_id,
             r.value().0 == 0,
             r.value().1 == client_perm.id(),
@@ -200,21 +203,21 @@ impl Commitments {
             !old(ctr_auth)@.contains_key(client_id),
             client_perm.value() == 0,
         ensures
-            ctr_auth.id() == old(ctr_auth).id(),
+            final(ctr_auth).id() == old(ctr_auth).id(),
             forall|client_id: u64|
                 {
-                    &&& #[trigger] ctr_auth@.contains_key(client_id)
-                    &&& #[trigger] perm_map.contains_key(client_id)
+                    &&& #[trigger] final(ctr_auth)@.contains_key(client_id)
+                    &&& #[trigger] final(perm_map).contains_key(client_id)
                 } ==> {
-                    &&& ctr_auth@[client_id].0 == perm_map[client_id].value()
-                    &&& ctr_auth@[client_id].1 == perm_map[client_id].id()
+                    &&& final(ctr_auth)@[client_id].0 == final(perm_map)[client_id].value()
+                    &&& final(ctr_auth)@[client_id].1 == final(perm_map)[client_id].id()
                 },
-            r.id() == ctr_auth.id(),
+            r.id() == final(ctr_auth).id(),
             r.key() == client_id,
             r.value().0 == 0,
             r.value().1 == client_perm.id(),
-            *perm_map == old(perm_map).insert(client_id, client_perm),
-            ctr_auth@ == old(ctr_auth)@.insert(client_id, (0, client_perm.id())),
+            *final(perm_map) == old(perm_map).insert(client_id, client_perm),
+            final(ctr_auth)@ == old(ctr_auth)@.insert(client_id, (0, client_perm.id())),
     {
         let ghost client_perm_id = client_perm.id();
         perm_map.tracked_insert(client_id, client_perm);
@@ -229,13 +232,13 @@ impl Commitments {
             old(self).is_full(),
             client_token.id() == old(self).client_map_id(),
         ensures
-            !self.is_full(),
-            self.ids() == old(self).ids(),
-            self.missing_perm() == (client_token.key(), r.id()),
-            self.allocated() == old(self).allocated(),
-            self.client_map() == old(self).client_map(),
+            !final(self).is_full(),
+            final(self).ids() == old(self).ids(),
+            final(self).missing_perm() == (client_token.key(), r.id()),
+            final(self).allocated() == old(self).allocated(),
+            final(self).client_map() == old(self).client_map(),
             old(self).client_map().contains_key(client_token.key()),
-            self.client_perm() == old(self).client_perm().remove(client_token.key()),
+            final(self).client_perm() == old(self).client_perm().remove(client_token.key()),
             r == old(self).client_perm()[client_token.key()],
             r.id() == client_token.value().1,
             r.value() == client_token.value().0,
@@ -250,23 +253,25 @@ impl Commitments {
 
     proof fn remove_permission(
         tracked perm_map: &mut Map<u64, PermissionU64>,
-        missing_perm: &mut Option<(u64, int)>,
+        tracked missing_perm: &mut Ghost<Option<(u64, int)>>,
         tracked client_token: &ClientCtrToken,
     ) -> (tracked r: PermissionU64)
         requires
-            *old(missing_perm) is None,
+            **old(missing_perm) is None,
             old(perm_map).contains_key(client_token.key()),
             old(perm_map)[client_token.key()].id() == client_token.value().1,
             old(perm_map)[client_token.key()].value() == client_token.value().0,
         ensures
-            *missing_perm == Some((client_token.key(), old(perm_map)[client_token.key()].id())),
-            *perm_map == old(perm_map).remove(client_token.key()),
+            **final(missing_perm) == Some(
+                (client_token.key(), old(perm_map)[client_token.key()].id()),
+            ),
+            *final(perm_map) == old(perm_map).remove(client_token.key()),
             r == old(perm_map)[client_token.key()],
             r.id() == client_token.value().1,
             r.value() == client_token.value().0,
     {
         let tracked r = perm_map.tracked_remove(client_token.key());
-        *missing_perm = Some((client_token.key(), r.id()));
+        *missing_perm = Ghost(Some((client_token.key(), r.id())));
         r
     }
 
@@ -286,23 +291,26 @@ impl Commitments {
             timestamp.client_ctr < client_perm.value(),
             client_perm.id() == old(client_token).value().1,
         ensures
-            self.is_full(),
-            self.ids() == old(self).ids(),
+            final(self).is_full(),
+            final(self).ids() == old(self).ids(),
             !old(self).allocated().contains_key(timestamp),
-            self.allocated() == old(self).allocated().insert(timestamp, value),
-            old(self).client_map().contains_key(client_token.key()),
-            self.client_map() == old(self).client_map().insert(
+            final(self).allocated() == old(self).allocated().insert(timestamp, value),
+            old(self).client_map().contains_key(final(client_token).key()),
+            final(self).client_map() == old(self).client_map().insert(
                 timestamp.client_id,
                 (client_perm.value(), client_perm.id()),
             ),
-            self.client_perm() == old(self).client_perm().insert(timestamp.client_id, client_perm),
-            client_token.id() == old(client_token).id(),
-            client_token.key() == old(client_token).key(),
-            client_token.value().0 == client_perm.value(),
-            client_token.value().1 == client_perm.id(),
+            final(self).client_perm() == old(self).client_perm().insert(
+                timestamp.client_id,
+                client_perm,
+            ),
+            final(client_token).id() == old(client_token).id(),
+            final(client_token).key() == old(client_token).key(),
+            final(client_token).value().0 == client_perm.value(),
+            final(client_token).value().1 == client_perm.id(),
             r.key() == timestamp,
             r.value() == value,
-            r.id() == self.commitment_id(),
+            r.id() == final(self).commitment_id(),
     {
         use_type_invariant(&*self);
         Self::alloc(
@@ -321,7 +329,7 @@ impl Commitments {
     proof fn alloc(
         tracked perm_map: &mut Map<u64, PermissionU64>,
         tracked ctr_auth: &mut GhostMapAuth<u64, (u64, int)>,
-        missing_perm: &mut Option<(u64, int)>,
+        tracked missing_perm: &mut Ghost<Option<(u64, int)>>,
         tracked commitment_auth: &mut GhostMapAuth<Timestamp, Option<u64>>,
         tracked zero_client: &ClientCtrToken,
         tracked client_token: &mut ClientCtrToken,
@@ -352,37 +360,37 @@ impl Commitments {
                     &&& ts.client_ctr < old(ctr_auth)@[ts.client_id].0
                 },
         ensures
-            *missing_perm is None,
-            ctr_auth.id() == old(ctr_auth).id(),
-            commitment_auth.id() == old(commitment_auth).id(),
-            client_token.id() == old(client_token).id(),
+            **final(missing_perm) is None,
+            final(ctr_auth).id() == old(ctr_auth).id(),
+            final(commitment_auth).id() == old(commitment_auth).id(),
+            final(client_token).id() == old(client_token).id(),
             !old(commitment_auth)@.contains_key(timestamp),
-            commitment_auth@ == old(commitment_auth)@.insert(timestamp, value),
-            ctr_auth@ == old(ctr_auth)@.insert(
+            final(commitment_auth)@ == old(commitment_auth)@.insert(timestamp, value),
+            final(ctr_auth)@ == old(ctr_auth)@.insert(
                 timestamp.client_id,
                 (client_perm.value(), client_perm.id()),
             ),
-            *perm_map == old(perm_map).insert(timestamp.client_id, client_perm),
-            ctr_auth@.dom() == perm_map.dom(),
+            *final(perm_map) == old(perm_map).insert(timestamp.client_id, client_perm),
+            final(ctr_auth)@.dom() == final(perm_map).dom(),
             forall|client_id: u64|
                 {
-                    &&& #[trigger] ctr_auth@.contains_key(client_id)
-                    &&& #[trigger] perm_map.contains_key(client_id)
+                    &&& #[trigger] final(ctr_auth)@.contains_key(client_id)
+                    &&& #[trigger] final(perm_map).contains_key(client_id)
                 } ==> {
-                    &&& ctr_auth@[client_id].0 == perm_map[client_id].value()
-                    &&& ctr_auth@[client_id].1 == perm_map[client_id].id()
+                    &&& final(ctr_auth)@[client_id].0 == final(perm_map)[client_id].value()
+                    &&& final(ctr_auth)@[client_id].1 == final(perm_map)[client_id].id()
                 },
             forall|ts: Timestamp| #[trigger]
-                commitment_auth@.contains_key(ts) ==> {
-                    &&& ctr_auth@.contains_key(ts.client_id)
-                    &&& ts.client_ctr < ctr_auth@[ts.client_id].0
+                final(commitment_auth)@.contains_key(ts) ==> {
+                    &&& final(ctr_auth)@.contains_key(ts.client_id)
+                    &&& ts.client_ctr < final(ctr_auth)@[ts.client_id].0
                 },
-            client_token.key() == old(client_token).key(),
-            client_token.value().0 == client_perm.value(),
-            client_token.value().1 == client_perm.id(),
+            final(client_token).key() == old(client_token).key(),
+            final(client_token).value().0 == client_perm.value(),
+            final(client_token).value().1 == client_perm.id(),
             r.key() == timestamp,
             r.value() == value,
-            r.id() == commitment_auth.id(),
+            r.id() == final(commitment_auth).id(),
     {
         client_token.agree(&*ctr_auth);
         client_token.disjoint(zero_client);
@@ -392,7 +400,7 @@ impl Commitments {
         assert(perm_map.dom().insert(missing_perm->Some_0.0) == ctr_auth@.dom());
 
         perm_map.tracked_insert(client_token.key(), client_perm);
-        *missing_perm = None;
+        *missing_perm = Ghost(None);
         commitment_auth.insert(timestamp, value)
     }
 
@@ -408,19 +416,22 @@ impl Commitments {
             old(client_token).value().0 < client_perm.value(),
             old(client_token).value().1 == client_perm.id(),
         ensures
-            self.is_full(),
-            self.ids() == old(self).ids(),
-            self.allocated() == old(self).allocated(),
-            old(self).client_map().contains_key(client_token.key()),
-            self.client_map() == old(self).client_map().insert(
-                client_token.key(),
+            final(self).is_full(),
+            final(self).ids() == old(self).ids(),
+            final(self).allocated() == old(self).allocated(),
+            old(self).client_map().contains_key(final(client_token).key()),
+            final(self).client_map() == old(self).client_map().insert(
+                final(client_token).key(),
                 (client_perm.value(), client_perm.id()),
             ),
-            self.client_perm() == old(self).client_perm().insert(client_token.key(), client_perm),
-            client_token.id() == old(client_token).id(),
-            client_token.key() == old(client_token).key(),
-            client_token.value().0 == client_perm.value(),
-            client_token.value().1 == client_perm.id(),
+            final(self).client_perm() == old(self).client_perm().insert(
+                final(client_token).key(),
+                client_perm,
+            ),
+            final(client_token).id() == old(client_token).id(),
+            final(client_token).key() == old(client_token).key(),
+            final(client_token).value().0 == client_perm.value(),
+            final(client_token).value().1 == client_perm.id(),
     {
         use_type_invariant(&*self);
         Self::return_perm(
@@ -437,7 +448,7 @@ impl Commitments {
     proof fn return_perm(
         tracked perm_map: &mut Map<u64, PermissionU64>,
         tracked ctr_auth: &mut GhostMapAuth<u64, (u64, int)>,
-        missing_perm: &mut Option<(u64, int)>,
+        tracked missing_perm: &mut Ghost<Option<(u64, int)>>,
         tracked commitment_auth: &mut GhostMapAuth<Timestamp, Option<u64>>,
         tracked zero_client: &ClientCtrToken,
         tracked client_token: &mut ClientCtrToken,
@@ -456,26 +467,26 @@ impl Commitments {
                     &&& ts.client_ctr < old(ctr_auth)@[ts.client_id].0
                 },
         ensures
-            *missing_perm is None,
-            ctr_auth.id() == old(ctr_auth).id(),
-            commitment_auth.id() == old(commitment_auth).id(),
-            client_token.id() == old(client_token).id(),
-            commitment_auth@ == old(commitment_auth)@,
-            ctr_auth@ == old(ctr_auth)@.insert(
-                client_token.key(),
+            **final(missing_perm) is None,
+            final(ctr_auth).id() == old(ctr_auth).id(),
+            final(commitment_auth).id() == old(commitment_auth).id(),
+            final(client_token).id() == old(client_token).id(),
+            final(commitment_auth)@ == old(commitment_auth)@,
+            final(ctr_auth)@ == old(ctr_auth)@.insert(
+                final(client_token).key(),
                 (client_perm.value(), client_perm.id()),
             ),
-            *perm_map == old(perm_map).insert(client_token.key(), client_perm),
-            ctr_auth@.dom() == perm_map.dom(),
+            *final(perm_map) == old(perm_map).insert(final(client_token).key(), client_perm),
+            final(ctr_auth)@.dom() == final(perm_map).dom(),
             forall|ts: Timestamp| #[trigger]
-                commitment_auth@.contains_key(ts) ==> {
-                    &&& ctr_auth@.contains_key(ts.client_id)
-                    &&& ts.client_ctr < ctr_auth@[ts.client_id].0
+                final(commitment_auth)@.contains_key(ts) ==> {
+                    &&& final(ctr_auth)@.contains_key(ts.client_id)
+                    &&& ts.client_ctr < final(ctr_auth)@[ts.client_id].0
                 },
-            client_token.id() == old(client_token).id(),
-            client_token.key() == old(client_token).key(),
-            client_token.value().0 == client_perm.value(),
-            client_token.value().1 == client_perm.id(),
+            final(client_token).id() == old(client_token).id(),
+            final(client_token).key() == old(client_token).key(),
+            final(client_token).value().0 == client_perm.value(),
+            final(client_token).value().1 == client_perm.id(),
     {
         client_token.agree(&*ctr_auth);
         client_token.disjoint(zero_client);
@@ -485,7 +496,7 @@ impl Commitments {
         assert(perm_map.dom().insert(missing_perm->Some_0.0) == ctr_auth@.dom());
 
         perm_map.tracked_insert(client_token.key(), client_perm);
-        *missing_perm = None;
+        *missing_perm = Ghost(None);
     }
 
     pub proof fn agree_commitment(tracked &self, tracked commitment: &WriteCommitment)
@@ -535,10 +546,10 @@ impl Commitments {
             client_ctr_token.id() == old(self).client_map_id(),
             allocation.key().client_id == client_ctr_token.key(),
         ensures
-            self.is_full(),
-            self.ids() == old(self).ids(),
-            self.allocated() == old(self).allocated().remove(allocation.key()),
-            self.client_map() == old(self).client_map(),
+            final(self).is_full(),
+            final(self).ids() == old(self).ids(),
+            final(self).allocated() == old(self).allocated().remove(allocation.key()),
+            final(self).client_map() == old(self).client_map(),
             old(self).client_map().contains_key(client_ctr_token.key()),
     {
         use_type_invariant(&*self);

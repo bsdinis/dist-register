@@ -301,9 +301,10 @@ impl Response {
         requires
             self.request_id() == old(request_proof)@.id(),
         ensures
-            request_proof@.id() == old(request_proof)@.id(),
-            request_proof@@ == old(request_proof)@@,
-            self.request_key() == request_proof@.key() ==> self.request() == request_proof@.value(),
+            final(request_proof)@.id() == old(request_proof)@.id(),
+            final(request_proof)@@ == old(request_proof)@@,
+            self.request_key() == final(request_proof)@.key() ==> self.request()
+                == final(request_proof)@.value(),
         no_unwind
     {
         proof { request_proof.borrow_mut().intersection_agrees(self.request.borrow()) }
@@ -318,11 +319,11 @@ impl Response {
             old(request_proof)@ is Some,
             self.request_id() == old(request_proof)@->Some_0.id(),
         ensures
-            request_proof@ is Some,
-            request_proof@->Some_0.id() == old(request_proof)@->Some_0.id(),
-            request_proof@->Some_0@ == old(request_proof)@->Some_0@,
-            self.request_key() == request_proof@->Some_0.key() ==> self.request()
-                == request_proof@->Some_0.value(),
+            final(request_proof)@ is Some,
+            final(request_proof)@->Some_0.id() == old(request_proof)@->Some_0.id(),
+            final(request_proof)@->Some_0@ == old(request_proof)@->Some_0@,
+            self.request_key() == final(request_proof)@->Some_0.key() ==> self.request()
+                == final(request_proof)@->Some_0.value(),
         no_unwind
     {
         proof {

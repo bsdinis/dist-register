@@ -98,16 +98,16 @@ impl<ML: MutLinearizer<RegisterWrite>> CompletedWrite<ML> {
 
     pub proof fn duplicate_commitment(tracked &mut self) -> (tracked r: WriteCommitment)
         ensures
-            self.timestamp() == old(self).timestamp(),
-            self.value() == old(self).value(),
-            self.lin() == old(self).lin(),
-            self.op() == old(self).op(),
-            self.commitment()@ == old(self).commitment()@,
-            self.commitment().id() == old(self).commitment().id(),
-            self.completion() == old(self).completion(),
-            r.id() == self.commitment_id(),
-            r.key() == self.timestamp(),
-            r.value() == self.value(),
+            final(self).timestamp() == old(self).timestamp(),
+            final(self).value() == old(self).value(),
+            final(self).lin() == old(self).lin(),
+            final(self).op() == old(self).op(),
+            final(self).commitment()@ == old(self).commitment()@,
+            final(self).commitment().id() == old(self).commitment().id(),
+            final(self).completion() == old(self).completion(),
+            r.id() == final(self).commitment_id(),
+            r.key() == final(self).timestamp(),
+            r.value() == final(self).value(),
     {
         use_type_invariant(&*self);
         self.commitment.duplicate()

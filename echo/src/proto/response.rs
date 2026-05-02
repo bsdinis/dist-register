@@ -167,9 +167,10 @@ impl Response {
         requires
             self.request_id() == old(request_proof).id(),
         ensures
-            request_proof.id() == old(request_proof).id(),
-            request_proof@ == old(request_proof)@,
-            self.request_key() == request_proof.key() ==> self.request() == request_proof.value(),
+            final(request_proof).id() == old(request_proof).id(),
+            final(request_proof)@ == old(request_proof)@,
+            self.request_key() == final(request_proof).key() ==> self.request()
+                == final(request_proof).value(),
     {
         request_proof.intersection_agrees(self.request.borrow())
     }

@@ -392,9 +392,9 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             old(lb)@ is LowerBound,
             old(lb).loc() == self.watermark_id(),
         ensures
-            lb.loc() == old(lb).loc(),
-            lb@ == old(lb)@,
-            lb@.timestamp() <= self.watermark(),
+            final(lb).loc() == old(lb).loc(),
+            final(lb)@ == old(lb)@,
+            final(lb)@.timestamp() <= self.watermark(),
     {
         lb.lemma_lower_bound(&self.watermark);
     }
@@ -524,37 +524,37 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                 &&& !old(self).outstanding_writes().contains_key(timestamp)
             }),
         ensures
-            self.inv(),
-            old(self).ids() == self.ids(),
-            self.current_value() == old(self).current_value(),
-            self.watermark() == old(self).watermark(),
-            self.committed_values() == old(self).committed_values(),
-            self.outstanding_reads() == old(self).outstanding_reads(),
+            final(self).inv(),
+            final(self).ids() == old(self).ids(),
+            final(self).current_value() == old(self).current_value(),
+            final(self).watermark() == old(self).watermark(),
+            final(self).committed_values() == old(self).committed_values(),
+            final(self).outstanding_reads() == old(self).outstanding_reads(),
             r is Ok <==> timestamp > old(self).watermark(),
             r is Ok ==> ({
                 let token = r->Ok_0;
-                &&& token.id() == self.write_token_id()
+                &&& token.id() == final(self).write_token_id()
                 &&& token.key() == timestamp
                 &&& token.value().lin == lin
                 &&& token.value().op == op
                 &&& !token.value().committed
-                &&& self.outstanding_writes() == old(self).outstanding_writes().insert(
+                &&& final(self).outstanding_writes() == old(self).outstanding_writes().insert(
                     token.key(),
                     token.value(),
                 )
-                &&& self.pending_writes().dom() == old(self).pending_writes().dom().insert(
+                &&& final(self).pending_writes().dom() == old(self).pending_writes().dom().insert(
                     token.key(),
                 )
             }),
             r is Err ==> ({
                 let err = r->Err_0;
                 let watermark_lb = r->Err_0->w_watermark_lb;
-                &&& *old(self) == *self
+                &&& *final(self) == *old(self)
                 &&& err is WriteWatermarkContradiction
                 &&& err->w_lin == lin
-                &&& watermark_lb@.timestamp() == self.watermark()
+                &&& watermark_lb@.timestamp() == final(self).watermark()
                 &&& watermark_lb@.timestamp() >= timestamp
-                &&& watermark_lb.loc() == self.watermark_id()
+                &&& watermark_lb.loc() == final(self).watermark_id()
                 &&& watermark_lb@ is LowerBound
             }),
     {
@@ -600,25 +600,29 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             register.id() == old(self).register_id(),
             register@ == old(self).current_value(),
         ensures
-            self.inv(),
-            self.ids() == old(self).ids(),
-            self.current_value() == old(self).current_value(),
-            self.watermark() == old(self).watermark(),
-            self.committed_values() == old(self).committed_values(),
-            self.outstanding_writes() == old(self).outstanding_writes(),
-            self.outstanding_reads() == old(self).outstanding_reads().insert(
+            final(self).inv(),
+            final(self).ids() == old(self).ids(),
+            final(self).current_value() == old(self).current_value(),
+            final(self).watermark() == old(self).watermark(),
+            final(self).committed_values() == old(self).committed_values(),
+            final(self).outstanding_writes() == old(self).outstanding_writes(),
+            final(self).outstanding_reads() == old(self).outstanding_reads().insert(
                 token.key(),
                 token.value(),
             ),
-            self.pending_writes() == old(self).pending_writes(),
-            value == self.current_value() ==> self.completed_reads().contains_key(token.key()),
-            value != self.current_value() ==> self.pending_reads().contains_key(token.key()),
-            token.id() == self.read_token_id(),
+            final(self).pending_writes() == old(self).pending_writes(),
+            value == final(self).current_value() ==> final(self).completed_reads().contains_key(
+                token.key(),
+            ),
+            value != final(self).current_value() ==> final(self).pending_reads().contains_key(
+                token.key(),
+            ),
+            token.id() == final(self).read_token_id(),
             token.key().0 == value,
             token.value().lin == lin,
             token.value().op == op,
-            token.value().min_ts.loc() == self.watermark_id(),
-            token.value().min_ts@.timestamp() == self.watermark(),
+            token.value().min_ts.loc() == final(self).watermark_id(),
+            token.value().min_ts@.timestamp() == final(self).watermark(),
         opens_invariants Set::new(|id: int| id != super::state_inv_id())
     {
         let key = (value, self.next_read_op);
@@ -658,22 +662,22 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             old(write_token).id() == old(self).write_token_id(),
             !old(write_token).value().committed,
         ensures
-            self.inv(),
-            self.ids() == old(self).ids(),
-            self.current_value() == old(self).current_value(),
-            self.watermark() == old(self).watermark(),
-            self.committed_values() == old(self).committed_values(),
-            self.outstanding_writes().dom() == old(self).outstanding_writes().dom(),
-            self.outstanding_reads() == old(self).outstanding_reads(),
-            self.pending_writes().dom() == old(self).pending_writes().dom(),
-            write_token.id() == old(write_token).id(),
-            write_token.key() == old(write_token).key(),
-            write_token.value().lin == old(write_token).value().lin,
-            write_token.value().op == old(write_token).value().op,
-            write_token.value().committed == true,
-            r.id() == self.committed_to_id(),
-            r.key() == write_token.key(),
-            r.value() == write_token.value().op.new_value,
+            final(self).inv(),
+            final(self).ids() == old(self).ids(),
+            final(self).current_value() == old(self).current_value(),
+            final(self).watermark() == old(self).watermark(),
+            final(self).committed_values() == old(self).committed_values(),
+            final(self).outstanding_writes().dom() == old(self).outstanding_writes().dom(),
+            final(self).outstanding_reads() == old(self).outstanding_reads(),
+            final(self).pending_writes().dom() == old(self).pending_writes().dom(),
+            final(write_token).id() == old(write_token).id(),
+            final(write_token).key() == old(write_token).key(),
+            final(write_token).value().lin == old(write_token).value().lin,
+            final(write_token).value().op == old(write_token).value().op,
+            final(write_token).value().committed == true,
+            r.id() == final(self).committed_to_id(),
+            r.key() == final(write_token).key(),
+            r.value() == final(write_token).value().op.new_value,
     {
         write_token.agree(&self.write_token_map);
         let tracked commitment = if write_token.key() <= self.watermark@.timestamp() {
@@ -758,27 +762,25 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             old(self).current_value() == old(register)@,
             old(self).known_timestamps().contains(max_timestamp),
         ensures
-    // invariants + ids
-
-            self.inv(),
-            self.ids() == old(self).ids(),
-            self.current_value() == register@,
-            register.id() == old(register).id(),
-            // post-condition changes
-            self.outstanding_writes() == old(self).outstanding_writes(),
-            self.outstanding_reads() == old(self).outstanding_reads(),
-            max_timestamp > old(self).watermark() ==> self.watermark() == max_timestamp,
-            max_timestamp <= old(self).watermark() ==> self.watermark() == old(self).watermark(),
-            self.committed_values().dom() == old(self).committed_values().dom().union(
+            final(self).inv(),
+            final(self).ids() == old(self).ids(),
+            final(self).current_value() == final(register)@,
+            final(register).id() == old(register).id(),
+            final(self).outstanding_writes() == old(self).outstanding_writes(),
+            final(self).outstanding_reads() == old(self).outstanding_reads(),
+            max_timestamp > old(self).watermark() ==> final(self).watermark() == max_timestamp,
+            max_timestamp <= old(self).watermark() ==> final(self).watermark() == old(
+                self,
+            ).watermark(),
+            final(self).committed_values().dom() == old(self).committed_values().dom().union(
                 old(self).pending_writes_up_to(max_timestamp),
             ),
-            self.pending_writes() == old(self).pending_writes().remove_keys(
+            final(self).pending_writes() == old(self).pending_writes().remove_keys(
                 old(self).pending_writes_up_to(max_timestamp),
             ),
-            self.pending_writes_up_to(max_timestamp).len() == 0,
-            // return values
-            r.loc() == self.watermark_id(),
-            r@.timestamp() == self.watermark(),
+            final(self).pending_writes_up_to(max_timestamp).len() == 0,
+            r.loc() == final(self).watermark_id(),
+            r@.timestamp() == final(self).watermark(),
             r@ is LowerBound,
         decreases old(self).pending_writes_up_to(max_timestamp).len(),
         opens_invariants Set::new(|id: int| id != super::state_inv_id())
@@ -857,19 +859,19 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             old(self).current_value() == register@,
             register@ == value,
         ensures
-            self.inv(),
-            self.ids() == old(self).ids(),
-            self.watermark() == old(self).watermark(),
-            self.current_value() == old(self).current_value(),
-            self.outstanding_writes() == old(self).outstanding_writes(),
-            self.outstanding_reads() == old(self).outstanding_reads(),
-            self.completed_writes() == old(self).completed_writes(),
-            self.pending_writes() == old(self).pending_writes(),
-            self.committed_values() == old(self).committed_values(),
-            self.pending_reads().dom() == old(self).pending_reads().dom().difference(
+            final(self).inv(),
+            final(self).ids() == old(self).ids(),
+            final(self).watermark() == old(self).watermark(),
+            final(self).current_value() == old(self).current_value(),
+            final(self).outstanding_writes() == old(self).outstanding_writes(),
+            final(self).outstanding_reads() == old(self).outstanding_reads(),
+            final(self).completed_writes() == old(self).completed_writes(),
+            final(self).pending_writes() == old(self).pending_writes(),
+            final(self).committed_values() == old(self).committed_values(),
+            final(self).pending_reads().dom() == old(self).pending_reads().dom().difference(
                 old(self).pending_reads_with_value(value),
             ),
-            self.completed_reads().dom() == old(self).completed_reads().dom().union(
+            final(self).completed_reads().dom() == old(self).completed_reads().dom().union(
                 old(self).pending_reads_with_value(value),
             ),
         decreases old(self).pending_reads_with_value(value).len(),
@@ -905,7 +907,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                     }
                 }
             };
-            return ;
+            return;
         }
         assert(!pending_reads.is_empty());
 
@@ -942,14 +944,14 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             resource@ is LowerBound,
             resource@.timestamp() >= token.key(),
         ensures
-            self.inv(),
-            self.ids() == old(self).ids(),
-            self.watermark() == old(self).watermark(),
-            self.current_value() == old(self).current_value(),
-            self.committed_values() == old(self).committed_values(),
-            self.outstanding_writes() == old(self).outstanding_writes().remove(token.key()),
-            self.completed_writes() == old(self).completed_writes().remove(token.key()),
-            self.pending_writes() == old(self).pending_writes(),
+            final(self).inv(),
+            final(self).ids() == old(self).ids(),
+            final(self).watermark() == old(self).watermark(),
+            final(self).current_value() == old(self).current_value(),
+            final(self).committed_values() == old(self).committed_values(),
+            final(self).outstanding_writes() == old(self).outstanding_writes().remove(token.key()),
+            final(self).completed_writes() == old(self).completed_writes().remove(token.key()),
+            final(self).pending_writes() == old(self).pending_writes(),
             ({
                 let WriteTokenVal { lin, op, .. } = token.value();
                 lin.post(op, (), r)
@@ -989,16 +991,16 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             commitment.value() == token.key().0,
             old(self).committed_values().contains_key(exec_timestamp),
         ensures
-            self.inv(),
-            self.ids() == old(self).ids(),
-            self.watermark() == old(self).watermark(),
-            self.current_value() == old(self).current_value(),
-            self.committed_values() == old(self).committed_values(),
-            self.outstanding_writes() == old(self).outstanding_writes(),
-            self.outstanding_reads() == old(self).outstanding_reads().remove(token.key()),
-            self.completed_reads() == old(self).completed_reads().remove(token.key()),
-            self.completed_writes() == old(self).completed_writes(),
-            self.pending_writes() == old(self).pending_writes(),
+            final(self).inv(),
+            final(self).ids() == old(self).ids(),
+            final(self).watermark() == old(self).watermark(),
+            final(self).current_value() == old(self).current_value(),
+            final(self).committed_values() == old(self).committed_values(),
+            final(self).outstanding_writes() == old(self).outstanding_writes(),
+            final(self).outstanding_reads() == old(self).outstanding_reads().remove(token.key()),
+            final(self).completed_reads() == old(self).completed_reads().remove(token.key()),
+            final(self).completed_writes() == old(self).completed_writes(),
+            final(self).pending_writes() == old(self).pending_writes(),
             token.value().lin.post(token.value().op, token.key().0, r),
     {
         token.agree(&self.read_token_map);
@@ -1026,26 +1028,28 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             old(self).inv(),
             token.id() == old(self).write_token_id(),
         ensures
-            self.inv(),
-            self.ids() == old(self).ids(),
-            self.watermark() == old(self).watermark(),
-            self.current_value() == old(self).current_value(),
-            self.committed_values() == old(self).committed_values(),
-            self.outstanding_writes() == old(self).outstanding_writes().remove(token.key()),
-            self.completed_writes() == old(self).completed_writes().remove(token.key()),
+            final(self).inv(),
+            final(self).ids() == old(self).ids(),
+            final(self).watermark() == old(self).watermark(),
+            final(self).current_value() == old(self).current_value(),
+            final(self).committed_values() == old(self).committed_values(),
+            final(self).outstanding_writes() == old(self).outstanding_writes().remove(token.key()),
+            final(self).completed_writes() == old(self).completed_writes().remove(token.key()),
             token.value().lin == r.0.lin(),
             token.value().op == r.0.op(),
             !token.value().committed && r.1 is Some ==> {
                 let allocation = r.1->Some_0;
-                &&& allocation.id() == self.committed_to_id()
+                &&& allocation.id() == final(self).committed_to_id()
                 &&& allocation.key() == token.key()
                 &&& allocation.value() == token.value().op.new_value
-                &&& self.pending_writes() == old(self).pending_writes().remove(token.key())
-                &&& self.known_timestamps() == old(self).known_timestamps().remove(token.key())
+                &&& final(self).pending_writes() == old(self).pending_writes().remove(token.key())
+                &&& final(self).known_timestamps() == old(self).known_timestamps().remove(
+                    token.key(),
+                )
                 &&& old(self).pending_writes().contains_key(token.key())
             },
             !token.value().committed && r.1 is None ==> {
-                self.pending_writes() == old(self).pending_writes()
+                final(self).pending_writes() == old(self).pending_writes()
             },
             r.0.inv(),
     {
@@ -1079,15 +1083,15 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
             old(self).inv(),
             token.id() == old(self).read_token_id(),
         ensures
-            self.inv(),
-            self.ids() == old(self).ids(),
-            self.watermark() == old(self).watermark(),
-            self.current_value() == old(self).current_value(),
-            self.committed_values() == old(self).committed_values(),
-            self.outstanding_writes() == old(self).outstanding_writes(),
-            self.outstanding_reads() == old(self).outstanding_reads().remove(token.key()),
-            self.pending_writes() == old(self).pending_writes(),
-            self.completed_writes() == old(self).completed_writes(),
+            final(self).inv(),
+            final(self).ids() == old(self).ids(),
+            final(self).watermark() == old(self).watermark(),
+            final(self).current_value() == old(self).current_value(),
+            final(self).committed_values() == old(self).committed_values(),
+            final(self).outstanding_writes() == old(self).outstanding_writes(),
+            final(self).outstanding_reads() == old(self).outstanding_reads().remove(token.key()),
+            final(self).pending_writes() == old(self).pending_writes(),
+            final(self).completed_writes() == old(self).completed_writes(),
             token.value().lin == r.lin(),
             token.value().op == r.op(),
     {

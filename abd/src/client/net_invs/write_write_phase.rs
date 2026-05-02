@@ -322,18 +322,18 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> WriteAccumulator<C> {
             old(servers)[server_id]@.loc() == lb.loc(),
             lb@ is LowerBound,
         ensures
-            Self::server_invs(*servers, req_servers, servers.locs()),
-            servers.dom() == old(servers).dom(),
-            servers.locs() == old(servers).locs(),
-            old(servers).leq(*servers),
+            Self::server_invs(*final(servers), req_servers, final(servers).locs()),
+            final(servers).dom() == old(servers).dom(),
+            final(servers).locs() == old(servers).locs(),
+            old(servers).leq(*final(servers)),
             forall|id| #[trigger]
-                servers.contains_key(id) ==> {
-                    &&& id != server_id ==> servers[id]@@.timestamp() == old(
+                final(servers).contains_key(id) ==> {
+                    &&& id != server_id ==> final(servers)[id]@@.timestamp() == old(
                         servers,
                     )[id]@@.timestamp()
-                    &&& id == server_id ==> servers[id]@@.timestamp() >= lb@.timestamp()
+                    &&& id == server_id ==> final(servers)[id]@@.timestamp() >= lb@.timestamp()
                 },
-            servers[server_id]@@.timestamp() >= lb@.timestamp(),
+            final(servers)[server_id]@@.timestamp() >= lb@.timestamp(),
     {
         let ghost old_servers = *old(servers);
         if servers[server_id]@@.timestamp() < lb@.timestamp() {
@@ -428,16 +428,30 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> WriteAccumulator<C> {
                 id.0,
             ),
         ensures
-            servers@.locs() == old(servers)@.locs(),
-            server_tokens@.id() == old(server_tokens)@.id(),
-            replies@ == old(replies)@.insert(id),
-            Self::server_invs(servers@, request@.value()->Write_0.servers(), server_tokens@@),
-            Self::replies_inv(replies@, servers@, request@.value()->Write_0.spec_timestamp(), id.0),
-            Self::unchanged_inv(servers@, request@.value()->Write_0.servers(), replies@, id.0),
+            final(servers)@.locs() == old(servers)@.locs(),
+            final(server_tokens)@.id() == old(server_tokens)@.id(),
+            final(replies)@ == old(replies)@.insert(id),
+            Self::server_invs(
+                final(servers)@,
+                request@.value()->Write_0.servers(),
+                final(server_tokens)@@,
+            ),
+            Self::replies_inv(
+                final(replies)@,
+                final(servers)@,
+                request@.value()->Write_0.spec_timestamp(),
+                id.0,
+            ),
+            Self::unchanged_inv(
+                final(servers)@,
+                request@.value()->Write_0.servers(),
+                final(replies)@,
+                id.0,
+            ),
         no_unwind
     {
         if replies.contains(&id) {
-            return ;
+            return;
         }
         let r = resp.destruct_write();
 
@@ -470,9 +484,9 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> WriteAccumulator<C> {
             old(self).constant().server_locs.contains_key(resp.server_id()),
             old(self).constant().server_locs[resp.server_id()] == resp.write().loc(),
         ensures
-            WritePred::inv(self.constant(), *self),
-            self.constant() == old(self).constant(),
-            self.replies() == old(self).replies().insert(id),
+            WritePred::inv(final(self).constant(), *final(self)),
+            final(self).constant() == old(self).constant(),
+            final(self).replies() == old(self).replies().insert(id),
         no_unwind
     {
         proof {
@@ -497,7 +511,7 @@ impl<C> ReplyAccumulator<C, WritePred<C>> for WriteAccumulator<C> where
     #[verifier::exec_allows_no_decreases_clause]
     fn insert(&mut self, pred: Ghost<WritePred<C>>, id: (u64, u64), reply: Response)
         ensures
-            self.channels() == old(self).channels(),
+            final(self).channels() == old(self).channels(),
     {
         proof {
             use_type_invariant(&*self);

@@ -248,8 +248,8 @@ impl<ML: MutLinearizer<RegisterWrite>> PendingWrite<ML> {
             r.value() == self.value(),
             r.lin() == self.lin(),
             r.commitment_id() == self.commitment_id(),
-            old(register).id() == register.id(),
-            register@ == r.value(),
+            final(register).id() == old(register).id(),
+            final(register)@ == r.value(),
         opens_invariants self.namespaces()
     {
         use_type_invariant(&self);

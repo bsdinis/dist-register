@@ -538,21 +538,19 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             lb@ is LowerBound,
             !agree_with_max.contains(server_id),
         ensures
-            Self::server_invs(*servers, req_servers, servers.locs(), min_timestamp),
-            servers.dom() == old(servers).dom(),
-            servers.locs() == old(servers).locs(),
-            old(servers).leq(*servers),
+            Self::server_invs(*final(servers), req_servers, final(servers).locs(), min_timestamp),
+            final(servers).dom() == old(servers).dom(),
+            final(servers).locs() == old(servers).locs(),
+            old(servers).leq(*final(servers)),
             forall|id| #[trigger]
-                servers.contains_key(id) ==> {
-                    &&& id != server_id ==> servers[id]@@.timestamp() == old(
-                        servers,
-                    )[id]@@.timestamp()
-                    &&& id == server_id ==> servers[id]@@.timestamp() == lb@.timestamp()
+                final(servers).contains_key(id) ==> {
+                    &&& id != server_id ==> final(servers)[id]@@.timestamp() == old( servers)[id]@@.timestamp()
+                    &&& id == server_id ==> final(servers)[id]@@.timestamp() == lb@.timestamp()
                 },
-            servers[server_id]@@.timestamp() == lb@.timestamp(),
+            final(servers)[server_id]@@.timestamp() == lb@.timestamp(),
             max_resp is Some ==> forall|id| #[trigger]
                 agree_with_max.contains(id) ==> {
-                    servers[id]@@.timestamp() >= max_resp->Some_0.spec_timestamp()
+                    final(servers)[id]@@.timestamp() >= max_resp->Some_0.spec_timestamp()
                 },
     {
         let ghost old_servers = *old(servers);
@@ -589,21 +587,19 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             lb@ is LowerBound,
             !agree_with_max.contains(server_id),
         ensures
-            Self::server_invs(*servers, req_servers, servers.locs(), min_timestamp),
-            servers.dom() == old(servers).dom(),
-            servers.locs() == old(servers).locs(),
-            old(servers).leq(*servers),
+            Self::server_invs(*final(servers), req_servers, final(servers).locs(), min_timestamp),
+            final(servers).dom() == old(servers).dom(),
+            final(servers).locs() == old(servers).locs(),
+            old(servers).leq(*final(servers)),
             forall|id| #[trigger]
-                servers.contains_key(id) ==> {
-                    &&& id != server_id ==> servers[id]@@.timestamp() == old(
-                        servers,
-                    )[id]@@.timestamp()
-                    &&& id == server_id ==> servers[id]@@.timestamp() >= lb@.timestamp()
+                final(servers).contains_key(id) ==> {
+                    &&& id != server_id ==> final(servers)[id]@@.timestamp() == old(servers)[id]@@.timestamp()
+                    &&& id == server_id ==> final(servers)[id]@@.timestamp() >= lb@.timestamp()
                 },
-            servers[server_id]@@.timestamp() >= lb@.timestamp(),
+            final(servers)[server_id]@@.timestamp() >= lb@.timestamp(),
             forall|id| #[trigger]
                 agree_with_max.contains(id) ==> {
-                    servers[id]@@.timestamp() >= max_resp.spec_timestamp()
+                    final(servers)[id]@@.timestamp() >= max_resp.spec_timestamp()
                 },
     {
         let ghost old_servers = *old(servers);
@@ -721,10 +717,15 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
                 *max_resp,
             ),
         ensures
-            wb_replies@ == old(wb_replies)@.insert(id),
-            agree_with_max@ == old(agree_with_max)@.insert(id.1),
-            Self::replies_inv(wb_replies@, id.0),
-            Self::agree_with_max_aux_inv(agree_with_max@, get_replies@, wb_replies@, *max_resp),
+            final(wb_replies)@ == old(wb_replies)@.insert(id),
+            final(agree_with_max)@ == old(agree_with_max)@.insert(id.1),
+            Self::replies_inv(final(wb_replies)@, id.0),
+            Self::agree_with_max_aux_inv(
+                final(agree_with_max)@,
+                get_replies@,
+                final(wb_replies)@,
+                *max_resp,
+            ),
         no_unwind
     {
         agree_with_max.insert(id.1);
@@ -757,31 +758,36 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             ),
             wb_replies@.is_empty(),
         ensures
-            *max_resp is Some,
-            !agree_with_max@.is_empty(),
-            get_replies@ == old(get_replies)@.insert(id),
-            Self::replies_inv(get_replies@, id.0),
-            Self::agree_with_max_aux_inv(agree_with_max@, get_replies@, wb_replies@, *max_resp),
+            *final(max_resp) is Some,
+            !final(agree_with_max)@.is_empty(),
+            final(get_replies)@ == old(get_replies)@.insert(id),
+            Self::replies_inv(final(get_replies)@, id.0),
+            Self::agree_with_max_aux_inv(
+                final(agree_with_max)@,
+                final(get_replies)@,
+                wb_replies@,
+                *final(max_resp),
+            ),
             *old(max_resp) is Some ==> {
                 let old_max_ts = old(max_resp)->Some_0.spec_timestamp();
-                let new_max_ts = max_resp->Some_0.spec_timestamp();
+                let new_max_ts = final(max_resp)->Some_0.spec_timestamp();
                 &&& resp.spec_timestamp() > old_max_ts ==> {
-                    &&& *max_resp == Some(resp)
-                    &&& agree_with_max@ == set![id.1]
+                    &&& *final(max_resp) == Some(resp)
+                    &&& final(agree_with_max)@ == set![id.1]
                 }
                 &&& resp.spec_timestamp() == old_max_ts ==> {
-                    &&& *max_resp == *old(max_resp)
-                    &&& agree_with_max@ == old(agree_with_max)@.insert(id.1)
+                    &&& *final(max_resp) == *old(max_resp)
+                    &&& final(agree_with_max)@ == old(agree_with_max)@.insert(id.1)
                 }
                 &&& resp.spec_timestamp() < old_max_ts ==> {
-                    &&& *max_resp == *old(max_resp)
-                    &&& agree_with_max@ == old(agree_with_max)@
+                    &&& *final(max_resp) == *old(max_resp)
+                    &&& final(agree_with_max)@ == old(agree_with_max)@
                 }
                 &&& new_max_ts >= old_max_ts
             },
             *old(max_resp) is None ==> {
-                &&& *max_resp == Some(resp)
-                &&& agree_with_max@ == set![id.1]
+                &&& *final(max_resp) == Some(resp)
+                &&& final(agree_with_max)@ == set![id.1]
             },
         no_unwind
     {
@@ -873,49 +879,49 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
                 )
             },
         ensures
-            servers@.locs() == old(servers)@.locs(),
-            server_tokens@.id() == old(server_tokens)@.id(),
-            get_replies@ == old(get_replies)@.insert(id),
+            final(servers)@.locs() == old(servers)@.locs(),
+            final(server_tokens)@.id() == old(server_tokens)@.id(),
+            final(get_replies)@ == old(get_replies)@.insert(id),
             resp.get().spec_commitment().id() == commitment_id@,
             Self::server_invs(
-                servers@,
+                final(servers)@,
                 get_request@.value()->Get_0.servers(),
-                server_tokens@@,
+                final(server_tokens)@@,
                 min_timestamp@,
             ),
-            Self::replies_inv(get_replies@, id.0),
+            Self::replies_inv(final(get_replies)@, id.0),
             Self::agree_with_max_inv(
-                agree_with_max@,
-                get_replies@,
+                final(agree_with_max)@,
+                final(get_replies)@,
                 wb_replies@,
-                servers@,
-                *max_resp,
+                final(servers)@,
+                *final(max_resp),
             ),
-            *max_resp is Some ==> {
+            *final(max_resp) is Some ==> {
                 Self::max_resp_inv(
-                    max_resp->Some_0,
-                    servers@,
-                    agree_with_max@,
-                    get_replies@,
+                    final(max_resp)->Some_0,
+                    final(servers)@,
+                    final(agree_with_max)@,
+                    final(get_replies)@,
                     wb_replies@,
                     commitment_id@,
-                    server_tokens@.id(),
+                    final(server_tokens)@.id(),
                 )
             },
             forall|cid|
                 {
-                    &&& !#[trigger] get_replies@.contains(cid)
+                    &&& !#[trigger] final(get_replies)@.contains(cid)
                     &&& !#[trigger] wb_replies@.contains(cid)
-                    &&& servers@.contains_key(cid.1)
+                    &&& final(servers)@.contains_key(cid.1)
                     &&& cid.0 == get_request@.key().0
                 } ==> {
-                    servers@[cid.1]@@.timestamp()
+                    final(servers)@[cid.1]@@.timestamp()
                         == get_request@.value()->Get_0.servers()[cid.1]@@.timestamp()
                 },
         no_unwind
     {
         if get_replies.contains(&id) {
-            return ;
+            return;
         }
         let r = resp.destruct_get();
 
@@ -987,10 +993,10 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             resp.get().spec_commitment().id() == old(self).commitment_id(),
             old(self).wb_request_id() is None,
         ensures
-            ReadPred::inv(self.constant(), *self),
-            self.constant() == old(self).constant(),
-            self.spec_get_replies() == old(self).spec_get_replies().insert(id),
-            self.spec_wb_replies() == old(self).spec_wb_replies(),
+            ReadPred::inv(final(self).constant(), *final(self)),
+            final(self).constant() == old(self).constant(),
+            final(self).spec_get_replies() == old(self).spec_get_replies().insert(id),
+            final(self).spec_wb_replies() == old(self).spec_wb_replies(),
         no_unwind
     {
         proof {
@@ -1023,14 +1029,14 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             Self::request_inv(old(self).get_request@, Some(wb_request@), old(self).max_resp),
             wb_request@.id() == old(self).constant().request_map_id,
         ensures
-            self.constant() == (ReadPred {
+            final(self).constant() == (ReadPred {
                 wb_request_id: Some(wb_request@.key().1),
                 ..old(self).constant()
             }),
-            self.wb_request_id() == Some(wb_request@.key().1),
-            self.spec_wb_replies() == old(self).spec_wb_replies(),
-            self.spec_get_replies() == old(self).spec_get_replies(),
-            self.spec_max_resp() == old(self).spec_max_resp(),
+            final(self).wb_request_id() == Some(wb_request@.key().1),
+            final(self).spec_wb_replies() == old(self).spec_wb_replies(),
+            final(self).spec_get_replies() == old(self).spec_get_replies(),
+            final(self).spec_max_resp() == old(self).spec_max_resp(),
     {
         proof {
             use_type_invariant(&*self);
@@ -1110,54 +1116,54 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
                         == get_request@.value()->Get_0.servers()[cid.1]@@.timestamp()
                 },
         ensures
-            servers@.locs() == old(servers)@.locs(),
-            server_tokens@.id() == old(server_tokens)@.id(),
-            wb_replies@ == old(wb_replies)@.insert(id),
-            wb_replies@.finite(),
+            final(servers)@.locs() == old(servers)@.locs(),
+            final(server_tokens)@.id() == old(server_tokens)@.id(),
+            final(wb_replies)@ == old(wb_replies)@.insert(id),
+            final(wb_replies)@.finite(),
             Self::server_invs(
-                servers@,
+                final(servers)@,
                 get_request@.value()->Get_0.servers(),
-                server_tokens@@,
+                final(server_tokens)@@,
                 min_timestamp@,
             ),
             Self::replies_inv(get_replies@, id.0),
-            Self::replies_inv(wb_replies@, id.0),
+            Self::replies_inv(final(wb_replies)@, id.0),
             Self::request_inv(get_request@, wb_request@, *max_resp),
             Self::agree_with_max_inv(
-                agree_with_max@,
+                final(agree_with_max)@,
                 get_replies@,
-                wb_replies@,
-                servers@,
+                final(wb_replies)@,
+                final(servers)@,
                 *max_resp,
             ),
             Self::max_resp_inv(
                 max_resp->Some_0,
-                servers@,
-                agree_with_max@,
+                final(servers)@,
+                final(agree_with_max)@,
                 get_replies@,
-                wb_replies@,
+                final(wb_replies)@,
                 commitment_id@,
-                server_tokens@.id(),
+                final(server_tokens)@.id(),
             ),
             forall|cid| #[trigger]
-                wb_replies@.contains(cid) ==> {
-                    &&& servers[cid.1]@@.timestamp() >= max_resp->Some_0.spec_timestamp()
-                    &&& agree_with_max@.contains(cid.1)
+                final(wb_replies)@.contains(cid) ==> {
+                    &&& final(servers)[cid.1]@@.timestamp() >= max_resp->Some_0.spec_timestamp()
+                    &&& final(agree_with_max)@.contains(cid.1)
                 },
             forall|cid|
                 {
                     &&& !#[trigger] get_replies@.contains(cid)
-                    &&& !#[trigger] wb_replies@.contains(cid)
-                    &&& servers@.contains_key(cid.1)
+                    &&& !#[trigger] final(wb_replies)@.contains(cid)
+                    &&& final(servers)@.contains_key(cid.1)
                     &&& cid.0 == get_request@.key().0
                 } ==> {
-                    servers@[cid.1]@@.timestamp()
+                    final(servers)@[cid.1]@@.timestamp()
                         == get_request@.value()->Get_0.servers()[cid.1]@@.timestamp()
                 },
         no_unwind
     {
         if wb_replies.contains(&id) {
-            return ;
+            return;
         }
         if agree_with_max.contains(&id.1) {
             wb_replies.insert(id);
@@ -1169,7 +1175,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
                     assert(wb_replies@.contains(oid));  // TRIGGER
                 }
             }
-            return ;
+            return;
         }
         let r = resp.destruct_write();
 
@@ -1224,12 +1230,12 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             old(self).constant().server_locs.contains_key(resp.server_id()),
             old(self).constant().server_locs[resp.server_id()] == resp.write().loc(),
         ensures
-            ReadPred::inv(self.constant(), *self),
-            self.constant() == old(self).constant(),
-            self.max_resp == old(self).max_resp,
-            self.spec_get_replies() == old(self).spec_get_replies(),
-            self.spec_wb_replies() == old(self).spec_wb_replies().insert(id),
-            self.spec_max_resp() == old(self).spec_max_resp(),
+            ReadPred::inv(final(self).constant(), *final(self)),
+            final(self).constant() == old(self).constant(),
+            final(self).max_resp == old(self).max_resp,
+            final(self).spec_get_replies() == old(self).spec_get_replies(),
+            final(self).spec_wb_replies() == old(self).spec_wb_replies().insert(id),
+            final(self).spec_max_resp() == old(self).spec_max_resp(),
         no_unwind
     {
         proof {
@@ -1333,7 +1339,7 @@ impl<C> ReplyAccumulator<C, ReadPred<C>> for ReadAccumGetPhase<C> where
         reply: Response,
     )
         ensures
-            self.constant() == old(self).constant(),
+            final(self).constant() == old(self).constant(),
     {
         proof {
             use_type_invariant(&*self);
@@ -1472,7 +1478,7 @@ impl<C> ReplyAccumulator<C, ReadWbPred<C>> for ReadAccumWbPhase<C> where
         reply: Response,
     )
         ensures
-            self.constant() == old(self).constant(),
+            final(self).constant() == old(self).constant(),
     {
         proof {
             use_type_invariant(&*self);

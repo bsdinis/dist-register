@@ -1,5 +1,5 @@
 [package]
-name = "echo-trivial"
+name = "vlib"
 
 edition = { workspace = true }
 license = { workspace = true }
@@ -9,9 +9,6 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-specs = { workspace = true }
-verdist = { workspace = true }
-vlib = { workspace = true }
 vstd = { workspace = true }
 
 [lints]

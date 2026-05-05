@@ -12,9 +12,9 @@ version = { workspace = true }
 clap = { workspace = true }
 rand = { workspace = true }
 
-echo = { path = "../echo" }
-specs = { path = "../specs" }
-verdist = { path = "../verdist" }
+echo = { workspace = true }
+specs = { workspace = true }
+verdist = { workspace = true }
 vlib = { workspace = true }
 vstd = { workspace = true }
 

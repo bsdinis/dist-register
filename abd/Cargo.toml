@@ -9,10 +9,10 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+specs = { workspace = true }
+verdist = { workspace = true }
 vlib = { workspace = true }
 vstd = { workspace = true }
-verdist = { path = "../verdist" }
-specs = { path = "../specs" }
 
 [lints]
 workspace = true

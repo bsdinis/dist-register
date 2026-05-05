@@ -1,6 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["abd", "abd-example", "echo", "echo-example", "echo-trivial", "specs", "verdist"]
+members = [
+    "abd",
+    "abd-example",
+	"echo",
+	"echo-example",
+	"echo-trivial",
+	"specs",
+	"verdist",
+    "vlib",
+]
 
 [workspace.package]
 version = "0.0.0"
@@ -15,7 +24,11 @@ crossbeam-channel = "0.5.15"
 rand = "0.10.1"
 rand_distr = "0.6.0"
 
-vlib = { path = "../vlib" }
+abd = { path = "./abd" }
+echo = { path = "./echo" }
+specs = { path = "./specs" }
+verdist = { path = "./verdist" }
+vlib = { path = "./vlib" }
 vstd = { path = "../verus/source/vstd" }
 
 [workspace.lints.clippy]

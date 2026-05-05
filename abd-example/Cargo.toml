@@ -11,9 +11,9 @@ version = { workspace = true }
 [dependencies]
 clap = { workspace = true }
 
-abd = { path = "../abd" }
-specs = { path = "../specs" }
-verdist = { path = "../verdist" }
+abd = { workspace = true }
+specs = { workspace = true }
+verdist = { workspace = true }
 vlib = { workspace = true }
 vstd = { workspace = true }
 

@@ -347,7 +347,7 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
                     self.accept(channel)
                 },
                 Err(verdist::network::error::TryListenError::Empty) => {
-                    break;
+                    break ;
                 },
                 Err(verdist::network::error::TryListenError::Disconnected) => {
                     return false;
@@ -445,7 +445,7 @@ pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Response, Reques
         let server = Arc::new(create_server::<_, _, OwnedWritePerm, OwnedReadPerm>(
             server_id, listener,
         ));
-        tracing::info!("starting server {}", server.id);
+        vlib::veprintln!("[server|{:>3}]: starting", server.id);
 
         std::thread::scope(|s| {
             for _ in 0..5 {

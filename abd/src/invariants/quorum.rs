@@ -915,7 +915,7 @@ impl ServerUniverse {
         self.lemma_locs_eq(*other);
         if other.dom().difference(visited).is_empty() {
             vlib::set::lemma_different_sets_with_inclusion_have_difference(visited, other.dom());
-            return;
+            return ;
         }
         assert(exists|id| #[trigger] other.dom().contains(id) && !visited.contains(id));
         let server_id = choose|id| #[trigger] other.dom().contains(id) && !visited.contains(id);
@@ -1056,7 +1056,7 @@ impl ServerUniverse {
         if diff.len() == 0 {
             diff.lemma_len0_is_empty();
             vlib::set::lemma_different_sets_with_inclusion_have_difference(other.dom(), m.dom());
-            return;
+            return ;
         }
         vstd::assert_by_contradiction!(!diff.is_empty(), {
             diff.lemma_len0_is_empty();

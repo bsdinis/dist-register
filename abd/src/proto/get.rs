@@ -76,8 +76,6 @@ impl GetRequest {
             new_lb = lb.extract_lower_bound();
             self.servers.borrow_mut().tracked_insert_lb(server_id@, lb);
 
-            self.servers@.lemma_locs();  // TRIGGER
-
             assert forall|id| #[trigger] self.servers@.contains_key(id) implies {
                 &&& self.servers@[id]@.loc() == old_servers[id]@.loc()
                 &&& self.servers@[id]@@.timestamp() == old_servers[id]@@.timestamp()
@@ -95,6 +93,8 @@ impl GetRequest {
                     assert(unchanged_servers.contains_key(id));  // TRIGGER
                 }
             }
+
+            assert(self.servers@.locs() == old_servers.locs());
         }
 
         Tracked(new_lb)

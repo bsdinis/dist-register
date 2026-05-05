@@ -171,7 +171,7 @@ impl<L, C> EchoServer<L, C> where
                     self.accept(channel)
                 },
                 Err(verdist::network::error::TryListenError::Empty) => {
-                    break;
+                    break ;
                 },
                 Err(verdist::network::error::TryListenError::Disconnected) => {
                     return false;
@@ -262,7 +262,7 @@ pub fn run_modelled_server(server_id: u64) -> ModelledConnector<Response, Reques
     let (listener, connector) = verdist::network::modelled::listen_channel(server_id);
     std::thread::spawn(move || {
         let server = Arc::new(create_server::<_, _>(server_id, listener));
-        tracing::info!("starting server {}", server.id);
+        vlib::veprintln!("[server|{:>3}]: starting", server.id);
 
         std::thread::scope(|s| {
             for _ in 0..5 {

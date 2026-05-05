@@ -101,9 +101,7 @@ mod ignore {
             for handle in handles {
                 match handle.join() {
                     Ok(r) => r?,
-                    Err(e) => {
-                        tracing::warn!("failed to join thread: {e:?}");
-                    }
+                    Err(e) => {}
                 }
             }
 

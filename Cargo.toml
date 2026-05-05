@@ -1,0 +1,34 @@
+[workspace]
+resolver = "3"
+members = ["abd", "abd-example", "echo", "echo-example", "echo-trivial", "specs", "verdist"]
+
+[workspace.package]
+version = "0.0.0"
+license = "MIT"
+edition = "2024"
+rust-version = "1.95"
+repository = "https://github.com/bsdinis/verdist"
+
+[workspace.dependencies]
+clap = { version = "4.4.12", features = ["derive"] }
+crossbeam-channel = "0.5.15"
+rand = "0.10.1"
+rand_distr = "0.6.0"
+
+vlib = { path = "../vlib" }
+vstd = { path = "../verus/source/vstd" }
+
+[workspace.lints.clippy]
+explicit_iter_loop = "warn"
+flat_map_option = "warn"
+implicit_clone = "warn"
+needless_for_each = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+useless_conversion = "warn"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)', 'cfg(verus_keep_ghost)'] }
+
+[profile.release]
+strip = "debuginfo"

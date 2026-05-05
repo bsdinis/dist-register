@@ -200,8 +200,6 @@ fn run_client<C, Conn, 'a>(args: Args, connectors: &[Conn]) -> Result<
 
 } // verus!
 fn main() {
-    tracing_subscriber::fmt::init();
-
     let args = Args::parse();
 
     if args.n_servers == 0 {

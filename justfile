@@ -4,29 +4,17 @@ verified_crates := "abd abd-example echo echo-example echo-trivial specs verdist
 runnable_crates := "abd-example echo-example"
 
 fmt:
-    for crate in {{verified_crates}}; \
-        pushd $crate; \
-        verusfmt (fd '.rs'); \
-        popd; \
-    end
+    verusfmt (fd '.rs'); \
 
 verify:
-    for crate in {{verified_crates}}; \
-        pushd $crate; \
-        cargo verus verify; \
-        popd; \
-    end
+    cargo verus verify; \
 
 check:
-    for crate in {{verified_crates}}; \
-        pushd $crate; \
-        cargo check; \
-        popd; \
-    end
+    cargo check;
 
+[default]
 run:
     for crate in {{runnable_crates}}; \
-        pushd $crate; \
-        cargo run -- --no-delay; \
-        popd; \
+        cargo run -p $crate -- --no-delay; \
     end
+

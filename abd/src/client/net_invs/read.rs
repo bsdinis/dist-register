@@ -544,7 +544,9 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             old(servers).leq(*final(servers)),
             forall|id| #[trigger]
                 final(servers).contains_key(id) ==> {
-                    &&& id != server_id ==> final(servers)[id]@@.timestamp() == old( servers)[id]@@.timestamp()
+                    &&& id != server_id ==> final(servers)[id]@@.timestamp() == old(
+                        servers,
+                    )[id]@@.timestamp()
                     &&& id == server_id ==> final(servers)[id]@@.timestamp() == lb@.timestamp()
                 },
             final(servers)[server_id]@@.timestamp() == lb@.timestamp(),
@@ -593,7 +595,9 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> ReadAccumulator<C> {
             old(servers).leq(*final(servers)),
             forall|id| #[trigger]
                 final(servers).contains_key(id) ==> {
-                    &&& id != server_id ==> final(servers)[id]@@.timestamp() == old(servers)[id]@@.timestamp()
+                    &&& id != server_id ==> final(servers)[id]@@.timestamp() == old(
+                        servers,
+                    )[id]@@.timestamp()
                     &&& id == server_id ==> final(servers)[id]@@.timestamp() >= lb@.timestamp()
                 },
             final(servers)[server_id]@@.timestamp() >= lb@.timestamp(),

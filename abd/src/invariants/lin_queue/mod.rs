@@ -907,7 +907,7 @@ impl<ML, RL> LinearizationQueue<ML, RL> where
                     }
                 }
             };
-            return ;
+            return;
         }
         assert(!pending_reads.is_empty());
 

@@ -451,7 +451,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> WriteAccumulator<C> {
         no_unwind
     {
         if replies.contains(&id) {
-            return ;
+            return;
         }
         let r = resp.destruct_write();
 

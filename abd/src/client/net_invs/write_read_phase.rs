@@ -638,7 +638,7 @@ impl<C: Channel<K = ChannelInv, Id = (u64, u64)>> GetTimestampAccumulator<C> {
         no_unwind
     {
         if replies.contains(&id) {
-            return ;
+            return;
         }
         let r = resp.destruct_get_timestamp();
 

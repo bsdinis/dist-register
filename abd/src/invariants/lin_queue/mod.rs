@@ -19,8 +19,8 @@ use vstd::resource::Loc;
 #[cfg(verus_only)]
 use vstd::set_lib::*;
 
-use specs::abd::RegisterRead;
-use specs::abd::RegisterWrite;
+use specs::register::RegisterRead;
+use specs::register::RegisterWrite;
 
 mod completed;
 mod maybe_lin;

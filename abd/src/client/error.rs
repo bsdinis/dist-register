@@ -4,9 +4,9 @@ use crate::invariants::lin_queue::MaybeReadLinearized;
 use crate::invariants::lin_queue::MaybeWriteLinearized;
 use crate::timestamp::Timestamp;
 
-use specs::abd::AbdError;
-use specs::abd::RegisterRead;
-use specs::abd::RegisterWrite;
+use specs::register::RegisterError;
+use specs::register::RegisterRead;
+use specs::register::RegisterWrite;
 
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;
@@ -79,7 +79,7 @@ impl<ML, MC> std::error::Error for WriteError<ML, MC> {
 
 }
 
-impl<RL> AbdError<RL, RegisterRead> for ReadError<RL, RL::Completion> where
+impl<RL> RegisterError<RL, RegisterRead> for ReadError<RL, RL::Completion> where
     RL: ReadLinearizer<RegisterRead>,
  {
     open spec fn err_ensures(self, op: RegisterRead, lin: RL) -> bool {
@@ -94,7 +94,7 @@ impl<RL> AbdError<RL, RegisterRead> for ReadError<RL, RL::Completion> where
     }
 }
 
-impl<ML> AbdError<ML, RegisterWrite> for WriteError<ML, ML::Completion> where
+impl<ML> RegisterError<ML, RegisterWrite> for WriteError<ML, ML::Completion> where
     ML: MutLinearizer<RegisterWrite>,
  {
     open spec fn err_ensures(self, op: RegisterWrite, lin: ML) -> bool {

@@ -10,8 +10,8 @@ use crate::invariants::lin_queue::MaybeReadLinearized;
 use crate::invariants::lin_queue::MaybeWriteLinearized;
 use crate::timestamp::Timestamp;
 
-use specs::abd::RegisterRead;
-use specs::abd::RegisterWrite;
+use specs::register::RegisterRead;
+use specs::register::RegisterWrite;
 
 use vstd::logatom::MutLinearizer;
 use vstd::logatom::ReadLinearizer;

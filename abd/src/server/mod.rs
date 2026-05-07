@@ -22,10 +22,10 @@ use crate::server::register::MonotonicRegisterInner;
 #[cfg(verus_only)]
 use crate::timestamp::Timestamp;
 
-use specs::abd::OwnedReadPerm;
-use specs::abd::OwnedWritePerm;
-use specs::abd::RegisterRead;
-use specs::abd::RegisterWrite;
+use specs::register::OwnedReadPerm;
+use specs::register::OwnedWritePerm;
+use specs::register::RegisterRead;
+use specs::register::RegisterWrite;
 
 use verdist::network::channel::Channel;
 #[cfg(verus_only)]

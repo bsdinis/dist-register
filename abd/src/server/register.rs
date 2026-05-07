@@ -11,8 +11,8 @@ use crate::proto::{GetResponse, GetTimestampResponse};
 use crate::resource::monotonic_timestamp::MonotonicTimestampResource;
 use crate::timestamp::Timestamp;
 
-use specs::abd::RegisterRead;
-use specs::abd::RegisterWrite;
+use specs::register::RegisterRead;
+use specs::register::RegisterWrite;
 
 use std::sync::Arc;
 

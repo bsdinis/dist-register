@@ -21,11 +21,11 @@ use crate::proto::RequestInner;
 use crate::proto::Response;
 use crate::timestamp::Timestamp;
 
+use specs::register::LinRegisterClient;
 #[cfg(verus_only)]
-use specs::abd::AbdError;
-use specs::abd::AbdRegisterClient;
-use specs::abd::RegisterRead;
-use specs::abd::RegisterWrite;
+use specs::register::RegisterError;
+use specs::register::RegisterRead;
+use specs::register::RegisterWrite;
 
 use verdist::network::channel::Channel;
 use verdist::pool::BroadcastPool;
@@ -179,9 +179,13 @@ impl<Pool, C, ML, RL> AbdPool<Pool, ML, RL> where
             self.spec_quorum_size() > 0,
     {
     }
+
+    closed spec fn client_id(self) -> u64 {
+        self.id()
+    }
 }
 
-impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> where
+impl<Pool, C, ML, RL> LinRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> where
     Pool: ConnectionPool<C = C>,
     C: Channel<R = Response, S = Request, Id = (u64, u64), K = ChannelInv>,
     C::Id: Eq + Hash,
@@ -202,10 +206,6 @@ impl<Pool, C, ML, RL> AbdRegisterClient<C, ML, RL> for AbdPool<Pool, ML, RL> whe
     open spec fn write_lin_requires(lin: ML) -> bool {
         &&& !lin.namespaces().contains(invariants::state_inv_id())
         &&& lin.namespaces().finite()
-    }
-
-    closed spec fn client_id(self) -> u64 {
-        self.id()
     }
 
     closed spec fn register_loc(self) -> Loc {

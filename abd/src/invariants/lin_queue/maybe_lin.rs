@@ -1,7 +1,7 @@
 use crate::timestamp::Timestamp;
 
-use specs::abd::RegisterRead;
-use specs::abd::RegisterWrite;
+use specs::register::RegisterRead;
+use specs::register::RegisterWrite;
 
 use vstd::logatom::{MutLinearizer, ReadLinearizer};
 use vstd::prelude::*;

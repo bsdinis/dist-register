@@ -13,13 +13,13 @@ use verdist::network::error::ConnectError;
 use verdist::pool::ConnectionPool;
 use verdist::pool::FlawlessPool;
 
-use specs::abd::AbdRegisterClient;
-use specs::abd::OwnedReadPerm;
-use specs::abd::OwnedWritePerm;
+use specs::register::LinRegisterClient;
+use specs::register::OwnedReadPerm;
+use specs::register::OwnedWritePerm;
 #[cfg(verus_only)]
-use specs::abd::RegisterRead;
+use specs::register::RegisterRead;
 #[cfg(verus_only)]
-use specs::abd::RegisterWrite;
+use specs::register::RegisterWrite;
 
 use abd::channel::ChannelInv;
 use abd::client::AbdPool;

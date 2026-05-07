@@ -8,8 +8,8 @@ use vstd::prelude::*;
 use verdist::network::channel::Channel;
 use verdist::pool::ConnectionPool;
 
-use specs::abd::RegisterRead;
-use specs::abd::RegisterWrite;
+use specs::register::RegisterRead;
+use specs::register::RegisterWrite;
 
 use abd::invariants::committed_to::ClientCtrToken;
 use abd::invariants::requests::RequestCtrToken;

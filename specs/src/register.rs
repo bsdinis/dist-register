@@ -9,7 +9,7 @@ use vstd::resource::Loc;
 
 verus! {
 
-pub trait AbdError<L, Op> {
+pub trait RegisterError<L, Op> {
     spec fn err_ensures(self, op: Op, lin: L) -> bool;
 }
 
@@ -18,13 +18,13 @@ pub trait AbdError<L, Op> {
 // - Type problem: the linearization queue is parametrized by the linearizer type
 // - Polymorphism is hard
 #[allow(dead_code)]
-pub trait AbdRegisterClient<C, ML, RL> where
+pub trait LinRegisterClient<C, ML, RL> where
     ML: MutLinearizer<RegisterWrite>,
     RL: ReadLinearizer<RegisterRead>,
  {
-    type ReadErr: AbdError<RL, RegisterRead>;
+    type ReadErr: RegisterError<RL, RegisterRead>;
 
-    type WriteErr: AbdError<ML, RegisterWrite>;
+    type WriteErr: RegisterError<ML, RegisterWrite>;
 
     type Timestamp;
 
@@ -33,8 +33,6 @@ pub trait AbdRegisterClient<C, ML, RL> where
     spec fn write_lin_requires(lin: ML) -> bool;
 
     spec fn register_loc(self) -> Loc;
-
-    spec fn client_id(self) -> u64;
 
     spec fn inv(self) -> bool;
 

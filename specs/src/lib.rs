@@ -1,2 +1,2 @@
-pub mod abd;
 pub mod echo;
+pub mod register;

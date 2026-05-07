@@ -15,8 +15,8 @@ use vstd::resource::map::GhostPersistentPointsTo;
 use vstd::resource::map::GhostPointsTo;
 use vstd::resource::Loc;
 
-use specs::abd::RegisterRead;
-use specs::abd::RegisterWrite;
+use specs::register::RegisterRead;
+use specs::register::RegisterWrite;
 
 #[allow(unused_imports)]
 use crate::timestamp::Timestamp;

@@ -48,6 +48,8 @@ use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::rwlock::RwLock;
 use vstd::rwlock::RwLockPredicate;
+#[cfg(verus_only)]
+use vstd::std_specs::iter::IteratorSpec;
 
 pub mod register;
 
@@ -369,28 +371,31 @@ impl<L, C, ML, RL> RegisterServer<L, C, ML, RL> where
             invariant
                 self.connected.pred() == connected_pred,
                 connected_pred.server_id == self.id,
-                idx == it.pos,
-                connected@ == it.elements,
+                idx == it.index,
                 forall|idx|
                     0 <= idx < connected@.len() ==> {
                         let chan = #[trigger] connected@[idx];
+                        &&& it.snapshot@.remaining()[idx] == chan
                         &&& connected_pred.channel_inv == chan.constant()
                         &&& connected_pred.server_id == chan.spec_id().0
                     },
         {
-            match channel.try_recv() {
-                Ok(req) => {
-                    assert(C::K::recv_inv(channel.constant(), channel.spec_id(), req));
-                    let response = self.handle(req, channel.id().1);
-                    assert(C::K::send_inv(channel.constant(), channel.spec_id(), response));
-                    if channel.send(&response).is_err() {
+            if idx < connected.len() {
+                assert(channel == connected@[it.index@]);  // TRIGGER
+                match channel.try_recv() {
+                    Ok(req) => {
+                        assert(C::K::recv_inv(channel.constant(), channel.spec_id(), req));
+                        let response = self.handle(req, channel.id().1);
+                        assert(C::K::send_inv(channel.constant(), channel.spec_id(), response));
+                        if channel.send(&response).is_err() {
+                            drop.insert(channel.id());
+                        }
+                    },
+                    Err(verdist::network::error::TryRecvError::Empty) => {},
+                    Err(verdist::network::error::TryRecvError::Disconnected) => {
                         drop.insert(channel.id());
-                    }
-                },
-                Err(verdist::network::error::TryRecvError::Empty) => {},
-                Err(verdist::network::error::TryRecvError::Disconnected) => {
-                    drop.insert(channel.id());
-                },
+                    },
+                }
             }
             assume(idx < usize::MAX);  // XXX: overflow
             idx += 1;

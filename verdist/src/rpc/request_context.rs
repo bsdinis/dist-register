@@ -145,7 +145,7 @@ impl<'a, Pool, Pred, A> RequestContext<'a, Pool, Pred, A> where
                     channels == self_mut.channels(),
                     self_mut.pool.spec_channels() == channels,
                     self_mut.replies.channels() == channels,
-                    idx == it.pos,
+                    idx == it.index,
                     forall|idx|
                         0 <= idx < resps@.len() ==> {
                             let (id, r) = #[trigger] resps@[idx];

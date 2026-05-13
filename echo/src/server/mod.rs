@@ -193,8 +193,7 @@ impl<L, C> EchoServer<L, C> where
             invariant
                 self.connected.pred() == connected_pred,
                 connected_pred.server_id == self.id,
-                idx == it.pos,
-                connected@ == it.elements,
+                idx == it.index,
                 forall|idx|
                     0 <= idx < connected@.len() ==> {
                         let chan = #[trigger] connected@[idx];
